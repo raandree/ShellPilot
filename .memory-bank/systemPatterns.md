@@ -98,7 +98,8 @@ version from commits and branch (ai/* branches produce a -ai prerelease tag).
 
 ## Patterns to introduce (pending)
 
-- Per-function Pester tests with mocked HTTP; re-enable the TestQuality and
-  helpQuality QA gates (currently excluded in build.yaml).
+- Raise code coverage above the 25% baseline by testing Invoke-Shp and
+  Initialize-Shp (the large, network-bound public functions), then lift the
+  CodeCoverageThreshold in build.yaml.
 - Structured error records instead of throwing strings.
 - Optional secret-store backing for the token (encrypted storage decision).

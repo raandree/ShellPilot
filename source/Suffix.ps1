@@ -5,6 +5,11 @@
 $script:ModelArgumentCompleter = {
     param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
 
+    # The five-parameter signature is mandated by Register-ArgumentCompleter;
+    # only $wordToComplete is used. Discard the rest so PSScriptAnalyzer does
+    # not flag them as unused.
+    $null = $commandName, $parameterName, $commandAst, $fakeBoundParameters
+
     try {
         $names = Get-ShpModelName
     } catch {

@@ -13,6 +13,12 @@ function Invoke-ListDirectoryTool {
     .PARAMETER Path
         Path to the directory to list.
 
+    .EXAMPLE
+        Invoke-ListDirectoryTool -Path ./source
+
+        Lists the entries of the source directory and returns a compact JSON
+        envelope with each child's name, type, and size.
+
     .OUTPUTS
         System.String
 

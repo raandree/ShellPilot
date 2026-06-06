@@ -16,6 +16,12 @@ function Get-ShpInstructionContent {
     .PARAMETER Path
         Path to the Markdown file to read. Mandatory.
 
+    .EXAMPLE
+        Get-ShpInstructionContent -Path ./my.instructions.md
+
+        Reads the instruction file, strips its leading YAML front-matter, and
+        returns the trimmed Markdown body for use in the system prompt.
+
     .OUTPUTS
         System.String
 

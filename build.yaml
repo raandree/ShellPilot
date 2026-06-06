@@ -69,7 +69,7 @@ BuildWorkflow:
     - Pester_Tests_Stop_On_Fail
     # Use this task if pipeline uses code coverage and the module is using the
     # pattern of Public, Private, Enum, Classes.
-    #- Convert_Pester_Coverage
+    - Convert_Pester_Coverage
     - Pester_if_Code_Coverage_Under_Threshold
 
   # Use this task when you have multiple parallel tests, which produce multiple
@@ -100,11 +100,8 @@ Pester:
     - tests/QA/module.tests.ps1
     - tests/Unit
   ExcludeTag:
-    - TestQuality # TODO: re-enable after adding per-function tests and resolving PSScriptAnalyzer (Write-Host) findings
-    - helpQuality # TODO: re-enable after adding .EXAMPLE and full parameter docs to the private helper functions
-  #  - FunctionalQuality
   Tag:
-  CodeCoverageThreshold: 0 # Baseline; raise once unit tests cover the module
+  CodeCoverageThreshold: 20 # Baseline floor; raise as Invoke-Shp and Initialize-Shp gain test coverage
   #CodeCoverageOutputFile: JaCoCo_$OsShortName.xml
   #CodeCoverageOutputFileEncoding: ascii
   # Use this if code coverage should be merged from several pipeline test jobs.

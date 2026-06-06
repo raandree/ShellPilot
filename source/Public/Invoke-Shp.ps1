@@ -193,6 +193,7 @@ function Invoke-Shp {
         Get-ShpModelName
     #>
     [CmdletBinding(DefaultParameterSetName = 'InlinePrompt')]
+    [System.Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingWriteHost', '', Justification = 'The -ShowThinking switch deliberately streams a colour, host-only trace of iterations and tool calls; this is documented behaviour that must not enter the pipeline.')]
     [OutputType([pscustomobject])]
     param(
         [ValidateNotNullOrEmpty()]

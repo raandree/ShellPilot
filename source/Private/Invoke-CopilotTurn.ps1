@@ -13,7 +13,7 @@ function Invoke-CopilotTurn {
         API shape to use: 'chat' or 'responses'.
 
     .PARAMETER Model
-        Model id to request.
+        The Copilot model id to request for this conversation turn.
 
     .PARAMETER ApiBase
         Base API URL from the session token.
@@ -26,6 +26,16 @@ function Invoke-CopilotTurn {
 
     .PARAMETER Tools
         Optional tool definitions to expose to the model.
+
+    .PARAMETER RequestReasoningSummary
+        Ask the /responses endpoint to include a human-readable reasoning
+        summary. Only honoured by reasoning-capable models; ignored otherwise.
+
+    .EXAMPLE
+        Invoke-CopilotTurn -Mode chat -Model claude-opus-4.7 -ApiBase $api -Headers $h -Conversation $messages
+
+        Sends one chat-shaped turn and returns a normalized result object with
+        the reply content, any tool calls, and token usage.
 
     .OUTPUTS
         System.Management.Automation.PSCustomObject

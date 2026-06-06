@@ -4,35 +4,35 @@ Current working focus for ShellPilot. Overwrite this file as the focus shifts.
 
 ## Focus
 
-The module is now built and tested with the Sampler framework. The monolith is
-split into source/Public and source/Private (one function per file) plus
-Prefix.ps1 and Suffix.ps1, and `./build.ps1 -Tasks build` and `-Tasks test`
-both pass. Next is the quality and feature work toward the full-terminal-
-Copilot scope.
+The Sampler build is hardened: both QA gates (TestQuality, helpQuality) are
+enabled, PSScriptAnalyzer is clean, every function is documented and unit
+tested, and code coverage is enforced at a 20% floor (currently 25.4%). Next
+is the full-terminal-Copilot feature work and raising coverage on the two
+large public functions.
 
 ## What exists today
 
 A Sampler-built module. Source under source/ compiles via ModuleBuilder into
-output/module/ShellPilot/<version>/. It imports as ShellPilot and exports
-Initialize-Shp, Get-ShpModel, Get-ShpModelName, and Invoke-Shp. The runtime
-features are unchanged from the proof of concept: device-code auth, model
-listing, chat and responses completion, a tool-calling loop (web and file
-tools), custom instructions, Agent Skills with progressive disclosure, usage
-tracking, and cost estimation. Two helper scripts live in the ,work folder.
+output/module/ShellPilot/<version>/. Exports Initialize-Shp, Get-ShpModel,
+Get-ShpModelName, and Invoke-Shp. Runtime features unchanged from the proof of
+concept: device-code auth, model listing, chat and responses completion, a
+tool-calling loop (web and file tools), custom instructions, Agent Skills with
+progressive disclosure, usage tracking, and cost estimation.
 
 ## Build and test
 
 - First build: `./build.ps1 -ResolveDependency -Tasks build`.
 - Iterate: `./build.ps1 -Tasks build` then `./build.ps1 -Tasks test`.
 - Always run builds detached with log polling (never block the terminal).
-- Current state: green - 8 tasks, 0 errors; 14 tests pass.
+- Current state: green - 17 tasks, 0 errors; 114 tests pass; coverage 25.4%.
+- QA gates TestQuality and helpQuality are enabled in build.yaml.
+- PSScriptAnalyzer is clean across source/ (Write-Host suppressed only where
+  interactive output is intentional, in Initialize-Shp and Invoke-Shp).
 
 ## Next steps
 
-1. Re-enable the TestQuality and helpQuality QA gates (excluded in build.yaml):
-   add per-function Pester tests with mocked HTTP, resolve PSScriptAnalyzer
-   Write-Host findings, and add .EXAMPLE plus full parameter docs to the
-   private helper functions.
+1. Raise code coverage above 25% by testing Invoke-Shp and Initialize-Shp
+   (the large, network-bound public functions), then lift CodeCoverageThreshold.
 2. Expand specs/000-overview.md for the full-terminal-Copilot scope and add
    per-capability specs (interactive Start-ShpChat, streaming, slash commands,
    MCP tools).

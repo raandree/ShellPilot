@@ -11,10 +11,18 @@ function Invoke-FetchUrlTool {
         envelope (url, status, contentType, length, text) or an error envelope.
 
     .PARAMETER Url
-        Absolute URL to fetch.
+        Absolute URL to fetch. Provide the full https:// (or http://) address
+        of the page whose visible text should be retrieved.
 
     .PARAMETER MaxChars
         Optional cap on the returned text length. 0 (default) means no limit.
+
+    .EXAMPLE
+        Invoke-FetchUrlTool -Url 'https://example.com'
+
+        Downloads the page, removes script, style, and markup, and returns a
+        compact JSON envelope with the URL, status, content type, length, and
+        visible text.
 
     .OUTPUTS
         System.String

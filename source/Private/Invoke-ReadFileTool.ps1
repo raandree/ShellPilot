@@ -16,6 +16,12 @@ function Invoke-ReadFileTool {
     .PARAMETER MaxChars
         Optional cap on the returned text length. 0 (default) means no limit.
 
+    .EXAMPLE
+        Invoke-ReadFileTool -Path ./README.md
+
+        Reads README.md as UTF-8 and returns a compact JSON envelope carrying
+        the file path, character length, and full text.
+
     .OUTPUTS
         System.String
 

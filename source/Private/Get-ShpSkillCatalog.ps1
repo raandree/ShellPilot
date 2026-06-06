@@ -18,6 +18,12 @@ function Get-ShpSkillCatalog {
         One or more parent folders to scan. Each is searched one level deep for
         '*/SKILL.md'. Mandatory.
 
+    .EXAMPLE
+        Get-ShpSkillCatalog -Path ./skills
+
+        Discovers every skill under the skills folder and returns one object
+        per skill with its Name, Description, and the path to its SKILL.md.
+
     .OUTPUTS
         System.Management.Automation.PSCustomObject
 

@@ -19,6 +19,13 @@ Chronological record of shipped changes and remaining work. Latest first.
 
 ## Log
 
+- 2026-06-06 - Hardened the test suite and re-enabled the QA gates: added a
+  .EXAMPLE and full parameter help to every private helper, resolved all 22
+  PSScriptAnalyzer findings (Write-Host suppressions, New-DirectoryTool
+  ShouldProcess, completer parameter discard), wrote Pester 5 unit tests for
+  the 9 private helpers and richer tests for Get-ShpModel/Get-ShpModelName,
+  enabled Convert_Pester_Coverage, and set CodeCoverageThreshold to 20.
+  Build green: 17 tasks, 0 errors; 114 tests pass; coverage 25.4%.
 - 2026-06-06 - Migrated to the Sampler build framework: split the monolith into
   source/Public + source/Private (one function per file) plus Prefix.ps1 and
   Suffix.ps1, authored the source manifest (GUID preserved, PS7), moved

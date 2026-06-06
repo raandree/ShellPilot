@@ -51,6 +51,7 @@ function Initialize-Shp {
         Invoke-Shp
     #>
     [CmdletBinding()]
+    [System.Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingWriteHost', '', Justification = 'The device-code sign-in instructions (verification URL and user code) are interactive output that must be visible to the user by default; Write-Verbose or Write-Information would hide them.')]
     [OutputType([System.IO.FileInfo])]
     param(
         [string]$TokenPath = $script:DefaultTokenPath,

@@ -21,6 +21,12 @@ function Invoke-WriteFileTool {
     .PARAMETER Append
         Append to the file instead of overwriting it.
 
+    .EXAMPLE
+        Invoke-WriteFileTool -Path ./out.txt -Content 'hello'
+
+        Writes 'hello' to out.txt as UTF-8 (no BOM) and returns a compact JSON
+        envelope with the full path, byte count, and whether it was created.
+
     .OUTPUTS
         System.String
 
