@@ -30,13 +30,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   model (and optional reasoning effort and max output tokens) applied by
   subsequent Invoke-Shp calls when the matching parameter is not supplied.
   Select-ShpModel accepts a model from the pipeline and supports -Clear.
-- Conversation continuation: `Invoke-Shp -ContinueChat` keeps a running
-  session conversation so follow-up prompts remember earlier turns, and
-  `-History` continues from an explicit history (the result's new History
-  property) for stateless, scriptable multi-turn flows. `Get-ShpChat` and
-  `Clear-ShpChat` view and reset the session conversation. Invoke-Shp records
-  every call's exchange, so `-ContinueChat` is only needed on the calls that
-  should continue - the first question needs no switch.- `Invoke-Shp -Stream` streams the reply token-by-token to the host via
+- Conversation continuation: `Invoke-Shp` now continues from the running
+  session conversation by default, so a follow-up prompt remembers earlier
+  turns automatically (no switch required). `-History` continues from an
+  explicit history (the result's History property) for stateless, scriptable
+  multi-turn flows. `Get-ShpChat` and `Clear-ShpChat` view and reset the
+  session conversation - run `Clear-ShpChat` to start a fresh chat. The
+  unreleased `-ContinueChat` switch was removed: continuation is now implicit.- `Invoke-Shp -Stream` streams the reply token-by-token to the host via
   Server-Sent Events on /chat/completions, and - because the service caps
   non-streaming replies far lower - lifts the output ceiling to the model's
   streaming maximum (for example 64000 tokens for claude-opus-4.8 versus 16000

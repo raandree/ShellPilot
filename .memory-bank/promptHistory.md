@@ -13,3 +13,4 @@ One line per interaction, formatted as: timestamp UTC | agent | intent.
 2026-06-06 19:05 UTC | software-engineer | Q&A: explain MaxContextWindowTokens is read-only model metadata, never sent; no VS Code-style context-window toggle
 2026-06-06 19:14 UTC | software-engineer | Q&A: live caps show opus-4.8 = 1M window / 936k prompt; module does no trimming so already uses full window; non-streaming output capped 16k
 2026-06-06 19:25 UTC | software-engineer | Implement Invoke-Shp -Stream (SSE streaming, chat shape) to unlock the higher output cap; add Read-ShpChatStream + Invoke-ShpStreamRequest helpers and tests
+2026-06-06 19:30 UTC | software-engineer | Make conversation continuation implicit (default); remove unreleased -ContinueChat switch; Clear-ShpChat is the explicit reset

@@ -131,40 +131,44 @@ Describe 'Invoke-Shp' {
             }
         }
 
-        It 'Records every call so a later -ContinueChat can continue (even when the first call had no switch)' {
+        It 'Continues by default: a follow-up call sees the previous turn without any switch' {
             InModuleScope $script:moduleName {
-                # First call WITHOUT -ContinueChat - the user's exact scenario.
+                # First call - the user's exact scenario.
                 $r1 = Invoke-Shp -Prompt 'what is 43 + 43?' -DisableBrowsing -DisableFileAccess
                 $r1.History.Count        | Should -Be 2
                 @($script:ShpChat).Count | Should -Be 2
 
-                # Second call WITH -ContinueChat must see the first turn.
-                $r2 = Invoke-Shp -Prompt 'what was the result?' -DisableBrowsing -DisableFileAccess -ContinueChat
+                # Second call without any switch must still see the first turn.
+                $r2 = Invoke-Shp -Prompt 'what was the result?' -DisableBrowsing -DisableFileAccess
                 @($script:capturedConv).Count | Should -Be 4   # system + u1 + a1 + u2
                 ($script:capturedConv | Where-Object { $_.content -eq 'what is 43 + 43?' }) | Should -Not -BeNullOrEmpty
                 $r2.History.Count | Should -Be 4
             }
         }
 
-        It 'A plain call resets the running chat to its own single exchange' {
+        It 'Clear-ShpChat resets the running chat so the next call starts fresh' {
             InModuleScope $script:moduleName {
                 $script:ShpChat = @(
                     [pscustomobject]@{ role = 'user';      content = 'old' }
                     [pscustomobject]@{ role = 'assistant'; content = 'older' }
                 )
+                Clear-ShpChat
+                @($script:ShpChat).Count | Should -Be 0
+
                 $null = Invoke-Shp -Prompt 'new topic' -DisableBrowsing -DisableFileAccess
-                @($script:ShpChat).Count   | Should -Be 2
-                $script:ShpChat[0].content | Should -Be 'new topic'
+                @($script:capturedConv).Count | Should -Be 2   # system + new user only
+                @($script:ShpChat).Count      | Should -Be 2
+                $script:ShpChat[0].content    | Should -Be 'new topic'
             }
         }
 
-        It 'Persists and replays history across -ContinueChat calls' {
+        It 'Persists and replays history across consecutive calls' {
             InModuleScope $script:moduleName {
-                $r1 = Invoke-Shp -Prompt 'first' -DisableBrowsing -DisableFileAccess -ContinueChat
+                $r1 = Invoke-Shp -Prompt 'first' -DisableBrowsing -DisableFileAccess
                 $r1.History.Count        | Should -Be 2
                 @($script:ShpChat).Count | Should -Be 2
 
-                $r2 = Invoke-Shp -Prompt 'second' -DisableBrowsing -DisableFileAccess -ContinueChat
+                $r2 = Invoke-Shp -Prompt 'second' -DisableBrowsing -DisableFileAccess
                 # The conversation sent on the second call carries the first
                 # exchange: system + user(first) + assistant(answer) + user(second).
                 @($script:capturedConv).Count | Should -Be 4

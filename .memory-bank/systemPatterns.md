@@ -105,12 +105,13 @@ cmdlets and never persisted to disk:
 - $script:ShpChat (the most recent user/assistant turns) - read by Get-ShpChat,
   reset by Clear-ShpChat. Invoke-Shp records every call's constituted
   conversation here (seed + this exchange), EXCEPT explicit -History calls which
-  stay stateless. So a later -ContinueChat continues from the previous call even
-  when that call had no switch. A plain call does not read prior context (so
-  automation loops never cross-contaminate) but does reset $script:ShpChat to
-  its own single exchange. Every result carries the updated History. The system
-  prompt is rebuilt each call (it depends on the per-call tool and instruction
-  flags) and is never stored in the history.
+  stay stateless. Continuation is the default: every call seeds from
+  $script:ShpChat (empty on the first call, populated afterwards), so a
+  follow-up prompt remembers earlier turns without any switch. To start fresh,
+  run Clear-ShpChat. -History bypasses the session entirely (handy for
+  scriptable, stateless multi-turn flows). Every result carries the updated
+  History. The system prompt is rebuilt each call (it depends on the per-call
+  tool and instruction flags) and is never stored in the history.
 
 ### Build pipeline (Sampler)
 

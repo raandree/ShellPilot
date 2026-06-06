@@ -19,6 +19,15 @@ Chronological record of shipped changes and remaining work. Latest first.
 
 ## Log
 
+- 2026-06-06 - Made conversation continuation implicit: Invoke-Shp now seeds
+  every call from the running session chat by default (empty on the first
+  call, populated automatically afterwards) so a follow-up like
+  'what was the result of the last prompt?' just works without any switch.
+  The unreleased -ContinueChat parameter was removed; Clear-ShpChat is the
+  explicit reset. -History keeps its precedence and stays stateless. Updated
+  help on Invoke-Shp / Get-ShpChat / Clear-ShpChat, the spec feature map,
+  systemPatterns, and the glossary; updated the unit tests accordingly.
+  Build green: 16 tasks, 0 errors; 191 tests pass; coverage 58.06%.
 - 2026-06-06 - Added live streaming: Invoke-Shp -Stream streams the reply
   token-by-token to the host over Server-Sent Events on /chat/completions and
   lifts the output cap to the model's streaming maximum (e.g. claude-opus-4.8:

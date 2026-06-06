@@ -110,21 +110,18 @@ function Invoke-Shp {
         result's Content member. -Stream forces /chat/completions and therefore
         takes precedence over -ShowThinking's /responses routing.
 
-    .PARAMETER ContinueChat
-        Continue from the previous Invoke-Shp call: seed this call with the most
-        recent conversation (see Get-ShpChat) so the model remembers earlier
-        turns. Invoke-Shp records every call's exchange automatically, so you
-        only need this switch on the calls that should continue - the first
-        question does not need it. A call WITHOUT this switch (and without
-        -History) starts a new conversation and becomes the new most-recent one.
-        Reset the running conversation any time with Clear-ShpChat.
-
     .PARAMETER History
         An explicit conversation history to continue from, as returned on a
         previous result's History property (an array of objects with role and
         content members). Use this for stateless, scriptable multi-turn flows:
-        when supplied it seeds this call (taking precedence over -ContinueChat)
-        and the call does NOT read or write the module-scoped session chat.
+        when supplied it seeds this call (taking precedence over the
+        module-scoped session chat) and the call does NOT read or write the
+        session chat.
+
+        By default - when -History is not supplied - Invoke-Shp seeds each
+        call from the running session conversation (see Get-ShpChat), so
+        follow-up prompts remember earlier turns automatically. Reset the
+        running conversation with Clear-ShpChat to start a fresh chat.
 
     .PARAMETER ShowThinking
         Stream the model's working to the host with Write-Host as the call
@@ -231,19 +228,20 @@ function Invoke-Shp {
 
     .EXAMPLE
         Invoke-Shp -Prompt 'What is 43 + 43?'
-        Invoke-Shp -Prompt 'What was the result of the last prompt?' -ContinueChat
+        Invoke-Shp -Prompt 'What was the result of the last prompt?'
 
-        Continues a conversation: the second call remembers the first. The first
-        question needs no switch because every call is recorded automatically;
-        -ContinueChat on the follow-up tells it to read that prior context.
-        Reset the running conversation any time with Clear-ShpChat.
+        Continues a conversation: the second call automatically remembers the
+        first because Invoke-Shp records every call into the running session
+        chat and seeds the next call from it. To start over, run Clear-ShpChat.
 
     .EXAMPLE
         $r1 = Invoke-Shp -Prompt 'Pick a number between 1 and 10.'
         $r2 = Invoke-Shp -Prompt 'Now double it.' -History $r1.History
 
         Continues a conversation explicitly, with no hidden state, by passing
-        the prior result's History back in - handy in scripts and pipelines.
+        the prior result's History back in. -History bypasses the session
+        chat entirely - handy in scripts and pipelines where each invocation
+        must be self-contained.
 
     .OUTPUTS
         System.Management.Automation.PSCustomObject
@@ -302,8 +300,6 @@ function Invoke-Shp {
         [ValidateRange(1, [int]::MaxValue)]
         [int]$MaxOutputTokens,
 
-        [switch]$ContinueChat,
-
         [object[]]$History,
 
         [string]$TokenPath     = $script:DefaultTokenPath,
@@ -326,13 +322,15 @@ function Invoke-Shp {
         $MaxOutputTokens = [int]$script:ShpDefaults.MaxOutputTokens
     }
 
-    # Resolve the prior conversation to continue from. An explicit -History wins;
-    # otherwise -ContinueChat seeds from (and later saves back to) the
-    # module-scoped session chat. Neither means a fresh, independent turn.
+    # Resolve the prior conversation to continue from. An explicit -History
+    # wins (and runs stateless: never reads or writes the session chat);
+    # otherwise seed from the module-scoped session chat ($script:ShpChat),
+    # which is empty on the first call and populated automatically afterwards
+    # by every prior Invoke-Shp call. To start a fresh chat, run Clear-ShpChat.
     $priorHistory = @()
     if ($PSBoundParameters.ContainsKey('History') -and $History) {
         $priorHistory = @($History)
-    } elseif ($ContinueChat) {
+    } else {
         $priorHistory = @($script:ShpChat)
     }
 
@@ -679,10 +677,9 @@ function Invoke-Shp {
     }
 
     # Build the updated conversation history (prior turns plus this exchange) and
-    # record it so the NEXT -ContinueChat call can continue from it. Every call
-    # updates the session chat to its own constituted conversation, so you only
-    # need -ContinueChat on the calls that should read the prior context - the
-    # first call is remembered automatically. The explicit -History mode stays
+    # record it so the NEXT call continues from it. Every call updates the
+    # session chat to its own constituted conversation; continuation is the
+    # default. Use Clear-ShpChat to reset. The explicit -History mode stays
     # stateless and never writes to the session.
     $newHistory = @(
         foreach ($h in $priorHistory) { [pscustomobject]@{ role = [string]$h.role; content = [string]$h.content } }
