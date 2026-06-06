@@ -5,9 +5,10 @@ function Clear-ShpChat {
 
     .DESCRIPTION
         Resets the module-scoped conversation history to empty, so the next
-        Invoke-Shp -ContinueChat call starts a fresh conversation instead of
-        continuing the previous one. Affects only the current PowerShell session;
-        nothing is persisted to disk. View the history with Get-ShpChat.
+        Invoke-Shp -ContinueChat call has nothing to continue from and the next
+        plain call starts a fresh conversation. Affects only the current
+        PowerShell session; nothing is persisted to disk. View the history with
+        Get-ShpChat.
 
     .EXAMPLE
         Clear-ShpChat

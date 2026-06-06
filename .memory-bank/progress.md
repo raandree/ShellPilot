@@ -19,6 +19,13 @@ Chronological record of shipped changes and remaining work. Latest first.
 
 ## Log
 
+- 2026-06-06 - Fixed conversation continuation: Invoke-Shp now records every
+  call's exchange to the session chat (not only -ContinueChat calls), so a
+  follow-up with -ContinueChat continues from a first call that had no switch -
+  matching the natural usage. A plain call resets the running chat to its own
+  turn; -History stays stateless. Verified live with the user's exact commands
+  (claude-opus-4.8): turn 1 'what is 43+43?' recorded, turn 2 -ContinueChat
+  answered '86'. Build green: 169 tests, coverage 53.93%.
 - 2026-06-06 - Added conversation continuation: Invoke-Shp -ContinueChat keeps
   a module-scoped running chat (seed from history, save reply back) and -History
   continues from an explicit array; every result now carries a History property.

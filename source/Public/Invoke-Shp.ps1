@@ -98,18 +98,20 @@ function Invoke-Shp {
         non-streaming). Omit it to leave the limit to the service.
 
     .PARAMETER ContinueChat
-        Continue the running session conversation: seed this call with the
-        stored history (see Get-ShpChat) and, afterwards, append this prompt and
-        the model's reply back to it so the next -ContinueChat call remembers
-        the exchange. Reset the history with Clear-ShpChat. Without this switch
-        (and without -History) each call is an independent, fresh conversation.
+        Continue from the previous Invoke-Shp call: seed this call with the most
+        recent conversation (see Get-ShpChat) so the model remembers earlier
+        turns. Invoke-Shp records every call's exchange automatically, so you
+        only need this switch on the calls that should continue - the first
+        question does not need it. A call WITHOUT this switch (and without
+        -History) starts a new conversation and becomes the new most-recent one.
+        Reset the running conversation any time with Clear-ShpChat.
 
     .PARAMETER History
         An explicit conversation history to continue from, as returned on a
         previous result's History property (an array of objects with role and
-        content members). Use this for stateless, scriptable multi-turn flows
-        instead of the module-scoped -ContinueChat session; when supplied it
-        takes precedence over -ContinueChat as the seed for this call.
+        content members). Use this for stateless, scriptable multi-turn flows:
+        when supplied it seeds this call (taking precedence over -ContinueChat)
+        and the call does NOT read or write the module-scoped session chat.
 
     .PARAMETER ShowThinking
         Stream the model's working to the host with Write-Host as the call
@@ -208,12 +210,13 @@ function Invoke-Shp {
         the reply length.
 
     .EXAMPLE
-        Invoke-Shp -Prompt 'What is 43 + 43?' -ContinueChat
+        Invoke-Shp -Prompt 'What is 43 + 43?'
         Invoke-Shp -Prompt 'What was the result of the last prompt?' -ContinueChat
 
-        Continues a conversation: the second call remembers the first because
-        -ContinueChat carries the running session history. Reset it any time
-        with Clear-ShpChat.
+        Continues a conversation: the second call remembers the first. The first
+        question needs no switch because every call is recorded automatically;
+        -ContinueChat on the follow-up tells it to read that prior context.
+        Reset the running conversation any time with Clear-ShpChat.
 
     .EXAMPLE
         $r1 = Invoke-Shp -Prompt 'Pick a number between 1 and 10.'
@@ -650,14 +653,19 @@ function Invoke-Shp {
         }
     }
 
-    # Build the updated conversation history (prior turns plus this exchange) and,
-    # for -ContinueChat, save it back to the module-scoped session chat.
+    # Build the updated conversation history (prior turns plus this exchange) and
+    # record it so the NEXT -ContinueChat call can continue from it. Every call
+    # updates the session chat to its own constituted conversation, so you only
+    # need -ContinueChat on the calls that should read the prior context - the
+    # first call is remembered automatically. The explicit -History mode stays
+    # stateless and never writes to the session.
     $newHistory = @(
         foreach ($h in $priorHistory) { [pscustomobject]@{ role = [string]$h.role; content = [string]$h.content } }
         [pscustomobject]@{ role = 'user';      content = $Prompt }
         [pscustomobject]@{ role = 'assistant'; content = $finalContent }
     )
-    if ($ContinueChat) { $script:ShpChat = $newHistory }
+    if (-not $PSBoundParameters.ContainsKey('History')) { $script:ShpChat = $newHistory }
+    if (-not $PSBoundParameters.ContainsKey('History')) { $script:ShpChat = $newHistory }
 
     [pscustomobject]@{
         Model=$turn.ModelName; RequestedModel=$Model; Prompt=$Prompt

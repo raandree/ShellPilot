@@ -34,7 +34,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   session conversation so follow-up prompts remember earlier turns, and
   `-History` continues from an explicit history (the result's new History
   property) for stateless, scriptable multi-turn flows. `Get-ShpChat` and
-  `Clear-ShpChat` view and reset the session conversation.
+  `Clear-ShpChat` view and reset the session conversation. Invoke-Shp records
+  every call's exchange, so `-ContinueChat` is only needed on the calls that
+  should continue - the first question needs no switch.
 
 ### Changed
 

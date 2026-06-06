@@ -4,11 +4,12 @@ function Get-ShpChat {
         Returns the running session conversation used by Invoke-Shp -ContinueChat.
 
     .DESCRIPTION
-        Reads the module-scoped conversation history that Invoke-Shp accumulates
-        when called with -ContinueChat: one entry per turn, each with a role
-        ('user' or 'assistant') and the message content. The list is empty when
-        no continued conversation has started yet or after Clear-ShpChat. It is
-        scoped to the current PowerShell session and is not persisted to disk.
+        Reads the module-scoped conversation history of the most recent
+        Invoke-Shp exchange: one entry per turn, each with a role ('user' or
+        'assistant') and the message content. Invoke-Shp records every call here
+        (except explicit -History calls), and -ContinueChat seeds the next call
+        from it. The list is empty before the first call or after Clear-ShpChat.
+        It is scoped to the current PowerShell session and is not persisted.
 
     .EXAMPLE
         Get-ShpChat

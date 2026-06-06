@@ -30,8 +30,10 @@ progressive disclosure, usage tracking, and cost estimation.
 
 ## Conversation continuation (done 2026-06-06)
 
-- Invoke-Shp -ContinueChat: seeds from and saves to a module-scoped
-  $script:ShpChat (user/assistant turns); follow-ups remember earlier turns.
+- Invoke-Shp records every call to a module-scoped $script:ShpChat, so a
+  follow-up with -ContinueChat continues from the previous call even when that
+  first call had no switch (the natural usage). A plain call resets the chat to
+  its own turn; -History stays stateless.
 - Invoke-Shp -History <objects>: continue from an explicit history (the result's
   History property) without touching the session - stateless and scriptable.
   Precedence as the seed: -History > -ContinueChat session > none.

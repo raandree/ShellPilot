@@ -31,9 +31,10 @@ $script:ShpDefaults = @{
 }
 
 # Running conversation for Invoke-Shp -ContinueChat. An array of objects with
-# 'role' and 'content', holding the user/assistant turns of the current chat.
-# Read via Get-ShpChat, reset via Clear-ShpChat. Scoped to the module session;
-# not persisted to disk.
+# 'role' and 'content', holding the user/assistant turns of the most recent
+# conversation. Invoke-Shp updates this after every call (except explicit
+# -History calls); -ContinueChat seeds the next call from it. Read via
+# Get-ShpChat, reset via Clear-ShpChat. Session-scoped; not persisted to disk.
 $script:ShpChat = @()
 
 # Usage-based pricing (USD per 1M tokens). Sourced from PriceTable.psd1 next to

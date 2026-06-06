@@ -93,6 +93,25 @@ PriceTable.psd1 maps a model id to per-token rates; cost and credit figures
 are computed from reported usage, with the price key resolved
 case-insensitively.
 
+### Session state (defaults and conversation)
+
+Two module-scoped variables hold per-session state, both set/reset through
+cmdlets and never persisted to disk:
+
+- $script:ShpDefaults (model, reasoning effort, max output tokens) - written by
+  Select-ShpModel, read by Get-ShpDefault. Invoke-Shp resolves each value:
+  explicit parameter wins, then the session default, then the built-in model
+  fallback (claude-opus-4.7).
+- $script:ShpChat (the most recent user/assistant turns) - read by Get-ShpChat,
+  reset by Clear-ShpChat. Invoke-Shp records every call's constituted
+  conversation here (seed + this exchange), EXCEPT explicit -History calls which
+  stay stateless. So a later -ContinueChat continues from the previous call even
+  when that call had no switch. A plain call does not read prior context (so
+  automation loops never cross-contaminate) but does reset $script:ShpChat to
+  its own single exchange. Every result carries the updated History. The system
+  prompt is rebuilt each call (it depends on the per-call tool and instruction
+  flags) and is never stored in the history.
+
 ### Build pipeline (Sampler)
 
 build.ps1 bootstraps dependencies into output/RequiredModules, then InvokeBuild
