@@ -18,5 +18,9 @@ Chronological record of shipped changes and remaining work. Latest first.
 
 ## Log
 
+- 2026-06-06 - Recorded project decisions: full-terminal-Copilot scope,
+  Sampler build, PowerShell 7+ only, encrypted token storage, interactive
+  session, PowerShell Gallery. Rename chosen; new name pending. No code
+  changes.
 - 2026-06-06 - Created the Memory Bank and the initial specs outline;
   catalogued the existing proof of concept. No code changes.

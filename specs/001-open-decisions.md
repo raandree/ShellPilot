@@ -1,8 +1,22 @@
 # Open decisions
 
 Decisions that shape the specs and the build. Each lists options and a
-recommendation. Answers will be folded back into the Memory Bank and the
-relevant specs.
+recommendation. Answers are recorded below and folded back into the Memory
+Bank and the relevant specs.
+
+## Decisions recorded 2026-06-06
+
+| # | Decision | Choice |
+|---|----------|--------|
+| 1 | Scope | Full terminal Copilot (interactive session, streaming, slash commands, MCP) |
+| 2 | Build framework | Sampler |
+| 3 | Naming | Rename - new name pending from owner |
+| 4 | PowerShell support | PowerShell 7+ only |
+| 5 | Authentication | Encrypted storage (SecretManagement / DPAPI) |
+| 6 | Interactivity | Add an interactive chat session |
+| 7 | Distribution | PowerShell Gallery |
+
+The numbered sections below retain the original options for context.
 
 ## 1. Scope of the experience
 
