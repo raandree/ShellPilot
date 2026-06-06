@@ -44,6 +44,8 @@ flowchart TD
 - Get-ShpModelName - cached model ids for tab-completion.
 - Select-ShpModel - sets the session default model, effort, and output cap.
 - Get-ShpDefault - reads the current session defaults.
+- Get-ShpChat - reads the running session conversation.
+- Clear-ShpChat - resets the running session conversation.
 - Invoke-Shp - one prompt, optional tool-calling loop, rich object result.
 
 ## Private helpers

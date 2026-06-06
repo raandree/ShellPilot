@@ -1,6 +1,6 @@
 # ShellPilot.psm1 - GitHub Copilot REST helpers
 # Converted from C:\Git\rai\demo\Invoke\*.ps1 (Init / List / Invoke).
-# Public:   Initialize-Shp, Get-ShpModel, Get-ShpModelName, Select-ShpModel, Get-ShpDefault, Invoke-Shp
+# Public:   Initialize-Shp, Get-ShpModel, Get-ShpModelName, Select-ShpModel, Get-ShpDefault, Get-ShpChat, Clear-ShpChat, Invoke-Shp
 # Private:  Get-ShpSessionToken, Invoke-FetchUrlTool, Invoke-ReadFileTool, Invoke-ListDirectoryTool, Invoke-WriteFileTool, New-DirectoryTool, Invoke-CopilotTurn
 
 $script:DefaultClientId      = 'Iv1.b507a08c87ecfe98'
@@ -29,6 +29,12 @@ $script:ShpDefaults = @{
     ReasoningEffort = $null
     MaxOutputTokens = $null
 }
+
+# Running conversation for Invoke-Shp -ContinueChat. An array of objects with
+# 'role' and 'content', holding the user/assistant turns of the current chat.
+# Read via Get-ShpChat, reset via Clear-ShpChat. Scoped to the module session;
+# not persisted to disk.
+$script:ShpChat = @()
 
 # Usage-based pricing (USD per 1M tokens). Sourced from PriceTable.psd1 next to
 # this module so rates can be updated without touching code. If the file is

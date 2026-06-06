@@ -75,6 +75,8 @@ FunctionsToExport = @(
     'Get-ShpModelName'
     'Select-ShpModel'
     'Get-ShpDefault'
+    'Get-ShpChat'
+    'Clear-ShpChat'
     'Invoke-Shp'
 )
 

@@ -19,6 +19,13 @@ Chronological record of shipped changes and remaining work. Latest first.
 
 ## Log
 
+- 2026-06-06 - Added conversation continuation: Invoke-Shp -ContinueChat keeps
+  a module-scoped running chat (seed from history, save reply back) and -History
+  continues from an explicit array; every result now carries a History property.
+  Added Get-ShpChat and Clear-ShpChat. Build green: 168 tests, coverage 53.93%.
+  Verified live with claude-haiku-4.5: "what is 43+43?" then "what was the result
+  of the last prompt?" correctly answered 86; explicit -History round-trip recalled
+  a remembered word.
 - 2026-06-06 - Added Select-ShpModel and Get-ShpDefault: a session default
   model (plus optional reasoning effort and max output tokens) applied by
   Invoke-Shp when the matching parameter is omitted (explicit wins, then

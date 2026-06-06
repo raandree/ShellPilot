@@ -30,6 +30,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   model (and optional reasoning effort and max output tokens) applied by
   subsequent Invoke-Shp calls when the matching parameter is not supplied.
   Select-ShpModel accepts a model from the pipeline and supports -Clear.
+- Conversation continuation: `Invoke-Shp -ContinueChat` keeps a running
+  session conversation so follow-up prompts remember earlier turns, and
+  `-History` continues from an explicit history (the result's new History
+  property) for stateless, scriptable multi-turn flows. `Get-ShpChat` and
+  `Clear-ShpChat` view and reset the session conversation.
 
 ### Changed
 

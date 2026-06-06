@@ -8,3 +8,4 @@ One line per interaction, formatted as: timestamp UTC | agent | intent.
 2026-06-06 16:29 UTC | software-engineer | Re-enable QA gates: document helpers, fix PSSA, add unit tests, coverage 25.4% (floor 20)
 2026-06-06 17:29 UTC | software-engineer | Implement -ReasoningEffort + -MaxOutputTokens, surface model limits; verified live
 2026-06-06 17:49 UTC | software-engineer | Add Select-ShpModel + Get-ShpDefault (session default model); verified live
+2026-06-06 18:13 UTC | software-engineer | Add conversation continuation (-ContinueChat / -History, Get/Clear-ShpChat); verified live

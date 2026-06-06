@@ -21,6 +21,7 @@ proof of concept, what is partial, and what is still to be decided.
 | Model picker | Get-ShpModel, -Model with completer | Done |
 | Model picker default (sticky) | Select-ShpModel, Get-ShpDefault | Done |
 | Ask / chat | Invoke-Shp | Done |
+| Multi-turn / continue a chat | Invoke-Shp -ContinueChat / -History, Get-ShpChat, Clear-ShpChat | Done |
 | Agent mode (tools) | Invoke-Shp tool-calling loop | Done |
 | Web browsing | fetch_url tool | Done |
 | Read / list files | read_file, list_directory tools | Done |
@@ -40,8 +41,6 @@ proof of concept, what is partial, and what is still to be decided.
 | Prompt files | none | TBD |
 | Interactive session / history | none | TBD |
 | Streaming output | none (non-streaming today) | TBD |
-
-## Capability areas (future specs)
 
 Each area below gets its own spec once scope is settled:
 

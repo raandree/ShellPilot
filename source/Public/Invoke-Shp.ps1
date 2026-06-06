@@ -97,6 +97,20 @@ function Invoke-Shp {
         streaming maximum (for example claude-opus-4.8 allows 16000 tokens
         non-streaming). Omit it to leave the limit to the service.
 
+    .PARAMETER ContinueChat
+        Continue the running session conversation: seed this call with the
+        stored history (see Get-ShpChat) and, afterwards, append this prompt and
+        the model's reply back to it so the next -ContinueChat call remembers
+        the exchange. Reset the history with Clear-ShpChat. Without this switch
+        (and without -History) each call is an independent, fresh conversation.
+
+    .PARAMETER History
+        An explicit conversation history to continue from, as returned on a
+        previous result's History property (an array of objects with role and
+        content members). Use this for stateless, scriptable multi-turn flows
+        instead of the module-scoped -ContinueChat session; when supplied it
+        takes precedence over -ContinueChat as the seed for this call.
+
     .PARAMETER ShowThinking
         Stream the model's working to the host with Write-Host as the call
         progresses: a per-iteration banner, each tool call with its arguments,
@@ -193,6 +207,21 @@ function Invoke-Shp {
         model thinks harder before answering. Pair with -MaxOutputTokens to cap
         the reply length.
 
+    .EXAMPLE
+        Invoke-Shp -Prompt 'What is 43 + 43?' -ContinueChat
+        Invoke-Shp -Prompt 'What was the result of the last prompt?' -ContinueChat
+
+        Continues a conversation: the second call remembers the first because
+        -ContinueChat carries the running session history. Reset it any time
+        with Clear-ShpChat.
+
+    .EXAMPLE
+        $r1 = Invoke-Shp -Prompt 'Pick a number between 1 and 10.'
+        $r2 = Invoke-Shp -Prompt 'Now double it.' -History $r1.History
+
+        Continues a conversation explicitly, with no hidden state, by passing
+        the prior result's History back in - handy in scripts and pipelines.
+
     .OUTPUTS
         System.Management.Automation.PSCustomObject
 
@@ -201,7 +230,8 @@ function Invoke-Shp {
         (InstructionsApplied), the skills offered and the subset the model
         actually loaded (SkillsAvailable / SkillsUsed), the local files the
         model read and wrote (FilesRead / FilesWritten), any reasoning the model
-        exposed (Reasoning), and the raw API payload.
+        exposed (Reasoning), the running conversation history (History), and the
+        raw API payload.
 
     .LINK
         Get-ShpModel
@@ -247,6 +277,10 @@ function Invoke-Shp {
         [ValidateRange(1, [int]::MaxValue)]
         [int]$MaxOutputTokens,
 
+        [switch]$ContinueChat,
+
+        [object[]]$History,
+
         [string]$TokenPath     = $script:DefaultTokenPath,
         [string]$EditorVersion = $script:DefaultEditorVersion,
         [string]$PluginVersion = $script:DefaultPluginVersion,
@@ -265,6 +299,16 @@ function Invoke-Shp {
     }
     if (-not $PSBoundParameters.ContainsKey('MaxOutputTokens') -and $script:ShpDefaults.MaxOutputTokens) {
         $MaxOutputTokens = [int]$script:ShpDefaults.MaxOutputTokens
+    }
+
+    # Resolve the prior conversation to continue from. An explicit -History wins;
+    # otherwise -ContinueChat seeds from (and later saves back to) the
+    # module-scoped session chat. Neither means a fresh, independent turn.
+    $priorHistory = @()
+    if ($PSBoundParameters.ContainsKey('History') -and $History) {
+        $priorHistory = @($History)
+    } elseif ($ContinueChat) {
+        $priorHistory = @($script:ShpChat)
     }
 
     $session = Get-ShpSessionToken -TokenPath $TokenPath -EditorVersion $EditorVersion -UserAgent $UserAgent
@@ -409,8 +453,14 @@ function Invoke-Shp {
     }
 
     $null = $chatMessages.Add(@{ role='system'; content=$systemContent })
-    $null = $chatMessages.Add(@{ role='user';   content=$Prompt })
     $null = $respInput.Add(@{ role='system'; content=$systemContent })
+    # Replay any prior conversation turns (continuation) between the system
+    # message and the new user prompt, in both API shapes.
+    foreach ($h in $priorHistory) {
+        $null = $chatMessages.Add(@{ role=[string]$h.role; content=[string]$h.content })
+        $null = $respInput.Add(@{ role=[string]$h.role; content=[string]$h.content })
+    }
+    $null = $chatMessages.Add(@{ role='user';   content=$Prompt })
     $null = $respInput.Add(@{ role='user';   content=$Prompt })
 
     $respTools = $null
@@ -600,6 +650,15 @@ function Invoke-Shp {
         }
     }
 
+    # Build the updated conversation history (prior turns plus this exchange) and,
+    # for -ContinueChat, save it back to the module-scoped session chat.
+    $newHistory = @(
+        foreach ($h in $priorHistory) { [pscustomobject]@{ role = [string]$h.role; content = [string]$h.content } }
+        [pscustomobject]@{ role = 'user';      content = $Prompt }
+        [pscustomobject]@{ role = 'assistant'; content = $finalContent }
+    )
+    if ($ContinueChat) { $script:ShpChat = $newHistory }
+
     [pscustomobject]@{
         Model=$turn.ModelName; RequestedModel=$Model; Prompt=$Prompt
         Content=$finalContent; FinishReason=$turn.FinishReason
@@ -609,6 +668,7 @@ function Invoke-Shp {
         Iterations=$iteration; ToolCalls=$toolCallsExecuted
         ReasoningEffort=$(if ([string]::IsNullOrWhiteSpace($ReasoningEffort)) { $null } else { $ReasoningEffort })
         MaxOutputTokens=$(if ($MaxOutputTokens -gt 0) { $MaxOutputTokens } else { $null })
+        History=@($newHistory)
         BrowsingEnabled=[bool]$browsingEnabled; FileAccessEnabled=[bool]$fileAccessEnabled
         FilesRead=@($filesRead); FilesWritten=@($filesWritten); ApiMode=$turn.Mode
         InstructionsApplied=@($instructionsApplied)

@@ -98,4 +98,73 @@ Describe 'Invoke-Shp' {
             }
         }
     }
+
+    Context 'Conversation continuation' {
+        BeforeEach {
+            InModuleScope $script:moduleName {
+                $script:ShpChat = @()
+                $script:capturedConv = $null
+                Mock Get-ShpSessionToken { [pscustomobject]@{ token = 't'; expires_at = 0; endpoints = [pscustomobject]@{ api = 'https://api.example' } } }
+                Mock Invoke-CopilotTurn {
+                    $script:capturedConv = @($Conversation)
+                    [pscustomobject]@{
+                        Mode = 'chat'; Content = 'answer'; FinishReason = 'stop'; ToolCalls = @()
+                        AssistantMessage = [pscustomobject]@{ content = 'answer' }; Reasoning = ''
+                        PromptTokens = 1; CompletionTokens = 1; CachedTokens = 0; CacheWriteTokens = 0
+                        ModelName = $Model; CopilotUsage = $null; Raw = @{}; Response = [pscustomobject]@{ Headers = @{} }
+                    }
+                }
+            }
+        }
+
+        AfterEach {
+            InModuleScope $script:moduleName { $script:ShpChat = @() }
+        }
+
+        It 'Always exposes this turn on the result History (user + assistant)' {
+            InModuleScope $script:moduleName {
+                $r = Invoke-Shp -Prompt 'hi' -DisableBrowsing -DisableFileAccess
+                $r.History.Count      | Should -Be 2
+                $r.History[0].role    | Should -Be 'user'
+                $r.History[0].content | Should -Be 'hi'
+                $r.History[1].role    | Should -Be 'assistant'
+            }
+        }
+
+        It 'Does not touch the session chat without -ContinueChat' {
+            InModuleScope $script:moduleName {
+                $null = Invoke-Shp -Prompt 'hi' -DisableBrowsing -DisableFileAccess
+                @($script:ShpChat).Count | Should -Be 0
+            }
+        }
+
+        It 'Persists and replays history across -ContinueChat calls' {
+            InModuleScope $script:moduleName {
+                $r1 = Invoke-Shp -Prompt 'first' -DisableBrowsing -DisableFileAccess -ContinueChat
+                $r1.History.Count        | Should -Be 2
+                @($script:ShpChat).Count | Should -Be 2
+
+                $r2 = Invoke-Shp -Prompt 'second' -DisableBrowsing -DisableFileAccess -ContinueChat
+                # The conversation sent on the second call carries the first
+                # exchange: system + user(first) + assistant(answer) + user(second).
+                @($script:capturedConv).Count | Should -Be 4
+                $r2.History.Count             | Should -Be 4
+                @($script:ShpChat).Count      | Should -Be 4
+            }
+        }
+
+        It 'Seeds from an explicit -History without touching the session' {
+            InModuleScope $script:moduleName {
+                $hist = @(
+                    [pscustomobject]@{ role = 'user';      content = 'earlier q' }
+                    [pscustomobject]@{ role = 'assistant'; content = 'earlier a' }
+                )
+                $r = Invoke-Shp -Prompt 'now' -DisableBrowsing -DisableFileAccess -History $hist
+                # system + 2 prior history + new user = 4 messages sent.
+                @($script:capturedConv).Count | Should -Be 4
+                $r.History.Count              | Should -Be 4
+                @($script:ShpChat).Count      | Should -Be 0
+            }
+        }
+    }
 }

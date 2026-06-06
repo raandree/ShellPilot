@@ -4,48 +4,49 @@ Current working focus for ShellPilot. Overwrite this file as the focus shifts.
 
 ## Focus
 
-Model selection now has a sticky session default: Select-ShpModel sets the
-default model (and optional effort and output cap) for subsequent Invoke-Shp
-calls, Get-ShpDefault reads it. Verified live. Next is the remaining
-full-terminal-Copilot feature work.
+Multi-turn conversations now work: Invoke-Shp -ContinueChat keeps a running
+session chat, -History continues from an explicit history, and every result
+carries a History property. Verified live. Next is the remaining
+full-terminal-Copilot feature work (interactive Start-ShpChat, streaming).
 
 ## What exists today
 
 A Sampler-built module. Source under source/ compiles via ModuleBuilder into
-output/module/ShellPilot/<version>/. Exports Initialize-Shp, Get-ShpModel,
-Get-ShpModelName, Select-ShpModel, Get-ShpDefault, and Invoke-Shp. Features:
-device-code auth, model listing (with capability limits), a session default
-model, chat and responses completion, reasoning-effort and max-output-token
-control, a tool-calling loop (web and file tools), custom instructions, Agent
-Skills with progressive disclosure, usage tracking, and cost estimation.
+output/module/ShellPilot/<version>/. Exports: Initialize-Shp, Get-ShpModel,
+Get-ShpModelName, Select-ShpModel, Get-ShpDefault, Get-ShpChat, Clear-ShpChat,
+Invoke-Shp. Features: device-code auth, model listing (with capability limits),
+a session default model, multi-turn conversation continuation, chat and
+responses completion, reasoning-effort and max-output-token control, a
+tool-calling loop (web and file tools), custom instructions, Agent Skills with
+progressive disclosure, usage tracking, and cost estimation.
 
 ## Build and test
 
 - First build: `./build.ps1 -ResolveDependency -Tasks build`.
 - Iterate: `./build.ps1 -Tasks build` then `./build.ps1 -Tasks test`.
 - Always run builds detached with log polling (never block the terminal).
-- Current state: green - 17 tasks, 0 errors; 146 tests pass; coverage 52.23%.
+- Current state: green - 17 tasks, 0 errors; 168 tests pass; coverage 53.93%.
 - QA gates TestQuality and helpQuality are enabled; PSScriptAnalyzer is clean.
 
-## Model configuration and defaults (done 2026-06-06)
+## Conversation continuation (done 2026-06-06)
 
-- Invoke-Shp -ReasoningEffort {minimal|low|medium|high|xhigh|max} and
-  -MaxOutputTokens, mapped per API shape in Invoke-CopilotTurn.
-- Get-ShpModel surfaces MaxContextWindowTokens (the 1M window), MaxOutputTokens,
-  ReasoningEfforts.
-- Select-ShpModel sets a session default model/effort/output-cap; Get-ShpDefault
-  reads it; Select-ShpModel -Clear resets it. Resolution order in Invoke-Shp:
-  explicit parameter > session default > built-in fallback (claude-opus-4.7).
-- Stored in module-scoped $script:ShpDefaults; not persisted to disk.
+- Invoke-Shp -ContinueChat: seeds from and saves to a module-scoped
+  $script:ShpChat (user/assistant turns); follow-ups remember earlier turns.
+- Invoke-Shp -History <objects>: continue from an explicit history (the result's
+  History property) without touching the session - stateless and scriptable.
+  Precedence as the seed: -History > -ContinueChat session > none.
+- Every result now carries a History property (prior turns + this exchange).
+- Get-ShpChat reads the session chat; Clear-ShpChat resets it.
+- The system prompt is rebuilt each call and is never stored in history.
 
 ## Next steps
 
-1. Expand specs/000-overview.md for the full-terminal-Copilot scope and add
-   per-capability specs (interactive Start-ShpChat, streaming, slash commands,
-   MCP tools).
-2. Rework token storage to encrypted (SecretManagement / DPAPI) and rename the
+1. Build interactive Start-ShpChat (REPL) on top of -ContinueChat.
+2. Expand specs/000-overview.md for the full-terminal-Copilot scope and add
+   per-capability specs (streaming, slash commands, MCP tools).
+3. Rework token storage to encrypted (SecretManagement / DPAPI) and rename the
    .copilot-demo-token default path.
-3. Consider persisting session defaults across sessions (config file) if wanted.
+4. Optionally persist session defaults and/or chat across sessions.
 
 ## Decisions made (2026-06-06)
 
