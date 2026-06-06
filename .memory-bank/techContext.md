@@ -52,8 +52,9 @@ ShellPilot talks to the same HTTP services as the Copilot Chat extension.
 - Runtime: none beyond PowerShell itself.
 - Data: PriceTable.psd1 (USD per 1M tokens) drives cost estimates and is
   editable without code changes.
-- Build and test tooling: not yet chosen (Sampler is the likely candidate;
-  see open decisions).
+- Build and test tooling: Sampler build framework (ModuleBuilder, InvokeBuild,
+  Pester 5, GitVersion, PSScriptAnalyzer), bootstrapped by build.ps1 into
+  output/RequiredModules. ModuleBuilder pulls in Configuration and Metadata.
 
 ## Constraints and risks
 

@@ -19,3 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Renamed the module from Ghcp to ShellPilot and the cmdlet noun prefix to
   Shp (Initialize-Shp, Get-ShpModel, Invoke-Shp, Get-ShpModelName).
 - Renamed the GitHub repository to raandree/ShellPilot.
+- Migrated to the Sampler build framework: source split into
+  source/Public and source/Private (one function per file) with Prefix.ps1
+  and Suffix.ps1, ModuleBuilder compilation, Pester 5 tests, GitVersion
+  versioning, and an Azure Pipelines definition (PowerShell 7 only).

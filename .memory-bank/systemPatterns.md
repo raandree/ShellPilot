@@ -5,8 +5,22 @@ file when a new pattern is adopted or an old one is retired.
 
 ## Current architecture
 
-A single script module (ShellPilot/ShellPilot.psm1) with a manifest (ShellPilot/ShellPilot.psd1) and
-a data file (ShellPilot/PriceTable.psd1).
+A Sampler-built script module. Source lives under source/ (one function per
+file) and is compiled by ModuleBuilder into a single versioned module under
+output/ at build time.
+
+```text
+source/
+  Public/    Initialize-Shp, Get-ShpModel, Get-ShpModelName, Invoke-Shp
+  Private/   9 helper functions (session token, tool back-ends, loaders)
+  Prefix.ps1 module-scope $script: defaults + price-table load
+  Suffix.ps1 Register-ArgumentCompleter for Invoke-Shp -Model
+  PriceTable.psd1 (copied into the built module via CopyPaths)
+  ShellPilot.psd1 / ShellPilot.psm1 (empty; ModuleBuilder fills it)
+```
+
+ModuleBuilder concatenates Prefix + Private + Public + Suffix into the built
+.psm1; the runtime call graph is unchanged:
 
 ```mermaid
 flowchart TD
@@ -70,14 +84,21 @@ PriceTable.psd1 maps a model id to per-token rates; cost and credit figures
 are computed from reported usage, with the price key resolved
 case-insensitively.
 
-### Tab-completion
+### Build pipeline (Sampler)
 
-Register-ArgumentCompleter on Invoke-Shp -Model, backed by a module-scoped
-cache that falls back to the price table offline.
+build.ps1 bootstraps dependencies into output/RequiredModules, then InvokeBuild
+runs the workflow from build.yaml: Clean, Build_Module_ModuleBuilder,
+Create_changelog_release_output, then Pester. GitVersion derives the module
+version from commits and branch (ai/* branches produce a -ai prerelease tag).
 
-## Patterns to introduce (pending decisions)
+## Patterns adopted
 
-- Split the monolithic .psm1 into a one-function-per-file source layout.
-- Pester 5 unit tests with mocked HTTP.
+- One-function-per-file source layout under source/ (done).
+- Sampler build with ModuleBuilder, Pester 5, GitVersion (done).
+
+## Patterns to introduce (pending)
+
+- Per-function Pester tests with mocked HTTP; re-enable the TestQuality and
+  helpQuality QA gates (currently excluded in build.yaml).
 - Structured error records instead of throwing strings.
-- Optional secret-store backing for the token.
+- Optional secret-store backing for the token (encrypted storage decision).
