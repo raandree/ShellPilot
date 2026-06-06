@@ -19,6 +19,7 @@ proof of concept, what is partial, and what is still to be decided.
 |------------------------|-------------------|--------|
 | GitHub sign-in | Initialize-Shp (device-code flow) | Done |
 | Model picker | Get-ShpModel, -Model with completer | Done |
+| Model picker default (sticky) | Select-ShpModel, Get-ShpDefault | Done |
 | Ask / chat | Invoke-Shp | Done |
 | Agent mode (tools) | Invoke-Shp tool-calling loop | Done |
 | Web browsing | fetch_url tool | Done |

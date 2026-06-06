@@ -26,3 +26,4 @@ $script:ModelArgumentCompleter = {
 }
 
 Register-ArgumentCompleter -CommandName Invoke-Shp -ParameterName Model -ScriptBlock $script:ModelArgumentCompleter
+Register-ArgumentCompleter -CommandName Select-ShpModel -ParameterName Model -ScriptBlock $script:ModelArgumentCompleter

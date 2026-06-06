@@ -40,8 +40,10 @@ flowchart TD
 ## Public surface
 
 - Initialize-Shp - device-code OAuth, caches the token.
-- Get-ShpModel - lists models per endpoint.
+- Get-ShpModel - lists models per endpoint, with capability limits.
 - Get-ShpModelName - cached model ids for tab-completion.
+- Select-ShpModel - sets the session default model, effort, and output cap.
+- Get-ShpDefault - reads the current session defaults.
 - Invoke-Shp - one prompt, optional tool-calling loop, rich object result.
 
 ## Private helpers

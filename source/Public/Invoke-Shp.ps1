@@ -17,8 +17,10 @@ function Invoke-Shp {
         The -Model parameter supports tab-completion backed by Get-ShpModelName.
 
     .PARAMETER Model
-        Model id to use. Default: claude-opus-4.7. Tab-completion offers the
-        ids returned by Get-ShpModelName (with a price-table fallback offline).
+        Model id to use. If omitted, the session default set by Select-ShpModel
+        is used, falling back to claude-opus-4.7 when no default is set.
+        Tab-completion offers the ids returned by Get-ShpModelName (with a
+        price-table fallback offline).
 
     .PARAMETER Prompt
         The user prompt to send. Mandatory.
@@ -212,7 +214,7 @@ function Invoke-Shp {
     [OutputType([pscustomobject])]
     param(
         [ValidateNotNullOrEmpty()]
-        [string]$Model = 'claude-opus-4.7',
+        [string]$Model,
 
         [Parameter(Mandatory)]
         [ValidateNotNullOrEmpty()]
@@ -251,6 +253,19 @@ function Invoke-Shp {
         [string]$UserAgent     = $script:DefaultUserAgent,
         [string]$IntegrationId = $script:DefaultIntegrationId
     )
+
+    # Resolve the model and the optional model knobs from the session defaults
+    # (Select-ShpModel) when not supplied explicitly. An explicit parameter on
+    # this call always wins; the built-in model fallback is the last resort.
+    if (-not $PSBoundParameters.ContainsKey('Model')) {
+        $Model = if (-not [string]::IsNullOrWhiteSpace($script:ShpDefaults.Model)) { $script:ShpDefaults.Model } else { 'claude-opus-4.7' }
+    }
+    if (-not $PSBoundParameters.ContainsKey('ReasoningEffort') -and -not [string]::IsNullOrWhiteSpace($script:ShpDefaults.ReasoningEffort)) {
+        $ReasoningEffort = $script:ShpDefaults.ReasoningEffort
+    }
+    if (-not $PSBoundParameters.ContainsKey('MaxOutputTokens') -and $script:ShpDefaults.MaxOutputTokens) {
+        $MaxOutputTokens = [int]$script:ShpDefaults.MaxOutputTokens
+    }
 
     $session = Get-ShpSessionToken -TokenPath $TokenPath -EditorVersion $EditorVersion -UserAgent $UserAgent
     Write-Verbose ("Session token valid until {0}" -f [DateTimeOffset]::FromUnixTimeSeconds($session.expires_at).LocalDateTime)

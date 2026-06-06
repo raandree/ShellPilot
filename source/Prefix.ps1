@@ -1,6 +1,6 @@
 # ShellPilot.psm1 - GitHub Copilot REST helpers
 # Converted from C:\Git\rai\demo\Invoke\*.ps1 (Init / List / Invoke).
-# Public:   Initialize-Shp, Get-ShpModel, Invoke-Shp
+# Public:   Initialize-Shp, Get-ShpModel, Get-ShpModelName, Select-ShpModel, Get-ShpDefault, Invoke-Shp
 # Private:  Get-ShpSessionToken, Invoke-FetchUrlTool, Invoke-ReadFileTool, Invoke-ListDirectoryTool, Invoke-WriteFileTool, New-DirectoryTool, Invoke-CopilotTurn
 
 $script:DefaultClientId      = 'Iv1.b507a08c87ecfe98'
@@ -19,6 +19,16 @@ $script:EndpointMap = @{
 # Cache of model ids used by the -Model argument completer. Populated lazily
 # from Get-ShpModel on first tab-completion and reused for the module session.
 $script:ModelNameCache = $null
+
+# Session defaults applied by Invoke-Shp when the matching parameter is not
+# supplied explicitly. Set via Select-ShpModel, read via Get-ShpDefault, and
+# reset via Select-ShpModel -Clear. Scoped to the module (the current
+# PowerShell session); not persisted to disk.
+$script:ShpDefaults = @{
+    Model           = $null
+    ReasoningEffort = $null
+    MaxOutputTokens = $null
+}
 
 # Usage-based pricing (USD per 1M tokens). Sourced from PriceTable.psd1 next to
 # this module so rates can be updated without touching code. If the file is

@@ -21,3 +21,4 @@ propose a new row instead of inventing a synonym.
 | Credits | The cost expressed in Copilot premium-request units (USD cost / 0.01). | points, tokens |
 | Reasoning effort | The model thinking-depth level (low..max) sent as reasoning_effort. | thinking level, effort budget |
 | Context window | A model's maximum input capacity (for example 1M tokens); a capability, not a per-request setting. | context size, token window |
+| Session default | The sticky model/effort/output-cap set by Select-ShpModel and applied by Invoke-Shp. | global default, preference |

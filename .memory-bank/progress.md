@@ -19,6 +19,13 @@ Chronological record of shipped changes and remaining work. Latest first.
 
 ## Log
 
+- 2026-06-06 - Added Select-ShpModel and Get-ShpDefault: a session default
+  model (plus optional reasoning effort and max output tokens) applied by
+  Invoke-Shp when the matching parameter is omitted (explicit wins, then
+  default, then the built-in fallback). Stored in a module-scoped hashtable;
+  Select-ShpModel takes pipeline input and -Clear. Build green: 146 tests,
+  coverage 52.23%. Verified live: default model used, explicit model overrides,
+  Clear resets.
 - 2026-06-06 - Added model configuration to match the VS Code model picker:
   Invoke-Shp -ReasoningEffort (low..max) and -MaxOutputTokens, mapped per API
   shape in Invoke-CopilotTurn (reasoning_effort/max_tokens on chat,

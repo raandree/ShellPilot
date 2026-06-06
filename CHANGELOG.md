@@ -26,6 +26,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `Get-ShpModel` now surfaces each model's MaxContextWindowTokens (for example
   the 1M context window), MaxOutputTokens, and supported ReasoningEfforts from
   the advertised capability metadata.
+- `Select-ShpModel` and `Get-ShpDefault` to set and read a session default
+  model (and optional reasoning effort and max output tokens) applied by
+  subsequent Invoke-Shp calls when the matching parameter is not supplied.
+  Select-ShpModel accepts a model from the pipeline and supports -Clear.
 
 ### Changed
 
