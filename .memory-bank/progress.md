@@ -19,6 +19,14 @@ Chronological record of shipped changes and remaining work. Latest first.
 
 ## Log
 
+- 2026-06-06 - Added live streaming: Invoke-Shp -Stream streams the reply
+  token-by-token to the host over Server-Sent Events on /chat/completions and
+  lifts the output cap to the model's streaming maximum (e.g. claude-opus-4.8:
+  64000 vs 16000 non-streaming). Two new private helpers: Invoke-ShpStreamRequest
+  (HttpClient SSE, ResponseHeadersRead) and Read-ShpChatStream (reassembles
+  token/tool-call/usage deltas). -Stream forces chat and takes precedence over
+  -ShowThinking's responses routing. Added unit tests for both helpers plus
+  streaming tests on Invoke-CopilotTurn and Invoke-Shp.
 - 2026-06-06 - Fixed conversation continuation: Invoke-Shp now records every
   call's exchange to the session chat (not only -ContinueChat calls), so a
   follow-up with -ContinueChat continues from a first call that had no switch -

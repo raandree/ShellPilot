@@ -93,4 +93,38 @@ Describe 'Invoke-CopilotTurn' {
             $script:capturedBody | Should -Not -Match 'max_tokens'
         }
     }
+
+    It 'Streams a chat turn through Invoke-ShpStreamRequest and normalizes it' {
+        InModuleScope $script:moduleName {
+            $script:capturedBody = $null
+            Mock Invoke-ShpStreamRequest {
+                $script:capturedBody = $Body
+                $sse = @(
+                    'data: {"model":"stream-model","choices":[{"delta":{"content":"Hi"}}]}'
+                    'data: {"choices":[{"delta":{"content":" there"},"finish_reason":"stop"}]}'
+                    'data: {"choices":[],"usage":{"prompt_tokens":4,"completion_tokens":2}}'
+                    'data: [DONE]'
+                ) -join "`n"
+                [pscustomobject]@{
+                    Reader   = [System.IO.StringReader]::new($sse)
+                    Response = [pscustomobject]@{ Headers = @() }
+                    Client   = $null
+                }
+            }
+
+            $turn = Invoke-CopilotTurn -Mode 'chat' -Model 'm' -ApiBase 'https://api.example' -Headers @{} -Conversation @(@{ role = 'user'; content = 'hi' }) -Stream -MaxOutputTokens 64000
+            $turn.Content          | Should -Be 'Hi there'
+            $turn.FinishReason     | Should -Be 'stop'
+            $turn.PromptTokens     | Should -Be 4
+            $turn.CompletionTokens | Should -Be 2
+            $turn.ModelName        | Should -Be 'stream-model'
+
+            $body = $script:capturedBody | ConvertFrom-Json
+            $body.stream                       | Should -BeTrue
+            $body.stream_options.include_usage | Should -BeTrue
+            $body.max_tokens                   | Should -Be 64000
+
+            Should -Invoke Invoke-ShpStreamRequest -Times 1 -Exactly
+        }
+    }
 }

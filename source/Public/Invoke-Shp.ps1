@@ -93,9 +93,22 @@ function Invoke-Shp {
         side; the context window itself is a fixed model capability - see
         Get-ShpModel's MaxContextWindowTokens). Sent as max_tokens on
         /chat/completions and max_output_tokens on /responses. Note that in the
-        non-streaming mode used here some models cap output well below their
-        streaming maximum (for example claude-opus-4.8 allows 16000 tokens
-        non-streaming). Omit it to leave the limit to the service.
+        non-streaming mode used by default some models cap output well below
+        their streaming maximum (for example claude-opus-4.8 allows 16000 tokens
+        non-streaming but 64000 when streamed) - add -Stream to lift the cap.
+        Omit it to leave the limit to the service.
+
+    .PARAMETER Stream
+        Stream the reply token-by-token. The turn is sent to /chat/completions
+        with stream=true and the tokens are written to the host as they arrive,
+        giving the live "typing" experience. Streaming also raises the output
+        ceiling: in the default non-streaming mode some models cap the reply far
+        below their true maximum (claude-opus-4.8 allows only 16000 output tokens
+        non-streaming but 64000 when streamed), so combine -Stream with a higher
+        -MaxOutputTokens for long replies. The streamed text is host-only and
+        never enters the pipeline; the full reply is still returned on the
+        result's Content member. -Stream forces /chat/completions and therefore
+        takes precedence over -ShowThinking's /responses routing.
 
     .PARAMETER ContinueChat
         Continue from the previous Invoke-Shp call: seed this call with the most
@@ -210,6 +223,13 @@ function Invoke-Shp {
         the reply length.
 
     .EXAMPLE
+        Invoke-Shp -Model claude-opus-4.8 -Prompt 'Write a 2000-word essay on PowerShell.' -Stream -MaxOutputTokens 64000
+
+        Streams the reply live to the host and lifts the output ceiling to the
+        model's streaming maximum (64000 tokens) instead of the 16000-token
+        non-streaming cap.
+
+    .EXAMPLE
         Invoke-Shp -Prompt 'What is 43 + 43?'
         Invoke-Shp -Prompt 'What was the result of the last prompt?' -ContinueChat
 
@@ -270,6 +290,8 @@ function Invoke-Shp {
         [switch]$DisableFileAccess,
 
         [switch]$ShowThinking,
+
+        [switch]$Stream,
 
         [ValidateRange(1, [int]::MaxValue)]
         [int]$MaxToolIterations = 6,
@@ -490,8 +512,10 @@ function Invoke-Shp {
     $consecutiveEmptyNudges = 0
     # Claude/OpenAI only expose a reasoning trace via /responses, so start there
     # when the caller wants to see thinking; otherwise start on /chat/completions.
-    $mode = if ($ShowThinking) { 'responses' } else { 'chat' }
-    $requestReasoning = [bool]$ShowThinking
+    # -Stream forces /chat/completions (that is where streaming is implemented
+    # and where the higher output cap lives), taking precedence over -ShowThinking.
+    $mode = if ($Stream) { 'chat' } elseif ($ShowThinking) { 'responses' } else { 'chat' }
+    $requestReasoning = [bool]$ShowThinking -and ($mode -eq 'responses')
 
     while ($true) {
         $iteration++
@@ -500,9 +524,10 @@ function Invoke-Shp {
         try {
             $conv = if ($mode -eq 'responses') { $respInput } else { $chatMessages }
             $tls  = if ($mode -eq 'responses') { $respTools } else { $tools }
-            $turn = Invoke-CopilotTurn -Mode $mode -Model $Model -ApiBase $apiBase -Headers $apiHeaders -Conversation $conv -Tools $tls -RequestReasoningSummary:($mode -eq 'responses' -and $requestReasoning) -ReasoningEffort $ReasoningEffort -MaxOutputTokens $MaxOutputTokens
+            $turn = Invoke-CopilotTurn -Mode $mode -Model $Model -ApiBase $apiBase -Headers $apiHeaders -Conversation $conv -Tools $tls -RequestReasoningSummary:($mode -eq 'responses' -and $requestReasoning) -ReasoningEffort $ReasoningEffort -MaxOutputTokens $MaxOutputTokens -Stream:($Stream -and $mode -eq 'chat')
         } catch {
             $errText = $_.ErrorDetails.Message
+            if ([string]::IsNullOrWhiteSpace($errText)) { $errText = $_.Exception.Message }
             # The model does not support /responses at all - fall back to chat
             # (this also covers -ShowThinking forcing responses on a chat-only
             # model such as claude-opus-4.8).
@@ -664,7 +689,6 @@ function Invoke-Shp {
         [pscustomobject]@{ role = 'user';      content = $Prompt }
         [pscustomobject]@{ role = 'assistant'; content = $finalContent }
     )
-    if (-not $PSBoundParameters.ContainsKey('History')) { $script:ShpChat = $newHistory }
     if (-not $PSBoundParameters.ContainsKey('History')) { $script:ShpChat = $newHistory }
 
     [pscustomobject]@{

@@ -4,10 +4,12 @@ Current working focus for ShellPilot. Overwrite this file as the focus shifts.
 
 ## Focus
 
-Multi-turn conversations now work: Invoke-Shp -ContinueChat keeps a running
-session chat, -History continues from an explicit history, and every result
-carries a History property. Verified live. Next is the remaining
-full-terminal-Copilot feature work (interactive Start-ShpChat, streaming).
+Streaming now works: Invoke-Shp -Stream streams the reply token-by-token to the
+host over Server-Sent Events on /chat/completions and lifts the output cap to
+the model's streaming maximum (e.g. claude-opus-4.8: 64000 vs 16000
+non-streaming). Implemented via two private helpers (Invoke-ShpStreamRequest +
+Read-ShpChatStream). Next is interactive Start-ShpChat (REPL) on top of -Stream
+and -ContinueChat, then responses-shape streaming.
 
 ## What exists today
 
@@ -16,9 +18,10 @@ output/module/ShellPilot/<version>/. Exports: Initialize-Shp, Get-ShpModel,
 Get-ShpModelName, Select-ShpModel, Get-ShpDefault, Get-ShpChat, Clear-ShpChat,
 Invoke-Shp. Features: device-code auth, model listing (with capability limits),
 a session default model, multi-turn conversation continuation, chat and
-responses completion, reasoning-effort and max-output-token control, a
-tool-calling loop (web and file tools), custom instructions, Agent Skills with
-progressive disclosure, usage tracking, and cost estimation.
+responses completion, reasoning-effort and max-output-token control, live
+token streaming (-Stream, chat shape), a tool-calling loop (web and file
+tools), custom instructions, Agent Skills with progressive disclosure, usage
+tracking, and cost estimation.
 
 ## Build and test
 
@@ -43,9 +46,10 @@ progressive disclosure, usage tracking, and cost estimation.
 
 ## Next steps
 
-1. Build interactive Start-ShpChat (REPL) on top of -ContinueChat.
-2. Expand specs/000-overview.md for the full-terminal-Copilot scope and add
-   per-capability specs (streaming, slash commands, MCP tools).
+1. Build interactive Start-ShpChat (REPL) on top of -Stream and -ContinueChat.
+2. Add streaming for the /responses shape (currently chat-only; -Stream forces
+   chat). Expand specs/000-overview.md for the full-terminal-Copilot scope and
+   add per-capability specs (slash commands, MCP tools).
 3. Rework token storage to encrypted (SecretManagement / DPAPI) and rename the
    .copilot-demo-token default path.
 4. Optionally persist session defaults and/or chat across sessions.

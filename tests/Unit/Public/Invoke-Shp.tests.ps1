@@ -187,4 +187,54 @@ Describe 'Invoke-Shp' {
             }
         }
     }
+
+    Context 'Streaming' {
+        BeforeEach {
+            InModuleScope $script:moduleName {
+                $script:ShpChat = @()
+                $script:capturedStream = $null
+                $script:capturedMode   = $null
+                Mock Get-ShpSessionToken { [pscustomobject]@{ token = 't'; expires_at = 0; endpoints = [pscustomobject]@{ api = 'https://api.example' } } }
+                Mock Invoke-CopilotTurn {
+                    $script:capturedStream = [bool]$Stream
+                    $script:capturedMode   = $Mode
+                    [pscustomobject]@{
+                        Mode = 'chat'; Content = 'streamed'; FinishReason = 'stop'; ToolCalls = @()
+                        AssistantMessage = [pscustomobject]@{ content = 'streamed' }; Reasoning = ''
+                        PromptTokens = 1; CompletionTokens = 1; CachedTokens = 0; CacheWriteTokens = 0
+                        ModelName = $Model; CopilotUsage = $null; Raw = @{}; Response = [pscustomobject]@{ Headers = @{} }
+                    }
+                }
+            }
+        }
+
+        AfterEach {
+            InModuleScope $script:moduleName { $script:ShpChat = @() }
+        }
+
+        It 'Forces chat mode and passes -Stream through to Invoke-CopilotTurn' {
+            InModuleScope $script:moduleName {
+                $r = Invoke-Shp -Prompt 'hi' -Stream -DisableBrowsing -DisableFileAccess
+                $r.Content             | Should -Be 'streamed'
+                $script:capturedStream | Should -BeTrue
+                $script:capturedMode   | Should -Be 'chat'
+                Should -Invoke Invoke-CopilotTurn -Times 1 -Exactly -ParameterFilter { $Stream -and $Mode -eq 'chat' }
+            }
+        }
+
+        It 'Keeps chat mode (and streaming) even when -ShowThinking is also set' {
+            InModuleScope $script:moduleName {
+                $null = Invoke-Shp -Prompt 'hi' -Stream -ShowThinking -DisableBrowsing -DisableFileAccess
+                $script:capturedMode   | Should -Be 'chat'
+                $script:capturedStream | Should -BeTrue
+            }
+        }
+
+        It 'Does not stream by default' {
+            InModuleScope $script:moduleName {
+                $null = Invoke-Shp -Prompt 'hi' -DisableBrowsing -DisableFileAccess
+                $script:capturedStream | Should -BeFalse
+            }
+        }
+    }
 }

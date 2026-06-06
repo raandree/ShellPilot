@@ -31,6 +31,14 @@ function Invoke-CopilotTurn {
         Ask the /responses endpoint to include a human-readable reasoning
         summary. Only honoured by reasoning-capable models; ignored otherwise.
 
+    .PARAMETER Stream
+        Use Server-Sent Events streaming for a chat turn: send stream=true,
+        consume the response incrementally, and reassemble the token, tool-call
+        and usage deltas into the normal turn object. Streaming also lifts the
+        service's non-streaming output cap (for example claude-opus-4.8 allows
+        64000 output tokens streamed versus 16000 not). Honoured only for the
+        chat shape; ignored for responses.
+
     .PARAMETER ReasoningEffort
         Reasoning effort level to request (for example low, medium, high,
         xhigh, max). Sent as the top-level reasoning_effort field on
@@ -64,6 +72,7 @@ function Invoke-CopilotTurn {
         [object]$Conversation,
         [object]$Tools,
         [switch]$RequestReasoningSummary,
+        [switch]$Stream,
         [string]$ReasoningEffort,
         [int]$MaxOutputTokens
     )
@@ -109,13 +118,37 @@ function Invoke-CopilotTurn {
         }
     }
 
-    $payload = @{ model=$Model; messages=@($Conversation); stream=$false }
+    $payload = @{ model=$Model; messages=@($Conversation); stream=[bool]$Stream }
     if ($Tools) { $payload.tools=@($Tools); $payload.tool_choice='auto' }
     # Reasoning effort is a top-level string on the chat/completions shape; the
     # max reply length is max_tokens. The API validates the effort value per
     # model and rejects unsupported values with a clear error.
     if (-not [string]::IsNullOrWhiteSpace($ReasoningEffort)) { $payload.reasoning_effort = $ReasoningEffort }
     if ($MaxOutputTokens -gt 0) { $payload.max_tokens = $MaxOutputTokens }
+
+    # Streaming path: ask for usage in the final SSE frame, open the response
+    # with HttpClient (Invoke-WebRequest buffers and would defeat streaming),
+    # and reassemble the deltas. Streaming also lifts the service's much lower
+    # non-streaming output cap, which is the point of offering it here.
+    if ($Stream) {
+        $payload.stream_options = @{ include_usage = $true }
+        $body = $payload | ConvertTo-Json -Depth 10
+        $req = Invoke-ShpStreamRequest -Uri "$ApiBase/chat/completions" -Headers $Headers -Body $body
+        try {
+            $turn = Read-ShpChatStream -Reader $req.Reader -Echo:$Stream
+            $respHeaders = @{}
+            if ($req.Response -and $req.Response.Headers) {
+                foreach ($h in $req.Response.Headers) { $respHeaders[[string]$h.Key] = (@($h.Value) -join ', ') }
+            }
+            $turn.Response = [pscustomobject]@{ Headers = $respHeaders }
+            return $turn
+        } finally {
+            if ($req.Reader   -is [System.IDisposable]) { $req.Reader.Dispose() }
+            if ($req.Response -is [System.IDisposable]) { $req.Response.Dispose() }
+            if ($req.Client   -is [System.IDisposable]) { $req.Client.Dispose() }
+        }
+    }
+
     $body = $payload | ConvertTo-Json -Depth 10
     $response = Invoke-WebRequest -Method Post -Uri "$ApiBase/chat/completions" -SkipHeaderValidation -Headers $Headers -Body $body
     $parsed = $response.Content | ConvertFrom-Json

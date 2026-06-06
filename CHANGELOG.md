@@ -36,8 +36,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   property) for stateless, scriptable multi-turn flows. `Get-ShpChat` and
   `Clear-ShpChat` view and reset the session conversation. Invoke-Shp records
   every call's exchange, so `-ContinueChat` is only needed on the calls that
-  should continue - the first question needs no switch.
-
+  should continue - the first question needs no switch.- `Invoke-Shp -Stream` streams the reply token-by-token to the host via
+  Server-Sent Events on /chat/completions, and - because the service caps
+  non-streaming replies far lower - lifts the output ceiling to the model's
+  streaming maximum (for example 64000 tokens for claude-opus-4.8 versus 16000
+  non-streaming). Combine with `-MaxOutputTokens` for long replies; the full
+  reply is still returned on the result's Content member. -Stream forces
+  /chat/completions and takes precedence over -ShowThinking's /responses
+  routing. Implemented with two new private helpers (Invoke-ShpStreamRequest
+  opens the HttpClient SSE response, Read-ShpChatStream reassembles the
+  token/tool-call/usage deltas).
 ### Changed
 
 - Renamed the module from Ghcp to ShellPilot and the cmdlet noun prefix to
