@@ -60,6 +60,11 @@ responses API shapes behind one normalised result object (content, tool
 calls, usage, reasoning, raw). Invoke-Shp starts on chat and falls back to
 responses (or the reverse for reasoning) based on error signatures.
 
+Per-shape request fields are mapped in one place: reasoning effort is
+reasoning_effort (chat) vs reasoning.effort (responses), and the output cap is
+max_tokens (chat) vs max_output_tokens (responses). The service validates the
+effort value per model and returns a clear error for unsupported values.
+
 ### Tool-calling loop
 
 Each tool is declared as a JSON schema, dispatched by name in a switch, and

@@ -31,6 +31,18 @@ function Invoke-CopilotTurn {
         Ask the /responses endpoint to include a human-readable reasoning
         summary. Only honoured by reasoning-capable models; ignored otherwise.
 
+    .PARAMETER ReasoningEffort
+        Reasoning effort level to request (for example low, medium, high,
+        xhigh, max). Sent as the top-level reasoning_effort field on
+        /chat/completions and as reasoning.effort on /responses. The set of
+        accepted values depends on the model; the API rejects unsupported
+        values with a clear error.
+
+    .PARAMETER MaxOutputTokens
+        Maximum number of tokens to generate in the reply. Sent as max_tokens
+        on /chat/completions and as max_output_tokens on /responses. 0 (the
+        default) leaves the limit to the service.
+
     .EXAMPLE
         Invoke-CopilotTurn -Mode chat -Model claude-opus-4.7 -ApiBase $api -Headers $h -Conversation $messages
 
@@ -51,14 +63,21 @@ function Invoke-CopilotTurn {
         [hashtable]$Headers,
         [object]$Conversation,
         [object]$Tools,
-        [switch]$RequestReasoningSummary
+        [switch]$RequestReasoningSummary,
+        [string]$ReasoningEffort,
+        [int]$MaxOutputTokens
     )
     if ($Mode -eq 'responses') {
         $payload = @{ model=$Model; input=@($Conversation); stream=$false }
         if ($Tools) { $payload.tools=@($Tools); $payload.tool_choice='auto' }
-        # Ask the endpoint to return a human-readable reasoning summary. Only
-        # reasoning-capable models honour this; see the caller's graceful retry.
-        if ($RequestReasoningSummary) { $payload.reasoning = @{ summary = 'auto' } }
+        # Build the reasoning object from the summary request and/or the
+        # requested effort. Only reasoning-capable models honour these; see the
+        # caller's graceful retry.
+        $reasoningObj = @{}
+        if ($RequestReasoningSummary) { $reasoningObj.summary = 'auto' }
+        if (-not [string]::IsNullOrWhiteSpace($ReasoningEffort)) { $reasoningObj.effort = $ReasoningEffort }
+        if ($reasoningObj.Count -gt 0) { $payload.reasoning = $reasoningObj }
+        if ($MaxOutputTokens -gt 0) { $payload.max_output_tokens = $MaxOutputTokens }
         $body = $payload | ConvertTo-Json -Depth 12
         $response = Invoke-WebRequest -Method Post -Uri "$ApiBase/responses" -SkipHeaderValidation -Headers $Headers -Body $body
         $parsed = $response.Content | ConvertFrom-Json
@@ -92,6 +111,11 @@ function Invoke-CopilotTurn {
 
     $payload = @{ model=$Model; messages=@($Conversation); stream=$false }
     if ($Tools) { $payload.tools=@($Tools); $payload.tool_choice='auto' }
+    # Reasoning effort is a top-level string on the chat/completions shape; the
+    # max reply length is max_tokens. The API validates the effort value per
+    # model and rejects unsupported values with a clear error.
+    if (-not [string]::IsNullOrWhiteSpace($ReasoningEffort)) { $payload.reasoning_effort = $ReasoningEffort }
+    if ($MaxOutputTokens -gt 0) { $payload.max_tokens = $MaxOutputTokens }
     $body = $payload | ConvertTo-Json -Depth 10
     $response = Invoke-WebRequest -Method Post -Uri "$ApiBase/chat/completions" -SkipHeaderValidation -Headers $Headers -Body $body
     $parsed = $response.Content | ConvertFrom-Json

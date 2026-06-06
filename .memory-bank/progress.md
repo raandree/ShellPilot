@@ -19,6 +19,13 @@ Chronological record of shipped changes and remaining work. Latest first.
 
 ## Log
 
+- 2026-06-06 - Added model configuration to match the VS Code model picker:
+  Invoke-Shp -ReasoningEffort (low..max) and -MaxOutputTokens, mapped per API
+  shape in Invoke-CopilotTurn (reasoning_effort/max_tokens on chat,
+  reasoning.effort/max_output_tokens on responses); Get-ShpModel now surfaces
+  MaxContextWindowTokens, MaxOutputTokens, and ReasoningEfforts. Verified live
+  against claude-opus-4.8 (effort low=353 vs high=474 completion tokens proves
+  it engages thinking). Build green: 120 tests, coverage 30.97%.
 - 2026-06-06 - Hardened the test suite and re-enabled the QA gates: added a
   .EXAMPLE and full parameter help to every private helper, resolved all 22
   PSScriptAnalyzer findings (Write-Host suppressions, New-DirectoryTool

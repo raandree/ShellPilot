@@ -42,7 +42,10 @@ function Get-ShpModel {
     .OUTPUTS
         System.Management.Automation.PSCustomObject
 
-        One object per model with Endpoint, Id, ServiceType, and Raw members.
+        One object per model with Endpoint, Id, ServiceType, MaxContextWindowTokens,
+        MaxOutputTokens, ReasoningEfforts, and Raw members. The capability
+        fields are populated from the model's advertised metadata when present
+        (and are $null for endpoints that do not return it).
 
     .LINK
         Get-ShpModelName
@@ -84,11 +87,15 @@ function Get-ShpModel {
             $j = $r.Content | ConvertFrom-Json
             $items = if ($j.data) { $j.data } elseif ($j.models) { $j.models } else { @() }
             foreach ($m in $items) {
+                $caps = $m.capabilities
                 [pscustomobject]@{
-                    Endpoint    = $base
-                    Id          = if ($m.id) { $m.id } else { $m.name }
-                    ServiceType = $m.serviceType
-                    Raw         = $m
+                    Endpoint                = $base
+                    Id                      = if ($m.id) { $m.id } else { $m.name }
+                    ServiceType             = $m.serviceType
+                    MaxContextWindowTokens  = $caps.limits.max_context_window_tokens
+                    MaxOutputTokens         = $caps.limits.max_output_tokens
+                    ReasoningEfforts        = $caps.supports.reasoning_effort
+                    Raw                     = $m
                 }
             }
         } catch {

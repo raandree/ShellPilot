@@ -77,6 +77,24 @@ function Invoke-Shp {
         billable API round-trip - so raise it for long agentic runs, but be
         mindful of cost and time.
 
+    .PARAMETER ReasoningEffort
+        Reasoning (thinking) effort for the model, mirroring the effort control
+        in the VS Code Copilot model picker. Accepted values are minimal, low,
+        medium, high, xhigh and max, but the set a given model supports varies -
+        the API rejects an unsupported value with a clear error listing what the
+        model allows. Sent as the reasoning_effort field on /chat/completions
+        and as reasoning.effort on /responses. Omit it to use the model default.
+        Use Get-ShpModel to see a model's ReasoningEfforts.
+
+    .PARAMETER MaxOutputTokens
+        Maximum number of tokens the model may generate in its reply (the output
+        side; the context window itself is a fixed model capability - see
+        Get-ShpModel's MaxContextWindowTokens). Sent as max_tokens on
+        /chat/completions and max_output_tokens on /responses. Note that in the
+        non-streaming mode used here some models cap output well below their
+        streaming maximum (for example claude-opus-4.8 allows 16000 tokens
+        non-streaming). Omit it to leave the limit to the service.
+
     .PARAMETER ShowThinking
         Stream the model's working to the host with Write-Host as the call
         progresses: a per-iteration banner, each tool call with its arguments,
@@ -167,14 +185,11 @@ function Invoke-Shp {
         SKILL.md body of whichever skill is relevant (progressive disclosure).
 
     .EXAMPLE
-        $r = Invoke-Shp -Model claude-opus-4.8 -Prompt $p -ShowThinking -MaxToolIterations 30
+        Invoke-Shp -Model claude-opus-4.8 -Prompt 'Prove there are infinitely many primes.' -ReasoningEffort max
 
-        Streams the model's working to the host with Write-Host: a per-iteration
-        banner, every tool call, and any reasoning summary the model exposes.
-        To obtain a reasoning trace from Claude/OpenAI models, -ShowThinking
-        routes the call through the /responses endpoint and asks for a reasoning
-        summary; the full text is also kept on $r.Reasoning. Models that do not
-        emit reasoning still show the iteration/tool trace.
+        Requests maximum reasoning effort (the model picker's "Max") so the
+        model thinks harder before answering. Pair with -MaxOutputTokens to cap
+        the reply length.
 
     .OUTPUTS
         System.Management.Automation.PSCustomObject
@@ -223,6 +238,12 @@ function Invoke-Shp {
 
         [ValidateRange(1, [int]::MaxValue)]
         [int]$MaxToolIterations = 6,
+
+        [ValidateSet('minimal', 'low', 'medium', 'high', 'xhigh', 'max')]
+        [string]$ReasoningEffort,
+
+        [ValidateRange(1, [int]::MaxValue)]
+        [int]$MaxOutputTokens,
 
         [string]$TokenPath     = $script:DefaultTokenPath,
         [string]$EditorVersion = $script:DefaultEditorVersion,
@@ -411,7 +432,7 @@ function Invoke-Shp {
         try {
             $conv = if ($mode -eq 'responses') { $respInput } else { $chatMessages }
             $tls  = if ($mode -eq 'responses') { $respTools } else { $tools }
-            $turn = Invoke-CopilotTurn -Mode $mode -Model $Model -ApiBase $apiBase -Headers $apiHeaders -Conversation $conv -Tools $tls -RequestReasoningSummary:($mode -eq 'responses' -and $requestReasoning)
+            $turn = Invoke-CopilotTurn -Mode $mode -Model $Model -ApiBase $apiBase -Headers $apiHeaders -Conversation $conv -Tools $tls -RequestReasoningSummary:($mode -eq 'responses' -and $requestReasoning) -ReasoningEffort $ReasoningEffort -MaxOutputTokens $MaxOutputTokens
         } catch {
             $errText = $_.ErrorDetails.Message
             # The model does not support /responses at all - fall back to chat
@@ -571,6 +592,8 @@ function Invoke-Shp {
         Usage = [pscustomobject]@{ PromptTokens=$totalPrompt; CompletionTokens=$totalCompletion; TotalTokens=$totalPrompt+$totalCompletion }
         Credits=$credits; CostUSD=$costUSD; CostBreakdown=$breakdown
         Iterations=$iteration; ToolCalls=$toolCallsExecuted
+        ReasoningEffort=$(if ([string]::IsNullOrWhiteSpace($ReasoningEffort)) { $null } else { $ReasoningEffort })
+        MaxOutputTokens=$(if ($MaxOutputTokens -gt 0) { $MaxOutputTokens } else { $null })
         BrowsingEnabled=[bool]$browsingEnabled; FileAccessEnabled=[bool]$fileAccessEnabled
         FilesRead=@($filesRead); FilesWritten=@($filesWritten); ApiMode=$turn.Mode
         InstructionsApplied=@($instructionsApplied)

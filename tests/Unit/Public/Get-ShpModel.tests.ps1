@@ -50,4 +50,31 @@ Describe 'Get-ShpModel' {
             { Get-ShpModel -Endpoint Default -WarningAction SilentlyContinue } | Should -Not -Throw
         }
     }
+
+    It 'Surfaces the advertised capability limits' {
+        InModuleScope $script:moduleName {
+            Mock Get-ShpSessionToken {
+                [pscustomobject]@{ token = 't'; endpoints = [pscustomobject]@{ api = 'https://sess.example' } }
+            }
+            Mock Invoke-WebRequest {
+                $body = @{
+                    data = @(
+                        @{
+                            id           = 'claude-opus-4.8'
+                            capabilities = @{
+                                limits   = @{ max_context_window_tokens = 1000000; max_output_tokens = 64000 }
+                                supports = @{ reasoning_effort = @('low', 'medium', 'high', 'xhigh', 'max') }
+                            }
+                        }
+                    )
+                } | ConvertTo-Json -Depth 8
+                [pscustomobject]@{ Content = $body }
+            }
+
+            $model = Get-ShpModel -Endpoint Default
+            $model.MaxContextWindowTokens | Should -Be 1000000
+            $model.MaxOutputTokens        | Should -Be 64000
+            $model.ReasoningEfforts       | Should -Contain 'max'
+        }
+    }
 }

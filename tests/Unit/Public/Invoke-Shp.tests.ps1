@@ -21,4 +21,16 @@ Describe 'Invoke-Shp' {
     It 'Should expose a -Model parameter' {
         (Get-Command -Name 'Invoke-Shp').Parameters.Keys | Should -Contain 'Model'
     }
+
+    It 'Should validate -ReasoningEffort against the known effort levels' {
+        $validateSet = (Get-Command -Name 'Invoke-Shp').Parameters['ReasoningEffort'].Attributes |
+            Where-Object { $_ -is [System.Management.Automation.ValidateSetAttribute] }
+
+        $validateSet.ValidValues | Should -Contain 'max'
+        $validateSet.ValidValues | Should -Contain 'medium'
+    }
+
+    It 'Should expose an integer -MaxOutputTokens parameter' {
+        (Get-Command -Name 'Invoke-Shp').Parameters['MaxOutputTokens'].ParameterType | Should -Be ([int])
+    }
 }

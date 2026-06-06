@@ -16,6 +16,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Pester 5 unit tests for all four public functions and all nine private
   helpers (InModuleScope with TestDrive fixtures and mocked HTTP), bringing
   code coverage to a 25% baseline enforced by the build.
+- `Invoke-Shp -ReasoningEffort` (minimal, low, medium, high, xhigh, max) to
+  control model thinking depth, mirroring the effort control in the VS Code
+  Copilot model picker. Mapped to reasoning_effort on /chat/completions and
+  reasoning.effort on /responses.
+- `Invoke-Shp -MaxOutputTokens` to cap the reply length (max_tokens on
+  /chat/completions, max_output_tokens on /responses), surfaced together with
+  the requested effort on the result object.
+- `Get-ShpModel` now surfaces each model's MaxContextWindowTokens (for example
+  the 1M context window), MaxOutputTokens, and supported ReasoningEfforts from
+  the advertised capability metadata.
 
 ### Changed
 

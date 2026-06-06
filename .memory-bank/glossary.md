@@ -19,3 +19,5 @@ propose a new row instead of inventing a synonym.
 | Instruction file | A Markdown file whose body is injected into the system prompt. | rules file, config file |
 | Price table | PriceTable.psd1, mapping a model id to its per-token rates. | rate card, pricing config |
 | Credits | The cost expressed in Copilot premium-request units (USD cost / 0.01). | points, tokens |
+| Reasoning effort | The model thinking-depth level (low..max) sent as reasoning_effort. | thinking level, effort budget |
+| Context window | A model's maximum input capacity (for example 1M tokens); a capability, not a per-request setting. | context size, token window |

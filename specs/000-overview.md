@@ -27,7 +27,10 @@ proof of concept, what is partial, and what is still to be decided.
 | Custom instructions | -InstructionPath, -SystemPromptPath | Done |
 | Agent Skills | -SkillPath plus load_skill tool | Done |
 | Token usage view | Usage, CostUSD, Credits on the result | Done |
-| Reasoning / thinking | -ShowThinking, Reasoning property | Partial |
+| Reasoning effort (model picker) | Invoke-Shp -ReasoningEffort | Done |
+| Model options (context window, limits) | Get-ShpModel MaxContextWindowTokens / MaxOutputTokens / ReasoningEfforts | Done |
+| Max output tokens | Invoke-Shp -MaxOutputTokens | Done |
+| Reasoning / thinking trace | -ShowThinking, Reasoning property | Partial |
 | Inline completions | none | Out |
 | Slash commands | none | TBD |
 | Chat participants (@) | none | TBD |

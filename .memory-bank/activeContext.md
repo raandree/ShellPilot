@@ -4,35 +4,46 @@ Current working focus for ShellPilot. Overwrite this file as the focus shifts.
 
 ## Focus
 
-The Sampler build is hardened: both QA gates (TestQuality, helpQuality) are
-enabled, PSScriptAnalyzer is clean, every function is documented and unit
-tested, and code coverage is enforced at a 20% floor (currently 25.4%). Next
-is the full-terminal-Copilot feature work and raising coverage on the two
-large public functions.
+Model configuration parity with the VS Code Copilot model picker is done:
+Invoke-Shp now accepts -ReasoningEffort and -MaxOutputTokens, and Get-ShpModel
+surfaces each model's context window and capability limits. Verified live.
+Next is the remaining full-terminal-Copilot feature work.
 
 ## What exists today
 
 A Sampler-built module. Source under source/ compiles via ModuleBuilder into
 output/module/ShellPilot/<version>/. Exports Initialize-Shp, Get-ShpModel,
-Get-ShpModelName, and Invoke-Shp. Runtime features unchanged from the proof of
-concept: device-code auth, model listing, chat and responses completion, a
-tool-calling loop (web and file tools), custom instructions, Agent Skills with
-progressive disclosure, usage tracking, and cost estimation.
+Get-ShpModelName, and Invoke-Shp. Features: device-code auth, model listing
+(with capability limits), chat and responses completion, reasoning-effort and
+max-output-token control, a tool-calling loop (web and file tools), custom
+instructions, Agent Skills with progressive disclosure, usage tracking, and
+cost estimation.
 
 ## Build and test
 
 - First build: `./build.ps1 -ResolveDependency -Tasks build`.
 - Iterate: `./build.ps1 -Tasks build` then `./build.ps1 -Tasks test`.
 - Always run builds detached with log polling (never block the terminal).
-- Current state: green - 17 tasks, 0 errors; 114 tests pass; coverage 25.4%.
-- QA gates TestQuality and helpQuality are enabled in build.yaml.
-- PSScriptAnalyzer is clean across source/ (Write-Host suppressed only where
-  interactive output is intentional, in Initialize-Shp and Invoke-Shp).
+- Current state: green - 17 tasks, 0 errors; 120 tests pass; coverage 30.97%.
+- QA gates TestQuality and helpQuality are enabled; PSScriptAnalyzer is clean.
+
+## Model configuration (done 2026-06-06)
+
+- Invoke-Shp -ReasoningEffort {minimal|low|medium|high|xhigh|max} -> the model
+  picker's effort control. reasoning_effort (chat) / reasoning.effort
+  (responses). The API validates per model; the ValidateSet is the union.
+- Invoke-Shp -MaxOutputTokens N -> max_tokens (chat) / max_output_tokens
+  (responses). Note non-streaming output caps (claude-opus-4.8 = 16000).
+- Get-ShpModel -> MaxContextWindowTokens (the 1M context window),
+  MaxOutputTokens, ReasoningEfforts, from the advertised capability metadata.
+- The context window is a model capability, not a per-request field; ShellPilot
+  already uses the full window since it does not truncate input.
+- Verified live against claude-opus-4.8: effort low=353 vs high=474 completion
+  tokens on a reasoning puzzle.
 
 ## Next steps
 
-1. Raise code coverage above 25% by testing Invoke-Shp and Initialize-Shp
-   (the large, network-bound public functions), then lift CodeCoverageThreshold.
+1. Raise coverage further by testing Invoke-Shp and Initialize-Shp end paths.
 2. Expand specs/000-overview.md for the full-terminal-Copilot scope and add
    per-capability specs (interactive Start-ShpChat, streaming, slash commands,
    MCP tools).
