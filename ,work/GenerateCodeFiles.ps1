@@ -1,4 +1,4 @@
-Import-Module -Name .\Ghcp\Ghcp.psd1 -Force
+Import-Module -Name .\ShellPilot\ShellPilot.psd1 -Force
 
 $root = git rev-parse --show-toplevel
 $outoutPath = Join-Path -Path $root -ChildPath output
@@ -83,7 +83,7 @@ for ($i = 1; $i -le $iterations; $i++) {
         $errorMessage = $null
         $result = $null
         try {
-            $result = Invoke-Ghcp -Model $model -Prompt $formattedPrompt
+            $result = Invoke-Shp -Model $model -Prompt $formattedPrompt
         }
         catch {
             $errorMessage = $_.Exception.Message

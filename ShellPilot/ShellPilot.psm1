@@ -1,7 +1,7 @@
-# Ghcp.psm1 - GitHub Copilot REST helpers
+# ShellPilot.psm1 - GitHub Copilot REST helpers
 # Converted from C:\Git\rai\demo\Invoke\*.ps1 (Init / List / Invoke).
-# Public:   Initialize-Ghcp, Get-GhcpModel, Invoke-Ghcp
-# Private:  Get-GhcpSessionToken, Invoke-FetchUrlTool, Invoke-ReadFileTool, Invoke-ListDirectoryTool, Invoke-WriteFileTool, New-DirectoryTool, Invoke-CopilotTurn
+# Public:   Initialize-Shp, Get-ShpModel, Invoke-Shp
+# Private:  Get-ShpSessionToken, Invoke-FetchUrlTool, Invoke-ReadFileTool, Invoke-ListDirectoryTool, Invoke-WriteFileTool, New-DirectoryTool, Invoke-CopilotTurn
 
 $script:DefaultClientId      = 'Iv1.b507a08c87ecfe98'
 $script:DefaultUserAgent     = 'GithubCopilot/1.155.0'
@@ -17,7 +17,7 @@ $script:EndpointMap = @{
 }
 
 # Cache of model ids used by the -Model argument completer. Populated lazily
-# from Get-GhcpModel on first tab-completion and reused for the module session.
+# from Get-ShpModel on first tab-completion and reused for the module session.
 $script:ModelNameCache = $null
 
 # Usage-based pricing (USD per 1M tokens). Sourced from PriceTable.psd1 next to
@@ -32,7 +32,7 @@ try {
     $script:PriceTable = @{}
 }
 
-function Initialize-Ghcp {
+function Initialize-Shp {
     <#
     .SYNOPSIS
         Performs the GitHub OAuth device-code flow and caches the access token.
@@ -43,7 +43,7 @@ function Initialize-Ghcp {
         and user code, opens the browser, copies the code to the clipboard,
         polls GitHub until the user authorizes (or the code expires), and
         writes the resulting OAuth token to -TokenPath for later reuse by
-        Get-GhcpModel and Invoke-Ghcp.
+        Get-ShpModel and Invoke-Shp.
 
     .PARAMETER TokenPath
         File path for the cached token.
@@ -59,13 +59,13 @@ function Initialize-Ghcp {
         Re-authenticate even if a token file already exists at -TokenPath.
 
     .EXAMPLE
-        Initialize-Ghcp
+        Initialize-Shp
 
         Authenticates interactively (if no cached token exists) and writes the
         token to the default path.
 
     .EXAMPLE
-        Initialize-Ghcp -Force
+        Initialize-Shp -Force
 
         Forces a fresh device-code login even when a cached token is present.
 
@@ -79,10 +79,10 @@ function Initialize-Ghcp {
         production use; the token is stored unencrypted on disk.
 
     .LINK
-        Get-GhcpModel
+        Get-ShpModel
 
     .LINK
-        Invoke-Ghcp
+        Invoke-Shp
     #>
     [CmdletBinding()]
     [OutputType([System.IO.FileInfo])]
@@ -155,7 +155,7 @@ function Initialize-Ghcp {
         switch ($resp.error) {
             'authorization_pending' { Write-Host '.' -NoNewline }
             'slow_down'             { $interval += 5; Write-Host '.' -NoNewline }
-            'expired_token'         { throw 'Device code expired. Re-run Initialize-Ghcp.' }
+            'expired_token'         { throw 'Device code expired. Re-run Initialize-Shp.' }
             'access_denied'         { throw 'Authorization denied by user.' }
             default                 { throw "OAuth error: $($resp.error) - $($resp.error_description)" }
         }
@@ -168,15 +168,15 @@ function Initialize-Ghcp {
     Get-Item -LiteralPath $TokenPath
 }
 
-function Get-GhcpSessionToken {
+function Get-ShpSessionToken {
     <#
     .SYNOPSIS
         Exchanges the cached GitHub OAuth token for a short-lived Copilot session token.
 
     .DESCRIPTION
-        Reads the OAuth token written by Initialize-Ghcp and calls the Copilot
+        Reads the OAuth token written by Initialize-Shp and calls the Copilot
         internal token endpoint to obtain a session token plus the per-account
-        API endpoints. Private helper used by Get-GhcpModel and Invoke-Ghcp.
+        API endpoints. Private helper used by Get-ShpModel and Invoke-Shp.
 
     .PARAMETER TokenPath
         Path to the cached OAuth token file.
@@ -200,7 +200,7 @@ function Get-GhcpSessionToken {
         [string]$UserAgent     = $script:DefaultUserAgent
     )
     if (-not (Test-Path -LiteralPath $TokenPath)) {
-        throw "Token file not found: $TokenPath. Run Initialize-Ghcp first."
+        throw "Token file not found: $TokenPath. Run Initialize-Shp first."
     }
     $ghToken = (Get-Content -LiteralPath $TokenPath -Raw).Trim()
     try {
@@ -214,7 +214,7 @@ function Get-GhcpSessionToken {
     }
 }
 
-function Get-GhcpModel {
+function Get-ShpModel {
     <#
     .SYNOPSIS
         Lists Copilot models available at one or more API endpoints.
@@ -246,12 +246,12 @@ function Get-GhcpModel {
         Copilot-Integration-Id header value sent with the request.
 
     .EXAMPLE
-        Get-GhcpModel
+        Get-ShpModel
 
         Lists the models available at the Enterprise endpoint.
 
     .EXAMPLE
-        Get-GhcpModel -Endpoint All | Sort-Object Id
+        Get-ShpModel -Endpoint All | Sort-Object Id
 
         Lists models across every known endpoint, sorted by id.
 
@@ -261,10 +261,10 @@ function Get-GhcpModel {
         One object per model with Endpoint, Id, ServiceType, and Raw members.
 
     .LINK
-        Get-GhcpModelName
+        Get-ShpModelName
 
     .LINK
-        Invoke-Ghcp
+        Invoke-Shp
     #>
     [CmdletBinding()]
     [OutputType([pscustomobject])]
@@ -278,7 +278,7 @@ function Get-GhcpModel {
         [string]$IntegrationId = $script:DefaultIntegrationId
     )
 
-    $session = Get-GhcpSessionToken -TokenPath $TokenPath -EditorVersion $EditorVersion -UserAgent $UserAgent
+    $session = Get-ShpSessionToken -TokenPath $TokenPath -EditorVersion $EditorVersion -UserAgent $UserAgent
 
     $headers = @{
         Authorization            = "Bearer $($session.token)"
@@ -313,29 +313,29 @@ function Get-GhcpModel {
     }
 }
 
-function Get-GhcpModelName {
+function Get-ShpModelName {
     <#
     .SYNOPSIS
         Returns cached Copilot model ids for the -Model argument completer.
     .DESCRIPTION
-        On first call (or with -Refresh) the list is fetched via Get-GhcpModel
+        On first call (or with -Refresh) the list is fetched via Get-ShpModel
         and stored in the module-scoped $script:ModelNameCache. Subsequent
         calls return the cached values without a network round-trip. Used by
-        the Invoke-Ghcp -Model tab-completer; can also be called directly to
+        the Invoke-Shp -Model tab-completer; can also be called directly to
         pre-warm or refresh the cache.
     .PARAMETER Endpoint
-        Endpoint passed to Get-GhcpModel when the cache is (re)built.
+        Endpoint passed to Get-ShpModel when the cache is (re)built.
         Default: Enterprise.
     .PARAMETER Refresh
         Force a re-fetch even if the cache is already populated.
 
     .EXAMPLE
-        Get-GhcpModelName
+        Get-ShpModelName
 
         Returns the cached model ids, fetching them once on first use.
 
     .EXAMPLE
-        Get-GhcpModelName -Refresh
+        Get-ShpModelName -Refresh
 
         Re-fetches the model list and refreshes the cache.
 
@@ -345,10 +345,10 @@ function Get-GhcpModelName {
         The cached model ids.
 
     .LINK
-        Get-GhcpModel
+        Get-ShpModel
 
     .LINK
-        Invoke-Ghcp
+        Invoke-Shp
     #>
     [CmdletBinding()]
     [OutputType([string[]])]
@@ -361,7 +361,7 @@ function Get-GhcpModelName {
     if ($Refresh -or -not $script:ModelNameCache) {
         try {
             $script:ModelNameCache = @(
-                Get-GhcpModel -Endpoint $Endpoint -ErrorAction Stop |
+                Get-ShpModel -Endpoint $Endpoint -ErrorAction Stop |
                     Select-Object -ExpandProperty Id -Unique |
                     Sort-Object
             )
@@ -381,7 +381,7 @@ function Invoke-FetchUrlTool {
 
     .DESCRIPTION
         Private helper backing the fetch_url tool exposed to the model when
-        Invoke-Ghcp runs with browsing enabled (the default; see
+        Invoke-Shp runs with browsing enabled (the default; see
         -DisableBrowsing). Downloads the page, strips
         script/style/markup, collapses whitespace, and returns a compact JSON
         envelope (url, status, contentType, length, text) or an error envelope.
@@ -406,7 +406,7 @@ function Invoke-FetchUrlTool {
         [int]$MaxChars = 0
     )
     try {
-        $resp = Invoke-WebRequest -Uri $Url -UseBasicParsing -MaximumRedirection 5 -Headers @{ 'User-Agent' = 'Mozilla/5.0 (compatible; GhcpDemoBot/1.0)' } -TimeoutSec 60 -ErrorAction Stop
+        $resp = Invoke-WebRequest -Uri $Url -UseBasicParsing -MaximumRedirection 5 -Headers @{ 'User-Agent' = 'Mozilla/5.0 (compatible; ShellPilotDemoBot/1.0)' } -TimeoutSec 60 -ErrorAction Stop
         $text = $resp.Content
         $text = [regex]::Replace($text, '(?is)<script.*?</script>', ' ')
         $text = [regex]::Replace($text, '(?is)<style.*?</style>',  ' ')
@@ -434,7 +434,7 @@ function Invoke-ReadFileTool {
 
     .DESCRIPTION
         Private helper backing the read_file tool exposed to the model when
-        Invoke-Ghcp runs with file access enabled (the default; see
+        Invoke-Shp runs with file access enabled (the default; see
         -DisableFileAccess). Reads the file as UTF-8 text and returns a compact
         JSON envelope (path, length, text) or an error envelope. Runs with the
         caller's own file-system privileges - no path sandboxing.
@@ -485,7 +485,7 @@ function Invoke-ListDirectoryTool {
 
     .DESCRIPTION
         Private helper backing the list_directory tool exposed to the model when
-        Invoke-Ghcp runs with file access enabled (the default; see
+        Invoke-Shp runs with file access enabled (the default; see
         -DisableFileAccess). Returns a compact JSON envelope listing each child
         (name, type, size) or an error envelope. Non-recursive; runs with the
         caller's own file-system privileges - no path sandboxing.
@@ -529,7 +529,7 @@ function Invoke-WriteFileTool {
 
     .DESCRIPTION
         Private helper backing the write_file tool exposed to the model when
-        Invoke-Ghcp runs with file access enabled (the default; see
+        Invoke-Shp runs with file access enabled (the default; see
         -DisableFileAccess). Writes the supplied text as UTF-8 (no BOM),
         creating any missing parent directories. Overwrites by default; set
         -Append to add to an existing file. Returns a compact JSON envelope
@@ -586,7 +586,7 @@ function New-DirectoryTool {
 
     .DESCRIPTION
         Private helper backing the create_directory tool exposed to the model
-        when Invoke-Ghcp runs with file access enabled (the default; see
+        when Invoke-Shp runs with file access enabled (the default; see
         -DisableFileAccess). Creates the directory (and any missing parents);
         succeeds quietly if it already exists. Returns a compact JSON envelope
         (path, created) or an error envelope. Runs with the caller's own
@@ -618,13 +618,13 @@ function New-DirectoryTool {
     }
 }
 
-function Get-GhcpInstructionContent {
+function Get-ShpInstructionContent {
     <#
     .SYNOPSIS
         Reads a Markdown instruction, agent, or skill file and returns its body.
 
     .DESCRIPTION
-        Private helper used by Invoke-Ghcp to load custom instructions. Reads
+        Private helper used by Invoke-Shp to load custom instructions. Reads
         the file at -Path, strips a leading YAML front-matter block (the
         '---' fenced metadata used by VS Code *.instructions.md, *.agent.md and
         SKILL.md files), and returns the remaining Markdown body trimmed of
@@ -643,7 +643,7 @@ function Get-GhcpInstructionContent {
         string if the file contains only front-matter.
 
     .LINK
-        Invoke-Ghcp
+        Invoke-Shp
     #>
     [CmdletBinding()]
     [OutputType([string])]
@@ -663,13 +663,13 @@ function Get-GhcpInstructionContent {
     return $body.Trim()
 }
 
-function Get-GhcpSkillCatalog {
+function Get-ShpSkillCatalog {
     <#
     .SYNOPSIS
         Discovers Agent Skills under one or more parent folders.
 
     .DESCRIPTION
-        Private helper used by Invoke-Ghcp to support progressive-disclosure
+        Private helper used by Invoke-Shp to support progressive-disclosure
         skills. Scans each -Path for immediate sub-folders containing a
         SKILL.md file, reads the 'name' and 'description' fields from each
         SKILL.md YAML front-matter, and returns one object per skill with its
@@ -689,7 +689,7 @@ function Get-GhcpSkillCatalog {
         One object per discovered skill: Name, Description, SkillFile.
 
     .LINK
-        Invoke-Ghcp
+        Invoke-Shp
     #>
     [CmdletBinding()]
     [OutputType([pscustomobject])]
@@ -733,7 +733,7 @@ function Invoke-CopilotTurn {
         Sends one conversation turn to the Copilot chat or responses API.
 
     .DESCRIPTION
-        Private helper used by Invoke-Ghcp. Posts the current conversation to
+        Private helper used by Invoke-Shp. Posts the current conversation to
         either the /chat/completions or /responses endpoint (per -Mode),
         normalizes the reply, and returns a single object carrying the text
         content, any tool calls, token usage, and the raw response.
@@ -855,7 +855,7 @@ function Invoke-CopilotTurn {
     }
 }
 
-function Invoke-Ghcp {
+function Invoke-Shp {
     <#
     .SYNOPSIS
         Sends a prompt to GitHub Copilot and returns the response with usage and cost.
@@ -871,11 +871,11 @@ function Invoke-Ghcp {
         cost and credit count (from the module price table), the tool calls
         executed, timing, and the raw response.
 
-        The -Model parameter supports tab-completion backed by Get-GhcpModelName.
+        The -Model parameter supports tab-completion backed by Get-ShpModelName.
 
     .PARAMETER Model
         Model id to use. Default: claude-opus-4.7. Tab-completion offers the
-        ids returned by Get-GhcpModelName (with a price-table fallback offline).
+        ids returned by Get-ShpModelName (with a price-table fallback offline).
 
     .PARAMETER Prompt
         The user prompt to send. Mandatory.
@@ -965,66 +965,66 @@ function Invoke-Ghcp {
         Copilot-Integration-Id header value sent with the request.
 
     .EXAMPLE
-        Invoke-Ghcp -Prompt 'Hello in one sentence.'
+        Invoke-Shp -Prompt 'Hello in one sentence.'
 
         Sends a simple prompt using the default model.
 
     .EXAMPLE
-        Invoke-Ghcp -Model claude-haiku-4.5 -Prompt 'Summarise PowerShell splatting in 2 lines.'
+        Invoke-Shp -Model claude-haiku-4.5 -Prompt 'Summarise PowerShell splatting in 2 lines.'
 
         Selects a specific (cheaper) model for the request.
 
     .EXAMPLE
-        Invoke-Ghcp -Prompt 'What changed on https://github.com/PowerShell/PowerShell today?'
+        Invoke-Shp -Prompt 'What changed on https://github.com/PowerShell/PowerShell today?'
 
         Browsing is on by default, so the model can use the fetch_url tool to
         read the page before answering.
 
     .EXAMPLE
-        Invoke-Ghcp -Prompt 'Summarise PowerShell splatting in 2 lines.' -DisableBrowsing
+        Invoke-Shp -Prompt 'Summarise PowerShell splatting in 2 lines.' -DisableBrowsing
 
         Disables the fetch_url tool for a pure offline-style completion.
 
     .EXAMPLE
-        Invoke-Ghcp -Prompt 'Review the error handling in .\Ghcp\Ghcp.psm1 and suggest improvements.'
+        Invoke-Shp -Prompt 'Review the error handling in .\ShellPilot\ShellPilot.psm1 and suggest improvements.'
 
         File access is on by default, so the model can call read_file (and
         list_directory to discover paths) to read the file before answering.
         The returned object's FilesRead lists what it actually read.
 
     .EXAMPLE
-        Invoke-Ghcp -Prompt 'Explain this prompt.' -DisableFileAccess
+        Invoke-Shp -Prompt 'Explain this prompt.' -DisableFileAccess
 
         Disables the file tools (read_file / list_directory / write_file /
         create_directory) for this call.
 
     .EXAMPLE
-        Invoke-Ghcp -Prompt 'Refactor this loop.' -SystemPrompt 'You are a terse senior PowerShell engineer. Reply with code only, no prose.'
+        Invoke-Shp -Prompt 'Refactor this loop.' -SystemPrompt 'You are a terse senior PowerShell engineer. Reply with code only, no prose.'
 
         Adds an ad-hoc (literal) system instruction on top of the built-in persona.
 
     .EXAMPLE
-        Invoke-Ghcp -Prompt 'Refactor this loop.' -SystemPromptPath 'C:\Users\me\.copilot\agents\Software Engineer Agent.agent.md'
+        Invoke-Shp -Prompt 'Refactor this loop.' -SystemPromptPath 'C:\Users\me\.copilot\agents\Software Engineer Agent.agent.md'
 
         Reads the system prompt from a file (front-matter stripped) instead of
         passing literal text. Mutually exclusive with -SystemPrompt.
 
     .EXAMPLE
-        Invoke-Ghcp -Prompt 'Write a function to parse a CSV.' -InstructionPath .\.github\instructions\powershell.instructions.md, .\Skills\style\SKILL.md
+        Invoke-Shp -Prompt 'Write a function to parse a CSV.' -InstructionPath .\.github\instructions\powershell.instructions.md, .\Skills\style\SKILL.md
 
         Loads two customisation files - a VS Code instruction file and a skill -
         strips their YAML front-matter, and injects both bodies into the system
         prompt.
 
     .EXAMPLE
-        Invoke-Ghcp -Prompt 'Convert this docx to markdown.' -SkillPath C:\Users\me\.copilot\skills
+        Invoke-Shp -Prompt 'Convert this docx to markdown.' -SkillPath C:\Users\me\.copilot\skills
 
         Discovers every skill under the folder, shows the model their names and
         descriptions, and lets it call the load_skill tool to pull the full
         SKILL.md body of whichever skill is relevant (progressive disclosure).
 
     .EXAMPLE
-        $r = Invoke-Ghcp -Model claude-opus-4.8 -Prompt $p -ShowThinking -MaxToolIterations 30
+        $r = Invoke-Shp -Model claude-opus-4.8 -Prompt $p -ShowThinking -MaxToolIterations 30
 
         Streams the model's working to the host with Write-Host: a per-iteration
         banner, every tool call, and any reasoning summary the model exposes.
@@ -1044,10 +1044,10 @@ function Invoke-Ghcp {
         exposed (Reasoning), and the raw API payload.
 
     .LINK
-        Get-GhcpModel
+        Get-ShpModel
 
     .LINK
-        Get-GhcpModelName
+        Get-ShpModelName
     #>
     [CmdletBinding(DefaultParameterSetName = 'InlinePrompt')]
     [OutputType([pscustomobject])]
@@ -1087,7 +1087,7 @@ function Invoke-Ghcp {
         [string]$IntegrationId = $script:DefaultIntegrationId
     )
 
-    $session = Get-GhcpSessionToken -TokenPath $TokenPath -EditorVersion $EditorVersion -UserAgent $UserAgent
+    $session = Get-ShpSessionToken -TokenPath $TokenPath -EditorVersion $EditorVersion -UserAgent $UserAgent
     Write-Verbose ("Session token valid until {0}" -f [DateTimeOffset]::FromUnixTimeSeconds($session.expires_at).LocalDateTime)
     $apiBase = $session.endpoints.api
 
@@ -1098,7 +1098,7 @@ function Invoke-Ghcp {
     $skillCatalog = @()
     $skillMap     = @{}
     if ($SkillPath) {
-        $skillCatalog = @(Get-GhcpSkillCatalog -Path $SkillPath)
+        $skillCatalog = @(Get-ShpSkillCatalog -Path $SkillPath)
         foreach ($skill in $skillCatalog) { $skillMap[$skill.Name] = $skill.SkillFile }
         Write-Verbose ("Discovered {0} skill(s): {1}" -f $skillCatalog.Count, (($skillCatalog.Name) -join ', '))
     }
@@ -1205,7 +1205,7 @@ function Invoke-Ghcp {
         $null = $instructionsApplied.Add([pscustomobject]@{ Kind='SystemPrompt'; Source='(inline)'; Chars=$SystemPrompt.Trim().Length })
     }
     foreach ($path in $SystemPromptPath) {
-        $body = Get-GhcpInstructionContent -Path $path
+        $body = Get-ShpInstructionContent -Path $path
         if (-not [string]::IsNullOrWhiteSpace($body)) {
             $null = $extraInstructions.Add($body)
             $null = $instructionsApplied.Add([pscustomobject]@{ Kind='SystemPromptPath'; Source=$path; Chars=$body.Length })
@@ -1215,7 +1215,7 @@ function Invoke-Ghcp {
         }
     }
     foreach ($path in $InstructionPath) {
-        $body = Get-GhcpInstructionContent -Path $path
+        $body = Get-ShpInstructionContent -Path $path
         if (-not [string]::IsNullOrWhiteSpace($body)) {
             $null = $extraInstructions.Add($body)
             $null = $instructionsApplied.Add([pscustomobject]@{ Kind='InstructionPath'; Source=$path; Chars=$body.Length })
@@ -1342,7 +1342,7 @@ function Invoke-Ghcp {
                         'load_skill' {
                             $skillName = $fargs.name
                             if ($skillMap.ContainsKey($skillName)) {
-                                $skillBody = Get-GhcpInstructionContent -Path $skillMap[$skillName]
+                                $skillBody = Get-ShpInstructionContent -Path $skillMap[$skillName]
                                 $toolResult = @{ name=$skillName; instructions=$skillBody } | ConvertTo-Json -Compress
                                 if (-not $skillsUsed.Contains($skillName)) { $null = $skillsUsed.Add($skillName) }
                             } else {
@@ -1438,7 +1438,7 @@ function Invoke-Ghcp {
     }
 }
 
-# Tab-completion for Invoke-Ghcp -Model. Defined in module scope so the
+# Tab-completion for Invoke-Shp -Model. Defined in module scope so the
 # scriptblock can read $script:ModelNameCache / $script:PriceTable. The
 # completer never throws: on any failure it falls back to the static price
 # table keys so tab still offers sensible suggestions offline.
@@ -1446,7 +1446,7 @@ $script:ModelArgumentCompleter = {
     param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
 
     try {
-        $names = Get-GhcpModelName
+        $names = Get-ShpModelName
     } catch {
         $names = $null
     }
@@ -1460,6 +1460,6 @@ $script:ModelArgumentCompleter = {
         }
 }
 
-Register-ArgumentCompleter -CommandName Invoke-Ghcp -ParameterName Model -ScriptBlock $script:ModelArgumentCompleter
+Register-ArgumentCompleter -CommandName Invoke-Shp -ParameterName Model -ScriptBlock $script:ModelArgumentCompleter
 
-Export-ModuleMember -Function Initialize-Ghcp, Get-GhcpModel, Invoke-Ghcp, Get-GhcpModelName
+Export-ModuleMember -Function Initialize-Shp, Get-ShpModel, Invoke-Shp, Get-ShpModelName

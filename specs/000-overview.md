@@ -1,13 +1,13 @@
 # Overview and feature map
 
-PsGhcp aims to reproduce the useful, non-editor features of the GitHub
+ShellPilot aims to reproduce the useful, non-editor features of the GitHub
 Copilot Chat VS Code extension as PowerShell cmdlets. This document maps those
-features to their PsGhcp equivalents and records what already works in the
+features to their ShellPilot equivalents and records what already works in the
 proof of concept, what is partial, and what is still to be decided.
 
 ## Status legend
 
-- Done - working in the Ghcp proof of concept.
+- Done - working in the ShellPilot proof of concept.
 - Partial - present but incomplete or in need of hardening.
 - Planned - agreed in scope, not yet built.
 - TBD - in scope only if the related open decision says so.
@@ -15,12 +15,12 @@ proof of concept, what is partial, and what is still to be decided.
 
 ## Feature map
 
-| Copilot Chat (VS Code) | PsGhcp equivalent | Status |
+| Copilot Chat (VS Code) | ShellPilot equivalent | Status |
 |------------------------|-------------------|--------|
-| GitHub sign-in | Initialize-Ghcp (device-code flow) | Done |
-| Model picker | Get-GhcpModel, -Model with completer | Done |
-| Ask / chat | Invoke-Ghcp | Done |
-| Agent mode (tools) | Invoke-Ghcp tool-calling loop | Done |
+| GitHub sign-in | Initialize-Shp (device-code flow) | Done |
+| Model picker | Get-ShpModel, -Model with completer | Done |
+| Ask / chat | Invoke-Shp | Done |
+| Agent mode (tools) | Invoke-Shp tool-calling loop | Done |
 | Web browsing | fetch_url tool | Done |
 | Read / list files | read_file, list_directory tools | Done |
 | Create / edit files | write_file, create_directory tools | Partial |
@@ -43,7 +43,7 @@ Each area below gets its own spec once scope is settled:
 
 1. Authentication and token lifecycle.
 2. Model discovery.
-3. Single-shot completion (Invoke-Ghcp).
+3. Single-shot completion (Invoke-Shp).
 4. Tool-calling and the tool catalogue.
 5. Customisation: instructions, agents, and skills.
 6. Usage and cost accounting.

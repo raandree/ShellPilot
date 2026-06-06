@@ -1,6 +1,6 @@
 # Technical context
 
-Stable facts about the stack, services, and constraints behind PsGhcp.
+Stable facts about the stack, services, and constraints behind ShellPilot.
 Update this file when the stack or a dependency changes.
 
 ## Language and runtime
@@ -12,7 +12,7 @@ Update this file when the stack or a dependency changes.
 
 ## External services
 
-PsGhcp talks to the same HTTP services as the Copilot Chat extension.
+ShellPilot talks to the same HTTP services as the Copilot Chat extension.
 
 | Service | Purpose |
 |---------|---------|

@@ -1,6 +1,6 @@
-# Project brief: PsGhcp
+# Project brief: ShellPilot
 
-PsGhcp is a PowerShell module that brings GitHub Copilot's chat and agent
+ShellPilot is a PowerShell module that brings GitHub Copilot's chat and agent
 capabilities to the terminal and to automation scripts, reusing the same
 backend services the GitHub Copilot Chat VS Code extension talks to.
 
@@ -45,6 +45,6 @@ pipeline.
 
 ## Status
 
-Early outlining. A working proof of concept exists in the Ghcp folder. This
+Early outlining. A working proof of concept exists in the ShellPilot folder. This
 brief captures the intended direction; several scope and tooling decisions
 are still open (see activeContext.md and the specs folder).

@@ -1,6 +1,6 @@
-# PsGhcp specifications
+# ShellPilot specifications
 
-Design and scope documents for PsGhcp. Start with the overview, then the open
+Design and scope documents for ShellPilot. Start with the overview, then the open
 decisions; per-capability specs follow once scope is settled.
 
 ## Index

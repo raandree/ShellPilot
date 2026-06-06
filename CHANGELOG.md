@@ -13,3 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   system patterns, glossary, and progress.
 - Initial specifications under specs/: an overview and feature map plus an
   open-decisions log.
+
+### Changed
+
+- Renamed the module from Ghcp to ShellPilot and the cmdlet noun prefix to
+  Shp (Initialize-Shp, Get-ShpModel, Invoke-Shp, Get-ShpModelName).
+- Renamed the GitHub repository to raandree/ShellPilot.

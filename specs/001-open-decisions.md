@@ -10,7 +10,7 @@ Bank and the relevant specs.
 |---|----------|--------|
 | 1 | Scope | Full terminal Copilot (interactive session, streaming, slash commands, MCP) |
 | 2 | Build framework | Sampler |
-| 3 | Naming | Rename - new name pending from owner |
+| 3 | Naming | Renamed to ShellPilot; cmdlet prefix Shp |
 | 4 | PowerShell support | PowerShell 7+ only |
 | 5 | Authentication | Encrypted storage (SecretManagement / DPAPI) |
 | 6 | Interactivity | Add an interactive chat session |
@@ -20,7 +20,7 @@ The numbered sections below retain the original options for context.
 
 ## 1. Scope of the experience
 
-How much of the Copilot Chat experience should PsGhcp target?
+How much of the Copilot Chat experience should ShellPilot target?
 
 - A. API parity - polish what exists: auth, models, single-shot completion,
   usage, and cost.
@@ -65,8 +65,8 @@ Recommendation: B, with C as an opt-in source.
 
 ## 6. Interactivity
 
-- A. One-shot only - Invoke-Ghcp per call (today).
-- B. Add an interactive session (recommended) - Start-GhcpChat keeping
+- A. One-shot only - Invoke-Shp per call (today).
+- B. Add an interactive session (recommended) - Start-ShpChat keeping
   history across turns, optionally streaming.
 
 Recommendation: B, after the core is on a build framework.

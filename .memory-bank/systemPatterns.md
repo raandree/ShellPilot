@@ -1,18 +1,18 @@
 # System patterns
 
-Architecture and recurring implementation patterns for PsGhcp. Update this
+Architecture and recurring implementation patterns for ShellPilot. Update this
 file when a new pattern is adopted or an old one is retired.
 
 ## Current architecture
 
-A single script module (Ghcp/Ghcp.psm1) with a manifest (Ghcp/Ghcp.psd1) and
-a data file (Ghcp/PriceTable.psd1).
+A single script module (ShellPilot/ShellPilot.psm1) with a manifest (ShellPilot/ShellPilot.psd1) and
+a data file (ShellPilot/PriceTable.psd1).
 
 ```mermaid
 flowchart TD
-    A[Initialize-Ghcp] -->|device-code OAuth| T[(cached OAuth token)]
-    G[Get-GhcpModel] --> S[Get-GhcpSessionToken]
-    I[Invoke-Ghcp] --> S
+    A[Initialize-Shp] -->|device-code OAuth| T[(cached OAuth token)]
+    G[Get-ShpModel] --> S[Get-ShpSessionToken]
+    I[Invoke-Shp] --> S
     S -->|session token| API[(Copilot API)]
     I --> L{tool-calling loop}
     L --> FU[fetch_url]
@@ -25,17 +25,17 @@ flowchart TD
 
 ## Public surface
 
-- Initialize-Ghcp - device-code OAuth, caches the token.
-- Get-GhcpModel - lists models per endpoint.
-- Get-GhcpModelName - cached model ids for tab-completion.
-- Invoke-Ghcp - one prompt, optional tool-calling loop, rich object result.
+- Initialize-Shp - device-code OAuth, caches the token.
+- Get-ShpModel - lists models per endpoint.
+- Get-ShpModelName - cached model ids for tab-completion.
+- Invoke-Shp - one prompt, optional tool-calling loop, rich object result.
 
 ## Private helpers
 
-Get-GhcpSessionToken, Invoke-CopilotTurn, the tool back-ends
+Get-ShpSessionToken, Invoke-CopilotTurn, the tool back-ends
 (Invoke-FetchUrlTool, Invoke-ReadFileTool, Invoke-ListDirectoryTool,
 Invoke-WriteFileTool, New-DirectoryTool), and the customisation loaders
-(Get-GhcpInstructionContent, Get-GhcpSkillCatalog).
+(Get-ShpInstructionContent, Get-ShpSkillCatalog).
 
 ## Recurring patterns
 
@@ -43,7 +43,7 @@ Invoke-WriteFileTool, New-DirectoryTool), and the customisation loaders
 
 Invoke-CopilotTurn hides the difference between the chat/completions and
 responses API shapes behind one normalised result object (content, tool
-calls, usage, reasoning, raw). Invoke-Ghcp starts on chat and falls back to
+calls, usage, reasoning, raw). Invoke-Shp starts on chat and falls back to
 responses (or the reverse for reasoning) based on error signatures.
 
 ### Tool-calling loop
@@ -54,13 +54,13 @@ consecutive-empty-tool-call circuit breaker prevent runaway loops.
 
 ### Progressive disclosure for skills
 
-Get-GhcpSkillCatalog injects only skill names and descriptions; the model
+Get-ShpSkillCatalog injects only skill names and descriptions; the model
 pulls a full SKILL.md body on demand through the load_skill tool - mirroring
 how VS Code selects skills.
 
 ### Front-matter stripping
 
-Get-GhcpInstructionContent removes the leading YAML front-matter block so the
+Get-ShpInstructionContent removes the leading YAML front-matter block so the
 same instruction, agent, and skill files used by VS Code can feed the system
 prompt.
 
@@ -72,7 +72,7 @@ case-insensitively.
 
 ### Tab-completion
 
-Register-ArgumentCompleter on Invoke-Ghcp -Model, backed by a module-scoped
+Register-ArgumentCompleter on Invoke-Shp -Model, backed by a module-scoped
 cache that falls back to the price table offline.
 
 ## Patterns to introduce (pending decisions)

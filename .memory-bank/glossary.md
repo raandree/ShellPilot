@@ -1,6 +1,6 @@
 # Glossary (Ubiquitous Language)
 
-Canonical vocabulary for PsGhcp. Use the term in the first column in code,
+Canonical vocabulary for ShellPilot. Use the term in the first column in code,
 identifiers, comments, tests, documentation, and commit messages. Never use a
 term from the "Don't say" column for that concept. If a concept is missing,
 propose a new row instead of inventing a synonym.
@@ -13,7 +13,7 @@ propose a new row instead of inventing a synonym.
 | Chat API | The /chat/completions request and response shape. | completions endpoint |
 | Responses API | The /responses request and response shape (carries reasoning). | response endpoint |
 | Tool call | A model request to run one named function with arguments. | function call, action, command |
-| Tool-calling loop | The iterate-until-no-tool-calls loop in Invoke-Ghcp. | agent loop, agentic loop |
+| Tool-calling loop | The iterate-until-no-tool-calls loop in Invoke-Shp. | agent loop, agentic loop |
 | Skill | A folder containing a SKILL.md that supplies instructions on demand. | plugin, add-in, extension |
 | Progressive disclosure | Offering only a skill name and description, then loading its body when asked. | lazy loading |
 | Instruction file | A Markdown file whose body is injected into the system prompt. | rules file, config file |
