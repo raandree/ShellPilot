@@ -1,0 +1,1195 @@
+function Invoke-Shp {
+    <#
+    .SYNOPSIS
+        Sends a prompt to GitHub Copilot and returns the response with usage and cost.
+
+    .DESCRIPTION
+        Obtains a Copilot session token, sends -Prompt to the chat API (falling
+        back to the responses API for models that require it), streams the reply
+        to the host by default, and runs a tool-calling loop that lets the model
+        fetch web pages, read/list/create/write local files, run shell commands,
+        and ask the user questions on the console. All four tool categories are
+        on by default; turn them off individually with -DisableBrowsing (the
+        fetch_url tool), -DisableFileAccess (read_file / list_directory /
+        write_file / create_directory), -DisableTerminal (run_command), and
+        -DisableUserPrompts (ask_user). Pass -DisableStreaming for a single
+        buffered reply instead of live token streaming.
+
+        Point -SkillPath at one or more skill roots and/or -InstructionRoot at
+        one or more instruction roots to let the model discover skills and
+        *.instructions.md files by name and description and pull the full body
+        on demand (progressive disclosure).
+
+        The returned object includes the answer text, token usage, an estimated
+        USD cost and credit count (from the module price table), the tool calls
+        executed, timing, and the raw response. Every call is also appended to
+        the per-session usage log (see Get-ShpUsage).
+
+        The -Model parameter supports tab-completion backed by Get-ShpModelName.
+
+    .PARAMETER Model
+        Model id to use. If omitted, the session default set by Select-ShpModel
+        is used, falling back to claude-opus-4.7 when no default is set.
+        Tab-completion offers the ids returned by Get-ShpModelName (with a
+        price-table fallback offline).
+
+    .PARAMETER Prompt
+        The user prompt to send. Mandatory.
+
+    .PARAMETER SystemPrompt
+        Custom system instructions (literal text) appended to the built-in
+        persona. Use this to give the model a role, tone, or task-specific
+        guidance for a single call without editing the module. Belongs to the
+        'InlinePrompt' parameter set and is mutually exclusive with
+        -SystemPromptPath.
+
+    .PARAMETER SystemPromptPath
+        One or more paths to Markdown files whose bodies are read (leading YAML
+        front-matter stripped) and appended to the built-in persona as the
+        system instructions. Use this when your system prompt lives in a file -
+        e.g. an *.agent.md or *.instructions.md. Belongs to the 'PromptFromFile'
+        parameter set and is mutually exclusive with -SystemPrompt.
+
+    .PARAMETER InstructionPath
+        One or more paths to Markdown instruction, agent, or skill files
+        (*.instructions.md, *.agent.md, SKILL.md, or any *.md). The body of
+        each file is read, its leading YAML front-matter is stripped, and the
+        text is appended to the system prompt in the order given. This lets you
+        reuse the same VS Code Copilot customisation files from the command
+        line.
+
+        Note on skills: only the Markdown body of a SKILL.md is injected.
+        VS Code's automatic skill selection, progressive disclosure, and any
+        bundled scripts or resources referenced by the skill are client-side
+        features and are NOT replicated here - point -InstructionPath at the
+        SKILL.md you want and (if needed) at the extra files it references. For
+        progressive-disclosure skill loading, use -SkillPath instead.
+
+    .PARAMETER SkillPath
+        One or more parent folders to scan for Agent Skills (each skill is a
+        sub-folder containing a SKILL.md). This enables progressive disclosure:
+        only each skill's name and description are injected into the system
+        prompt, and the model is given a load_skill tool that it calls (with a
+        skill name) to pull the full SKILL.md body on demand - mirroring how
+        VS Code Copilot selects and loads skills. Skills whose bodies are never
+        requested cost almost no tokens.
+
+    .PARAMETER InstructionRoot
+        One or more root folders to scan for VS Code instruction files
+        (*.instructions.md, searched recursively). This enables progressive
+        disclosure for instructions, mirroring -SkillPath: only each
+        instruction's name, description and applyTo glob are injected into the
+        system prompt, and the model is given a load_instruction tool that it
+        calls (with an instruction name) to pull the full instruction body on
+        demand. This lets you hand the model a whole library of instruction
+        files and let it choose the relevant ones itself, instead of forcing
+        every file into the prompt with -InstructionPath.
+
+    .PARAMETER DisableBrowsing
+        Turn off web browsing. By default the fetch_url tool is exposed to the
+        model so it can retrieve web content; this switch disables it.
+
+    .PARAMETER DisableFileAccess
+        Turn off local file access. By default the read_file, list_directory,
+        write_file and create_directory tools are exposed to the model so it can
+        read, list, create and write files and folders (with the caller's own
+        privileges, no path sandboxing); this switch disables all of them.
+
+    .PARAMETER DisableTerminal
+        Turn off terminal access. By default the run_command tool is exposed to
+        the model so it can run shell commands in a child PowerShell (with the
+        caller's own privileges and no sandboxing, in the session's current
+        directory); this switch disables it. Disable it for untrusted prompts -
+        full terminal access lets the model run arbitrary commands.
+
+    .PARAMETER DisableUserPrompts
+        Turn off interactive questions. By default the ask_user tool is exposed
+        to the model so it can pause and ask you a clarifying question on the
+        console (your answer is fed back into the conversation); this switch
+        disables it. With no interactive console the tool reports that it could
+        not get an answer instead of blocking, so this switch is mainly for
+        forcing the model to proceed without ever asking.
+
+    .PARAMETER MaxToolIterations
+        Maximum number of tool-calling iterations before aborting. Must be at
+        least 1. Default: 25. This is a runaway-loop guard - each iteration is a
+        billable API round-trip - so raise it for long tool-calling runs (for
+        example scaffolding a whole module in one prompt), but be mindful of
+        cost and time. The separate empty-tool-call circuit breaker still stops
+        a model that signals a tool call without emitting one, independent of
+        this cap.
+
+    .PARAMETER ReasoningEffort
+        Reasoning (thinking) effort for the model, mirroring the effort control
+        in the VS Code Copilot model picker. Accepted values are minimal, low,
+        medium, high, xhigh and max, but the set a given model supports varies -
+        the API rejects an unsupported value with a clear error listing what the
+        model allows. Sent as the reasoning_effort field on /chat/completions
+        and as reasoning.effort on /responses. Omit it to use the model default.
+        Use Get-ShpModel to see a model's ReasoningEfforts.
+
+    .PARAMETER MaxOutputTokens
+        Maximum number of tokens the model may generate in its reply (the output
+        side; the context window itself is a fixed model capability - see
+        Get-ShpModel's MaxContextWindowTokens). Sent as max_tokens on
+        /chat/completions and max_output_tokens on /responses. Note that in the
+        non-streaming mode used by default some models cap output well below
+        their streaming maximum (for example claude-opus-4.8 allows 16000 tokens
+        non-streaming but 64000 when streamed) - add -Stream to lift the cap.
+        Omit it to leave the limit to the service.
+
+    .PARAMETER DisableStreaming
+        Turn off live streaming. By default Invoke-Shp streams the reply
+        token-by-token to the host over Server-Sent Events on /chat/completions,
+        giving the live "typing" experience and lifting the output ceiling to
+        the model's streaming maximum (for example claude-opus-4.8 allows 64000
+        output tokens streamed versus only 16000 non-streaming). Pass this
+        switch to disable streaming and receive a single buffered reply instead;
+        note this also lowers that output cap. The streamed text is host-only
+        and never enters the pipeline; the full reply is always returned on the
+        result's Content member. -ShowThinking now PREFERS streaming, because the
+        streaming /chat/completions response carries the model's live reasoning
+        trace; pass -DisableStreaming together with -ShowThinking only if you want
+        the buffered /responses reasoning-summary path instead.
+
+    .PARAMETER History
+        An explicit conversation history to continue from, as returned on a
+        previous result's History property (an array of objects with role and
+        content members). Use this for stateless, scriptable multi-turn flows:
+        when supplied it seeds this call (taking precedence over the
+        module-scoped session chat) and the call does NOT read or write the
+        session chat.
+
+        By default - when -History is not supplied - Invoke-Shp seeds each
+        call from the running session conversation (see Get-ShpChat), so
+        follow-up prompts remember earlier turns automatically. Reset the
+        running conversation with Clear-ShpChat to start a fresh chat.
+
+    .PARAMETER ShowThinking
+        Stream the model's working to the host with Write-Host as the call
+        progresses: a per-iteration banner, each tool call with its arguments,
+        and the model's reasoning trace shown in dim italic under a 'thinking:'
+        label so it is visually distinct from the answer. With streaming on (the
+        default) the reasoning is read live from the /chat/completions stream -
+        reasoning models on this backend (the Claude family) emit it as
+        reasoning_text deltas, the same trace VS Code shows. If you also pass
+        -DisableStreaming, the switch instead asks the /responses endpoint for a
+        reasoning summary (models with no /responses API fall back to chat, and
+        models that reject the summary retry without it). The trace is host-only
+        colour output and does NOT enter the pipeline or the returned object; the
+        full reasoning is also available afterwards on the result's Reasoning
+        property. A model that exposes no reasoning at all still shows the
+        iteration and tool-call trace, plus a one-line note that none was
+        returned.
+
+    .PARAMETER Image
+        One or more image file paths or http(s) URLs to send with the prompt for
+        vision-capable models. Each local file is embedded as a base64 data URI;
+        each URL is passed by reference. Forces the chat API shape.
+
+    .PARAMETER ResponseFormat
+        Ask the model for a structured reply. 'json_object' requests a single
+        valid JSON object, which is parsed and returned on the result's
+        ContentObject member; 'text' (the default) leaves the format free. Uses
+        the chat API shape.
+
+    .PARAMETER JsonSchema
+        A JSON Schema (as a JSON string) that the reply must conform to. Implies
+        a structured reply (parsed onto ContentObject) and takes precedence over
+        -ResponseFormat. Uses the chat API shape.
+
+    .PARAMETER DisableUserTools
+        Do not offer the user-defined tools registered with Register-ShpTool for
+        this call. By default any registered tool is exposed to the model.
+
+    .PARAMETER EnableTodoList
+        Offer the model the built-in manage_todo_list tool so it can maintain a
+        short ordered checklist of sub-tasks for a multi-step request (exactly
+        one item in-progress at a time). Off by default; when enabled, the final
+        normalised list is returned on the result's TodoList member and a
+        TodoList progress event is emitted on each update. Omitting this switch
+        adds no tool and changes nothing.
+
+    .PARAMETER DisableProgressEvents
+        Suppress the structured ShpProgress Information-stream records that
+        Invoke-Shp otherwise emits for every tool call (Kind 'ToolCall') and
+        every todo-list update (Kind 'TodoList'). These records let a host
+        render live tool activity without parsing the -ShowThinking host trace,
+        and are silent on the console under the default InformationPreference.
+        Pass this switch to turn them off.
+
+    .PARAMETER UseServerSideState
+        Keep the conversation state on the server (responses API): store each
+        turn and continue the next one from it by id instead of replaying the
+        whole history. Opt-in and off by default; reset with Clear-ShpChat. If
+        the backend does not support server-side storage (the Copilot proxy is
+        stateless and rejects it), the call automatically falls back to ordinary
+        client-side history with a warning, so it still succeeds.
+
+    .PARAMETER ApiBase
+        Override the API base URL for this call (opt-in alternative backend).
+        Falls back to the session context (Set-ShpContext) and then to the
+        Copilot session endpoint.
+
+    .PARAMETER TimeoutSec
+        Per-request HTTP timeout in seconds. Falls back to the session context
+        and then the built-in default.
+
+    .PARAMETER MaxRetryCount
+        Maximum retries on a transient (429/5xx) HTTP failure. Falls back to the
+        session context and then the built-in default.
+
+    .PARAMETER NetworkOutageToleranceSec
+        Wall-clock budget, in seconds, for riding out a connection-level network
+        outage - a dropped connection that returns no HTTP response. The call is
+        retried until this many seconds have elapsed since the first connection
+        failure, then the error is rethrown. Falls back to the session context
+        and then the built-in default (30). 0 disables outage tolerance.
+
+    .PARAMETER TokenPath
+        Path to the cached OAuth token file.
+
+    .PARAMETER EditorVersion
+        Editor-Version header value sent with the request.
+
+    .PARAMETER PluginVersion
+        Editor-Plugin-Version header value sent with the request.
+
+    .PARAMETER UserAgent
+        User-Agent header value sent with the request.
+
+    .PARAMETER IntegrationId
+        Copilot-Integration-Id header value sent with the request.
+
+    .EXAMPLE
+        Invoke-Shp -Prompt 'Hello in one sentence.'
+
+        Sends a simple prompt using the default model.
+
+    .EXAMPLE
+        Invoke-Shp -Model claude-haiku-4.5 -Prompt 'Summarise PowerShell splatting in 2 lines.'
+
+        Selects a specific (cheaper) model for the request.
+
+    .EXAMPLE
+        Invoke-Shp -Prompt 'What changed on https://github.com/PowerShell/PowerShell today?'
+
+        Browsing is on by default, so the model can use the fetch_url tool to
+        read the page before answering.
+
+    .EXAMPLE
+        Invoke-Shp -Prompt 'Summarise PowerShell splatting in 2 lines.' -DisableBrowsing
+
+        Disables the fetch_url tool for a pure offline-style completion.
+
+    .EXAMPLE
+        Invoke-Shp -Prompt 'Review the error handling in .\ShellPilot\ShellPilot.psm1 and suggest improvements.'
+
+        File access is on by default, so the model can call read_file (and
+        list_directory to discover paths) to read the file before answering.
+        The returned object's FilesRead lists what it actually read.
+
+    .EXAMPLE
+        Invoke-Shp -Prompt 'Explain this prompt.' -DisableFileAccess
+
+        Disables the file tools (read_file / list_directory / write_file /
+        create_directory) for this call.
+
+    .EXAMPLE
+        Invoke-Shp -Prompt 'Refactor this loop.' -SystemPrompt 'You are a terse senior PowerShell engineer. Reply with code only, no prose.'
+
+        Adds an ad-hoc (literal) system instruction on top of the built-in persona.
+
+    .EXAMPLE
+        Invoke-Shp -Prompt 'Refactor this loop.' -SystemPromptPath 'C:\Users\me\.copilot\agents\Software Engineer Agent.agent.md'
+
+        Reads the system prompt from a file (front-matter stripped) instead of
+        passing literal text. Mutually exclusive with -SystemPrompt.
+
+    .EXAMPLE
+        Invoke-Shp -Prompt 'Write a function to parse a CSV.' -InstructionPath .\.github\instructions\powershell.instructions.md, .\Skills\style\SKILL.md
+
+        Loads two customisation files - a VS Code instruction file and a skill -
+        strips their YAML front-matter, and injects both bodies into the system
+        prompt.
+
+    .EXAMPLE
+        Invoke-Shp -Prompt 'Convert this docx to markdown.' -SkillPath C:\Users\me\.copilot\skills
+
+        Discovers every skill under the folder, shows the model their names and
+        descriptions, and lets it call the load_skill tool to pull the full
+        SKILL.md body of whichever skill is relevant (progressive disclosure).
+
+    .EXAMPLE
+        Invoke-Shp -Model claude-opus-4.8 -Prompt 'Prove there are infinitely many primes.' -ReasoningEffort max
+
+        Requests maximum reasoning effort (the model picker's "Max") so the
+        model thinks harder before answering. Pair with -MaxOutputTokens to cap
+        the reply length.
+
+    .EXAMPLE
+        Invoke-Shp -Model claude-opus-4.8 -Prompt 'Write a 2000-word essay on PowerShell.' -MaxOutputTokens 64000
+
+        Streaming is on by default, so the reply prints live to the host and the
+        output ceiling is the model's streaming maximum (64000 tokens) rather
+        than the 16000-token non-streaming cap. Add -DisableStreaming for a
+        single buffered reply.
+
+    .EXAMPLE
+        Invoke-Shp -Prompt 'Which files in this folder are larger than 1 MB? Use the terminal.'
+
+        Terminal access is on by default, so the model can call the run_command
+        tool to run a shell command and read its output before answering. The
+        returned object's CommandsRun lists what it executed. Pass
+        -DisableTerminal to forbid shell access.
+
+    .EXAMPLE
+        Invoke-Shp -Prompt 'Write a function following our standards.' -InstructionRoot ~/.copilot/instructions
+
+        Offers the model every *.instructions.md under the folder by name and
+        description and lets it call load_instruction to pull the relevant ones
+        itself (progressive disclosure), instead of forcing every file into the
+        prompt with -InstructionPath.
+
+    .EXAMPLE
+        Invoke-Shp -Prompt 'Rename my photos sensibly.'
+        Get-ShpUsage -Summary
+
+        The model may use the ask_user tool to ask a clarifying question on the
+        console (answer it and it continues). Afterwards Get-ShpUsage -Summary
+        reports the tokens, cost and credits the session has spent.
+
+    .EXAMPLE
+        Invoke-Shp -Prompt 'What is 43 + 43?'
+        Invoke-Shp -Prompt 'What was the result of the last prompt?'
+
+        Continues a conversation: the second call automatically remembers the
+        first because Invoke-Shp records every call into the running session
+        chat and seeds the next call from it. To start over, run Clear-ShpChat.
+
+    .EXAMPLE
+        $r1 = Invoke-Shp -Prompt 'Pick a number between 1 and 10.'
+        $r2 = Invoke-Shp -Prompt 'Now double it.' -History $r1.History
+
+        Continues a conversation explicitly, with no hidden state, by passing
+        the prior result's History back in. -History bypasses the session
+        chat entirely - handy in scripts and pipelines where each invocation
+        must be self-contained.
+
+    .OUTPUTS
+        System.Management.Automation.PSCustomObject
+
+        The response with Content, Usage, CostUSD, Credits, ToolCalls, timing,
+        the customisation files that shaped the system prompt
+        (InstructionsApplied), the skills offered and the subset the model
+        actually loaded (SkillsAvailable / SkillsUsed), the instructions offered
+        and loaded on demand (InstructionsAvailable / InstructionsLoaded), the
+        local files the model read and wrote (FilesRead / FilesWritten), the
+        shell commands it ran (CommandsRun), the questions it asked on the
+        console (QuestionsAsked), the per-turn todo checklist it maintained when
+        -EnableTodoList is set (TodoList), any reasoning the model exposed
+        (Reasoning), the running conversation history (History), and the raw API
+        payload.
+
+    .LINK
+        Get-ShpModel
+
+    .LINK
+        Get-ShpModelName
+
+    .LINK
+        Get-ShpUsage
+    #>
+    [CmdletBinding(DefaultParameterSetName = 'InlinePrompt')]
+    [System.Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingWriteHost', '', Justification = 'The -ShowThinking switch deliberately streams a colour, host-only trace of iterations and tool calls; this is documented behaviour that must not enter the pipeline.')]
+    [System.Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseProcessBlockForPipelineCommand', '', Justification = 'Invoke-Shp is a single-shot cmdlet; -History binds one prior result by property name for the $a | Invoke-Shp ergonomic and does not aggregate a pipeline, so a process block is unnecessary.')]
+    [OutputType([pscustomobject])]
+    param(
+        [ValidateNotNullOrEmpty()]
+        [string]$Model,
+
+        [Parameter(Mandatory)]
+        [ValidateNotNullOrEmpty()]
+        [string]$Prompt,
+
+        [Parameter(ParameterSetName = 'InlinePrompt')]
+        [string]$SystemPrompt,
+
+        [Parameter(ParameterSetName = 'PromptFromFile')]
+        [ValidateNotNullOrEmpty()]
+        [string[]]$SystemPromptPath,
+
+        [string[]]$InstructionPath,
+
+        [ValidateNotNullOrEmpty()]
+        [string[]]$InstructionRoot,
+
+        [ValidateNotNullOrEmpty()]
+        [string[]]$SkillPath,
+
+        [switch]$DisableBrowsing,
+
+        [switch]$DisableFileAccess,
+
+        [switch]$DisableTerminal,
+
+        [switch]$DisableUserPrompts,
+
+        [switch]$ShowThinking,
+
+        [switch]$DisableStreaming,
+
+        [ValidateRange(1, [int]::MaxValue)]
+        [int]$MaxToolIterations = 25,
+
+        [ValidateSet('minimal', 'low', 'medium', 'high', 'xhigh', 'max')]
+        [string]$ReasoningEffort,
+
+        [ValidateRange(1, [int]::MaxValue)]
+        [int]$MaxOutputTokens,
+
+        [Parameter(ValueFromPipelineByPropertyName)]
+        [object[]]$History,
+
+        [ValidateNotNullOrEmpty()]
+        [string[]]$Image,
+
+        [ValidateSet('text', 'json_object')]
+        [string]$ResponseFormat,
+
+        [ValidateNotNullOrEmpty()]
+        [string]$JsonSchema,
+
+        [switch]$DisableUserTools,
+
+        [switch]$EnableTodoList,
+
+        [switch]$DisableProgressEvents,
+
+        [switch]$UseServerSideState,
+
+        [ValidateNotNullOrEmpty()]
+        [string]$ApiBase,
+
+        [ValidateRange(1, [int]::MaxValue)]
+        [int]$TimeoutSec,
+
+        [ValidateRange(0, [int]::MaxValue)]
+        [int]$MaxRetryCount,
+
+        [ValidateRange(0, [int]::MaxValue)]
+        [int]$NetworkOutageToleranceSec,
+
+        [string]$TokenPath     = $script:DefaultTokenPath,
+        [string]$EditorVersion = $script:DefaultEditorVersion,
+        [string]$PluginVersion = $script:DefaultPluginVersion,
+        [string]$UserAgent     = $script:DefaultUserAgent,
+        [string]$IntegrationId = $script:DefaultIntegrationId
+    )
+
+    # Resolve the model and the optional model knobs from the session defaults
+    # (Select-ShpModel) when not supplied explicitly. An explicit parameter on
+    # this call always wins; the built-in model fallback is the last resort.
+    if (-not $PSBoundParameters.ContainsKey('Model')) {
+        $Model = if (-not [string]::IsNullOrWhiteSpace($script:ShpDefaults.Model)) { $script:ShpDefaults.Model } else { 'claude-opus-4.7' }
+    }
+    if (-not $PSBoundParameters.ContainsKey('ReasoningEffort') -and -not [string]::IsNullOrWhiteSpace($script:ShpDefaults.ReasoningEffort)) {
+        $ReasoningEffort = $script:ShpDefaults.ReasoningEffort
+    }
+    if (-not $PSBoundParameters.ContainsKey('MaxOutputTokens') -and $script:ShpDefaults.MaxOutputTokens) {
+        $MaxOutputTokens = [int]$script:ShpDefaults.MaxOutputTokens
+    }
+
+    # Resolve the prior conversation to continue from. An explicit -History
+    # wins (and runs stateless: never reads or writes the session chat);
+    # otherwise seed from the module-scoped session chat ($script:ShpChat),
+    # which is empty on the first call and populated automatically afterwards
+    # by every prior Invoke-Shp call. To start a fresh chat, run Clear-ShpChat.
+    $priorHistory = @()
+    if ($PSBoundParameters.ContainsKey('History') -and $History) {
+        $priorHistory = @($History)
+    } else {
+        $priorHistory = @($script:ShpChat)
+    }
+
+    $session = Get-ShpSessionToken -TokenPath $TokenPath -EditorVersion $EditorVersion -UserAgent $UserAgent
+    Write-Verbose ("Session token valid until {0}" -f [DateTimeOffset]::FromUnixTimeSeconds($session.expires_at).LocalDateTime)
+
+    # Resolve the API base and bearer token. An explicit -ApiBase, or an ApiBase
+    # set on the session context (Set-ShpContext), selects an opt-in
+    # alternative, OpenAI-compatible backend; otherwise use the Copilot session
+    # endpoint. When an alternative backend is in use and the context carries an
+    # ApiKey, authenticate with that key instead of the session token.
+    $usingAltBackend = $PSBoundParameters.ContainsKey('ApiBase') -or [bool]$script:ShpContext.ApiBase
+    $apiBase = if ($PSBoundParameters.ContainsKey('ApiBase')) { $ApiBase }
+               elseif ($script:ShpContext.ApiBase) { $script:ShpContext.ApiBase }
+               else { $session.endpoints.api }
+    $bearer = if ($usingAltBackend -and $script:ShpContext.ApiKey) { $script:ShpContext.ApiKey } else { $session.token }
+
+    # Resolve HTTP timeout/retry with the usual precedence: explicit parameter,
+    # then session context, then built-in default.
+    $effectiveTimeoutSec = if ($PSBoundParameters.ContainsKey('TimeoutSec')) { $TimeoutSec }
+                           elseif ($script:ShpContext.TimeoutSec) { [int]$script:ShpContext.TimeoutSec }
+                           else { 0 }
+    $effectiveMaxRetry   = if ($PSBoundParameters.ContainsKey('MaxRetryCount')) { $MaxRetryCount }
+                           elseif ($null -ne $script:ShpContext.MaxRetryCount) { [int]$script:ShpContext.MaxRetryCount }
+                           else { $script:DefaultMaxRetryCount }
+    $effectiveRetryDelay = if ($null -ne $script:ShpContext.RetryDelaySec) { [int]$script:ShpContext.RetryDelaySec }
+                           else { $script:DefaultRetryDelaySec }
+    $effectiveOutageTolerance = if ($PSBoundParameters.ContainsKey('NetworkOutageToleranceSec')) { $NetworkOutageToleranceSec }
+                                elseif ($null -ne $script:ShpContext.NetworkOutageToleranceSec) { [int]$script:ShpContext.NetworkOutageToleranceSec }
+                                else { $script:DefaultNetworkOutageToleranceSec }
+
+    $browsingEnabled = -not $DisableBrowsing
+    $fileAccessEnabled = -not $DisableFileAccess
+    $terminalEnabled = -not $DisableTerminal
+    $userPromptsEnabled = -not $DisableUserPrompts
+
+    # Discover skills (progressive disclosure): catalog now, bodies on demand.
+    $skillCatalog = @()
+    $skillMap     = @{}
+    if ($SkillPath) {
+        $skillCatalog = @(Get-ShpSkillCatalog -Path $SkillPath)
+        foreach ($skill in $skillCatalog) { $skillMap[$skill.Name] = $skill.SkillFile }
+        Write-Verbose ("Discovered {0} skill(s): {1}" -f $skillCatalog.Count, (($skillCatalog.Name) -join ', '))
+    }
+    $skillsEnabled = $skillCatalog.Count -gt 0
+
+    # Discover instructions the same way (progressive disclosure): show the model
+    # each instruction's name/description/applyTo now, load the body on demand.
+    $instructionCatalog = @()
+    $instructionMap     = @{}
+    if ($InstructionRoot) {
+        $instructionCatalog = @(Get-ShpInstructionCatalog -Path $InstructionRoot)
+        foreach ($instruction in $instructionCatalog) { $instructionMap[$instruction.Name] = $instruction.InstructionFile }
+        Write-Verbose ("Discovered {0} instruction(s): {1}" -f $instructionCatalog.Count, (($instructionCatalog.Name) -join ', '))
+    }
+    $instructionRootEnabled = $instructionCatalog.Count -gt 0
+
+    $tools = New-Object System.Collections.Generic.List[hashtable]
+    if ($browsingEnabled) {
+        $null = $tools.Add(@{
+            type='function'
+            function=@{
+                name='fetch_url'
+                description='Fetch an HTTP(S) URL and return the FULL page text (script/style stripped, HTML tags removed). There is no length limit.'
+                parameters=@{ type='object'; required=@('url'); properties=@{ url=@{ type='string'; description='Absolute URL to fetch (https preferred).' } } }
+            }
+        })
+    }
+    if ($fileAccessEnabled) {
+        $null = $tools.Add(@{
+            type='function'
+            function=@{
+                name='read_file'
+                description='Read a local file and return its FULL text. Use this whenever the user refers to a file by path or asks about local file contents.'
+                parameters=@{ type='object'; required=@('path'); properties=@{ path=@{ type='string'; description='Path to the file to read (absolute or relative to the current working directory).' } } }
+            }
+        })
+        $null = $tools.Add(@{
+            type='function'
+            function=@{
+                name='list_directory'
+                description='List the entries (files and subdirectories) of a local directory. Use this to discover files before reading them.'
+                parameters=@{ type='object'; required=@('path'); properties=@{ path=@{ type='string'; description='Path to the directory to list (absolute or relative to the current working directory).' } } }
+            }
+        })
+        $null = $tools.Add(@{
+            type='function'
+            function=@{
+                name='write_file'
+                description='Create or overwrite a local file with the given text content. Missing parent directories are created automatically. Use this whenever the user asks you to create, write, save or generate a file. Set append=true to add to an existing file instead of overwriting it.'
+                parameters=@{ type='object'; required=@('path','content'); properties=@{
+                    path=@{ type='string'; description='Path to the file to write (absolute or relative to the current working directory).' }
+                    content=@{ type='string'; description='The full text content to write to the file.' }
+                    append=@{ type='boolean'; description='Append to the file instead of overwriting it. Defaults to false.' }
+                } }
+            }
+        })
+        $null = $tools.Add(@{
+            type='function'
+            function=@{
+                name='create_directory'
+                description='Create a local directory (and any missing parent directories). Succeeds quietly if it already exists.'
+                parameters=@{ type='object'; required=@('path'); properties=@{ path=@{ type='string'; description='Path to the directory to create (absolute or relative to the current working directory).' } } }
+            }
+        })
+    }
+    if ($terminalEnabled) {
+        $null = $tools.Add(@{
+            type='function'
+            function=@{
+                name='run_command'
+                description='Run a shell command line in a non-interactive PowerShell and return its stdout, stderr and exit code. Use this whenever the user asks you to run something, or you need to inspect or change system state a file tool cannot (git, build tools, package managers, process and service queries). Commands run with the user privileges in the current directory; there is no sandbox.'
+                parameters=@{ type='object'; required=@('command'); properties=@{
+                    command=@{ type='string'; description='The command line to run (interpreted by PowerShell 7).' }
+                    workingDirectory=@{ type='string'; description='Optional directory to run the command in. Defaults to the current directory.' }
+                } }
+            }
+        })
+    }
+    if ($userPromptsEnabled) {
+        $null = $tools.Add(@{
+            type='function'
+            function=@{
+                name='ask_user'
+                description='Ask the user a single clarifying question on the console and wait for their typed answer. Use this when the request is ambiguous or you are missing a decision only the user can make, instead of guessing. Do not use it for information you can obtain with the other tools.'
+                parameters=@{ type='object'; required=@('question'); properties=@{ question=@{ type='string'; description='The question to put to the user.' } } }
+            }
+        })
+    }
+    if ($skillsEnabled) {
+        $null = $tools.Add(@{
+            type='function'
+            function=@{
+                name='load_skill'
+                description='Load the full instructions for one of the available skills by name. Call this when a skill listed in the system prompt is relevant to the user request, then follow the returned instructions.'
+                parameters=@{ type='object'; required=@('name'); properties=@{ name=@{ type='string'; description='Exact skill name from the available-skills list.'; enum=@($skillCatalog.Name) } } }
+            }
+        })
+    }
+    if ($instructionRootEnabled) {
+        $null = $tools.Add(@{
+            type='function'
+            function=@{
+                name='load_instruction'
+                description='Load the full body of one of the available instruction files by name. Call this when an instruction listed in the system prompt is relevant to the user request (match on its description and applyTo glob), then follow the returned guidance.'
+                parameters=@{ type='object'; required=@('name'); properties=@{ name=@{ type='string'; description='Exact instruction name from the available-instructions list.'; enum=@($instructionCatalog.Name) } } }
+            }
+        })
+    }
+    # Todo-list tool (opt-in via -EnableTodoList): let the model maintain a short
+    # ordered checklist of sub-tasks for a multi-step request. It sends the FULL
+    # list on every call (idempotent replace, never a delta) and keeps exactly
+    # one item in-progress; ConvertTo-ShpTodoList enforces those invariants.
+    if ($EnableTodoList) {
+        $null = $tools.Add(@{
+            type='function'
+            function=@{
+                name='manage_todo_list'
+                description='Maintain a short ordered checklist for a multi-step request. Send the FULL list on every call (idempotent replace, not a delta). Keep EXACTLY ONE item in-progress; mark an item completed as soon as it is done, then move the next to in-progress. Skip this tool for trivial single-step requests.'
+                parameters=@{
+                    type='object'; required=@('todoList')
+                    properties=@{
+                        todoList=@{
+                            type='array'
+                            description='The complete current checklist.'
+                            items=@{
+                                type='object'; required=@('id','title','status')
+                                properties=@{
+                                    id=@{ type='integer'; description='Stable id within this turn.' }
+                                    title=@{ type='string'; description='3-7 word action-oriented label.' }
+                                    status=@{ type='string'; enum=@('not-started','in-progress','completed') }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        })
+    }
+    # User-defined tools (Register-ShpTool): offer any registered command to the
+    # model unless this call opted out. Each registered schema is added as-is and
+    # dispatched by name in the tool loop below.
+    $userToolsEnabled = (-not $DisableUserTools) -and ($script:ShpUserTools.Count -gt 0)
+    $userToolCommands = @{}
+    if ($userToolsEnabled) {
+        foreach ($record in $script:ShpUserTools.Values) {
+            $null = $tools.Add($record.Schema)
+            $userToolCommands[$record.Name] = $record.Command
+        }
+        Write-Verbose ("Offering {0} user tool(s): {1}" -f $userToolCommands.Count, (($userToolCommands.Keys) -join ', '))
+    }
+    if ($tools.Count -eq 0) { $tools = $null }
+
+    $apiHeaders = @{
+        Authorization            = "Bearer $bearer"
+        'Editor-Version'         = $EditorVersion
+        'Editor-Plugin-Version'  = $PluginVersion
+        'Copilot-Integration-Id' = $IntegrationId
+        'Openai-Intent'          = if ($tools) { 'agent' } else { 'conversation-panel' }
+        'User-Agent'             = $UserAgent
+        'Content-Type'           = 'application/json'
+    }
+
+    $chatMessages = New-Object System.Collections.Generic.List[hashtable]
+    $respInput    = New-Object System.Collections.Generic.List[hashtable]
+    $systemContent = 'You are a research and coding assistant.'
+    if ($browsingEnabled) {
+        $systemContent += ' You have a fetch_url tool - use it whenever the user asks about current web content or a URL. Cite the URLs you fetched.'
+    }
+    if ($fileAccessEnabled) {
+        $systemContent += ' You have read_file and list_directory tools - use them whenever the user refers to a local file or directory by path. Read a file before reasoning about its contents; never guess. You also have write_file and create_directory tools - use write_file whenever the user asks you to create, write, save or generate a file (do not just print the content and claim you cannot write files).'
+    }
+    if ($terminalEnabled) {
+        $systemContent += ' You have a run_command tool that runs a shell command line in PowerShell and returns its stdout, stderr and exit code - use it to run commands the user asks for and to inspect or change system state the file tools cannot (git, builds, package managers, processes, services). Prefer non-destructive commands and explain any destructive one before running it.'
+    }
+    if ($userPromptsEnabled) {
+        $systemContent += ' You have an ask_user tool that puts a single question to the user on the console and returns their typed answer - use it to resolve genuine ambiguity or a decision only the user can make, rather than guessing; do not use it for anything the other tools can find out.'
+    }
+
+    if ($skillsEnabled) {
+        $catalogText = ($skillCatalog | ForEach-Object {
+            "- {0}: {1}" -f $_.Name, ($_.Description ?? '(no description)')
+        }) -join "`n"
+        $systemContent = $systemContent + "`n`n" +
+            "You have access to the following skills. When one is relevant to the user's request, call the load_skill tool with its exact name to retrieve its full instructions, then follow them. Do not guess a skill's contents - load it first.`n`nAvailable skills:`n" +
+            $catalogText
+    }
+
+    if ($instructionRootEnabled) {
+        $instructionCatalogText = ($instructionCatalog | ForEach-Object {
+            $applyToHint = if ($_.ApplyTo) { " [applies to: $($_.ApplyTo)]" } else { '' }
+            "- {0}: {1}{2}" -f $_.Name, ($_.Description ?? '(no description)'), $applyToHint
+        }) -join "`n"
+        $systemContent = $systemContent + "`n`n" +
+            "You also have access to the following instruction files. When one is relevant to the user's request - match on its description and applyTo glob - call the load_instruction tool with its exact name to retrieve its full body, then follow it. Do not guess an instruction's contents - load it first.`n`nAvailable instructions:`n" +
+            $instructionCatalogText
+    }
+
+    # Append custom instructions: explicit -SystemPrompt / -SystemPromptPath
+    # first, then the body of each -InstructionPath file (front-matter
+    # stripped), in the order given. Track each source that actually made it
+    # into the system prompt so the caller can see what shaped the response.
+    $extraInstructions  = New-Object System.Collections.Generic.List[string]
+    $instructionsApplied = New-Object System.Collections.Generic.List[pscustomobject]
+    if ($PSBoundParameters.ContainsKey('SystemPrompt') -and -not [string]::IsNullOrWhiteSpace($SystemPrompt)) {
+        $null = $extraInstructions.Add($SystemPrompt.Trim())
+        $null = $instructionsApplied.Add([pscustomobject]@{ Kind='SystemPrompt'; Source='(inline)'; Chars=$SystemPrompt.Trim().Length })
+    }
+    foreach ($path in $SystemPromptPath) {
+        $body = Get-ShpInstructionContent -Path $path
+        if (-not [string]::IsNullOrWhiteSpace($body)) {
+            $null = $extraInstructions.Add($body)
+            $null = $instructionsApplied.Add([pscustomobject]@{ Kind='SystemPromptPath'; Source=$path; Chars=$body.Length })
+            Write-Verbose ("Loaded system-prompt file: {0} ({1} chars)" -f $path, $body.Length)
+        } else {
+            Write-Warning ("System-prompt file '{0}' is empty after stripping front-matter; skipped." -f $path)
+        }
+    }
+    foreach ($path in $InstructionPath) {
+        $body = Get-ShpInstructionContent -Path $path
+        if (-not [string]::IsNullOrWhiteSpace($body)) {
+            $null = $extraInstructions.Add($body)
+            $null = $instructionsApplied.Add([pscustomobject]@{ Kind='InstructionPath'; Source=$path; Chars=$body.Length })
+            Write-Verbose ("Loaded instruction file: {0} ({1} chars)" -f $path, $body.Length)
+        } else {
+            Write-Warning ("Instruction file '{0}' is empty after stripping front-matter; skipped." -f $path)
+        }
+    }
+    # When the todo-list tool is offered, add a short built-in instruction so the
+    # model reliably plans and tracks multi-step work rather than relying on the
+    # tool description alone.
+    if ($EnableTodoList) {
+        $null = $extraInstructions.Add('For any multi-step task, call manage_todo_list to plan and track sub-tasks: keep exactly one item in-progress, send the full list on each update, and mark items completed as soon as they finish. Skip it for trivial one-step requests.')
+        $null = $instructionsApplied.Add([pscustomobject]@{ Kind='TodoListGuidance'; Source='(built-in)'; Chars=0 })
+    }
+    if ($extraInstructions.Count -gt 0) {
+        $systemContent = $systemContent + "`n`n" + ($extraInstructions -join "`n`n")
+    }
+
+    $null = $chatMessages.Add(@{ role='system'; content=$systemContent })
+    $null = $respInput.Add(@{ role='system'; content=$systemContent })
+    # Replay any prior conversation turns (continuation) between the system
+    # message and the new user prompt, in both API shapes.
+    foreach ($h in $priorHistory) {
+        $null = $chatMessages.Add(@{ role=[string]$h.role; content=[string]$h.content })
+        $null = $respInput.Add(@{ role=[string]$h.role; content=[string]$h.content })
+    }
+    # Build the user message. With -Image the chat content becomes an array of
+    # content blocks (text plus one image_url block per image); otherwise it is
+    # the plain prompt string. The responses shape keeps the text prompt.
+    $userChatContent = if ($Image) { ConvertTo-ShpImageContent -Text $Prompt -Image $Image } else { $Prompt }
+    $null = $chatMessages.Add(@{ role='user';   content=$userChatContent })
+    $null = $respInput.Add(@{ role='user';   content=$Prompt })
+
+    $respTools = $null
+    if ($tools) {
+        $respTools = @()
+        foreach ($t in $tools) {
+            $respTools += @{ type='function'; name=$t.function.name; description=$t.function.description; parameters=$t.function.parameters }
+        }
+    }
+
+    $sw = [System.Diagnostics.Stopwatch]::StartNew()
+    $totalPrompt=0; $totalCompletion=0; $totalCached=0; $totalCacheWrite=0
+    $iteration=0; $toolCallsExecuted=@(); $turn=$null
+    $skillsUsed = New-Object System.Collections.Generic.List[string]
+    $instructionsLoaded = New-Object System.Collections.Generic.List[string]
+    $filesRead  = New-Object System.Collections.Generic.List[string]
+    $filesWritten = New-Object System.Collections.Generic.List[string]
+    $commandsRun = New-Object System.Collections.Generic.List[string]
+    $questionsAsked = New-Object System.Collections.Generic.List[string]
+    $userToolsCalled = New-Object System.Collections.Generic.List[string]
+    $reasoningLog = New-Object System.Collections.Generic.List[string]
+    # Todo list (manage_todo_list, opt-in via -EnableTodoList): the model's
+    # current normalised checklist for this turn. Empty unless the tool is
+    # offered and called; surfaced on the result's TodoList member.
+    $todoList = @()
+    # Structured progress emitter: write one ShpProgress-tagged Information
+    # record per tool call and per todo-list update so a host can render live
+    # tool activity without scraping the -ShowThinking host trace. Silent on the
+    # console under the default InformationPreference; opt out with
+    # -DisableProgressEvents.
+    $writeProgress = {
+        param([string]$Kind, [hashtable]$Data)
+        if ($DisableProgressEvents) { return }
+        $payload = [pscustomobject](@{ Kind = $Kind } + $Data)
+        Write-Information -MessageData $payload -Tags 'ShpProgress'
+    }
+    # Circuit breaker: some models (notably claude-haiku-4.5 on /chat/completions)
+    # keep returning finish_reason='tool_calls' with no usable tool call even
+    # after their work is finished, which would otherwise nudge until
+    # MaxToolIterations. Give up after this many empty tool-call turns in a row
+    # and treat the last turn as final.
+    $maxConsecutiveEmptyNudges = 3
+    $consecutiveEmptyNudges = 0
+    # -ShowThinking shows the model's reasoning trace. The streaming
+    # /chat/completions path carries that trace for reasoning models on this
+    # backend (the Claude family streams it as reasoning_text deltas - the same
+    # trace VS Code shows), so streaming is the PREFERRED thinking path and is
+    # left on. Only when streaming is explicitly disabled does -ShowThinking fall
+    # back to the /responses reasoning-summary endpoint. Streaming also lifts the
+    # service's much lower non-streaming output cap.
+    # Structured output (response_format) and image input are chat-shaped;
+    # server-side state is responses-shaped. These cannot be combined.
+    $structured = ($ResponseFormat -eq 'json_object') -or (-not [string]::IsNullOrWhiteSpace($JsonSchema))
+    if ($UseServerSideState -and ($structured -or $Image)) {
+        throw 'UseServerSideState (responses API) cannot be combined with structured output or image input (chat API).'
+    }
+    $streamingEnabled = (-not $DisableStreaming) -and (-not $UseServerSideState)
+    $mode = if ($UseServerSideState) { 'responses' }
+            elseif ($Image -or $structured) { 'chat' }
+            elseif ($ShowThinking -and -not $streamingEnabled) { 'responses' }
+            else { 'chat' }
+    $requestReasoning = [bool]$ShowThinking -and ($mode -eq 'responses')
+    $previousResponseId = if ($UseServerSideState) { $script:ShpLastResponseId } else { $null }
+    # Server-side state can be switched off mid-loop if the backend rejects the
+    # store parameter (the Copilot proxy is stateless and returns
+    # "store is not supported"); we then fall back to client-side history.
+    $serverSideActive = [bool]$UseServerSideState
+
+    # Static optional parameters shared by every turn in the loop.
+    $structuredParams = @{}
+    if (-not [string]::IsNullOrWhiteSpace($ResponseFormat)) { $structuredParams.ResponseFormat = $ResponseFormat }
+    if (-not [string]::IsNullOrWhiteSpace($JsonSchema))     { $structuredParams.JsonSchema = $JsonSchema }
+    $connectionParams = @{ TimeoutSec = $effectiveTimeoutSec; MaxRetryCount = $effectiveMaxRetry; RetryDelaySec = $effectiveRetryDelay; NetworkOutageToleranceSec = $effectiveOutageTolerance }
+
+    while ($true) {
+        $iteration++
+        if ($iteration -gt $MaxToolIterations) { throw "Exceeded MaxToolIterations ($MaxToolIterations)." }
+        if ($ShowThinking) { Write-Host ("`n=== iteration {0} ({1}) ===" -f $iteration, $mode) -ForegroundColor DarkCyan }
+        try {
+            $conv = if ($mode -eq 'responses') { $respInput } else { $chatMessages }
+            $tls  = if ($mode -eq 'responses') { $respTools } else { $tools }
+            $turn = Invoke-CopilotTurn -Mode $mode -Model $Model -ApiBase $apiBase -Headers $apiHeaders -Conversation $conv -Tools $tls -RequestReasoningSummary:($mode -eq 'responses' -and $requestReasoning) -ReasoningEffort $ReasoningEffort -MaxOutputTokens $MaxOutputTokens -Stream:($streamingEnabled -and $mode -eq 'chat') -EchoReasoning:($ShowThinking -and $streamingEnabled -and $mode -eq 'chat') -Store:($serverSideActive -and $mode -eq 'responses') -PreviousResponseId $previousResponseId @structuredParams @connectionParams
+        } catch {
+            $errText = $_.ErrorDetails.Message
+            if ([string]::IsNullOrWhiteSpace($errText)) { $errText = $_.Exception.Message }
+            # Server-side state requested but the backend rejects the store
+            # parameter (the Copilot proxy is stateless). Fall back to ordinary
+            # client-side history: drop store/previous_response_id, switch to
+            # chat, and retry the same turn.
+            if ($serverSideActive -and $errText -and $errText -match 'store') {
+                Write-Warning 'The backend does not support server-side conversation state (store); falling back to client-side history.'
+                $serverSideActive = $false; $previousResponseId = $null; $mode = 'chat'; $iteration--; continue
+            }
+            # The model does not support /responses at all - fall back to chat
+            # (this also covers -ShowThinking forcing responses on a chat-only
+            # model such as claude-opus-4.8).
+            if ($mode -eq 'responses' -and $errText -and ($errText -match 'unsupported_api_for_model' -or $errText -match 'does not support Responses')) {
+                Write-Verbose "Model '$Model' does not support /responses - switching to /chat/completions."
+                if ($ShowThinking) { Write-Host '(model has no /responses API; reasoning summary unavailable, continuing on /chat)' -ForegroundColor DarkGray }
+                $mode='chat'; $requestReasoning=$false; $iteration--; continue
+            }
+            # The model accepts /responses but rejected the reasoning-summary
+            # request specifically - retry the same turn without it.
+            if ($mode -eq 'responses' -and $requestReasoning -and $errText -and ($errText -match 'reasoning' -or $errText -match 'summary')) {
+                Write-Verbose "Model '$Model' rejected the reasoning summary - retrying without it."
+                if ($ShowThinking) { Write-Host '(model does not support a reasoning summary; continuing without it)' -ForegroundColor DarkGray }
+                $requestReasoning = $false; $iteration--; continue
+            }
+            if ($mode -eq 'chat' -and $iteration -eq 1 -and $errText -and ($errText -match 'unsupported_api_for_model' -or $errText -match 'invalid_request_body')) {
+                Write-Verbose "Model '$Model' rejected on /chat/completions - switching to /responses."
+                $mode='responses'; $iteration--; continue
+            }
+            throw
+        }
+
+        $totalPrompt += $turn.PromptTokens
+        $totalCompletion += $turn.CompletionTokens
+        $totalCached += $turn.CachedTokens
+        $totalCacheWrite += $turn.CacheWriteTokens
+
+        # Server-side state: carry this turn's response id into the next turn so
+        # the loop (and the next call) can continue by reference.
+        if ($UseServerSideState -and $turn.PSObject.Properties.Match('ResponseId').Count -gt 0 -and $turn.ResponseId) {
+            $previousResponseId = $turn.ResponseId
+        }
+
+        # Surface any reasoning the model exposed this turn.
+        if ($turn.PSObject.Properties.Match('Reasoning').Count -gt 0 -and -not [string]::IsNullOrWhiteSpace($turn.Reasoning)) {
+            $null = $reasoningLog.Add($turn.Reasoning)
+            # When streaming the chat shape, Read-ShpChatStream already echoed the
+            # reasoning live in dim italic; only print it here for the
+            # non-streaming / responses path so it is not shown twice. Dim italic
+            # marks it as reasoning "backnoise", distinct from the answer.
+            if ($ShowThinking -and -not ($streamingEnabled -and $mode -eq 'chat')) {
+                Write-Host "`nthinking:" -ForegroundColor DarkGray
+                Write-Host ("`e[3;90m{0}`e[0m" -f $turn.Reasoning)
+            }
+        }
+
+        if ($turn.ToolCalls.Count -gt 0) {
+            $consecutiveEmptyNudges = 0
+            if ($mode -eq 'responses') {
+                foreach ($ai in $turn.AssistantItems) {
+                    $h = @{}; $ai.PSObject.Properties | ForEach-Object { $h[$_.Name] = $_.Value }
+                    $null = $respInput.Add($h)
+                }
+            } else {
+                $null = $chatMessages.Add(@{
+                    role='assistant'; content=$turn.AssistantMessage.content
+                    tool_calls = @($turn.ToolCalls | ForEach-Object {
+                        @{ id=$_.Id; type='function'; function=@{ name=$_.Name; arguments=$_.Arguments } }
+                    })
+                })
+            }
+            foreach ($tc in $turn.ToolCalls) {
+                & $writeProgress 'ToolCall' @{ Name = $tc.Name; Arguments = $tc.Arguments }
+                Write-Verbose ("-> tool: {0}({1})" -f $tc.Name, $tc.Arguments)
+                if ($ShowThinking) { Write-Host ("-> {0}({1})" -f $tc.Name, $tc.Arguments) -ForegroundColor Cyan }
+                $toolResult = '{"error":"unknown tool"}'
+                try {
+                    $fargs = $tc.Arguments | ConvertFrom-Json
+                    switch ($tc.Name) {
+                        'fetch_url' { $toolResult = Invoke-FetchUrlTool -Url $fargs.url -MaxChars 0 }
+                        'read_file' {
+                            $toolResult = Invoke-ReadFileTool -Path $fargs.path -MaxChars 0
+                            if (-not $filesRead.Contains($fargs.path)) { $null = $filesRead.Add($fargs.path) }
+                        }
+                        'list_directory' { $toolResult = Invoke-ListDirectoryTool -Path $fargs.path }
+                        'write_file' {
+                            $toolResult = Invoke-WriteFileTool -Path $fargs.path -Content ([string]$fargs.content) -Append:([bool]$fargs.append)
+                            if (-not $filesWritten.Contains($fargs.path)) { $null = $filesWritten.Add($fargs.path) }
+                        }
+                        'create_directory' { $toolResult = New-DirectoryTool -Path $fargs.path }
+                        'run_command' {
+                            $toolResult = Invoke-RunCommandTool -Command ([string]$fargs.command) -WorkingDirectory ([string]$fargs.workingDirectory)
+                            if (-not $commandsRun.Contains([string]$fargs.command)) { $null = $commandsRun.Add([string]$fargs.command) }
+                        }
+                        'ask_user' {
+                            $toolResult = Read-ShpUserInput -Question ([string]$fargs.question)
+                            if (-not $questionsAsked.Contains([string]$fargs.question)) { $null = $questionsAsked.Add([string]$fargs.question) }
+                        }
+                        'load_skill' {
+                            $skillName = $fargs.name
+                            if ($skillMap.ContainsKey($skillName)) {
+                                $skillBody = Get-ShpInstructionContent -Path $skillMap[$skillName]
+                                $toolResult = @{ name=$skillName; instructions=$skillBody } | ConvertTo-Json -Compress
+                                if (-not $skillsUsed.Contains($skillName)) { $null = $skillsUsed.Add($skillName) }
+                            } else {
+                                $toolResult = @{ error=("Unknown skill '{0}'. Available: {1}" -f $skillName, (($skillCatalog.Name) -join ', ')) } | ConvertTo-Json -Compress
+                            }
+                        }
+                        'load_instruction' {
+                            $instructionName = $fargs.name
+                            if ($instructionMap.ContainsKey($instructionName)) {
+                                $instructionBody = Get-ShpInstructionContent -Path $instructionMap[$instructionName]
+                                $toolResult = @{ name=$instructionName; instructions=$instructionBody } | ConvertTo-Json -Compress
+                                if (-not $instructionsLoaded.Contains($instructionName)) { $null = $instructionsLoaded.Add($instructionName) }
+                            } else {
+                                $toolResult = @{ error=("Unknown instruction '{0}'. Available: {1}" -f $instructionName, (($instructionCatalog.Name) -join ', ')) } | ConvertTo-Json -Compress
+                            }
+                        }
+                        'manage_todo_list' {
+                            $todoList = ConvertTo-ShpTodoList -InputObject $fargs.todoList
+                            & $writeProgress 'TodoList' @{ TodoList = $todoList }
+                            $toolResult = @{
+                                ok        = $true
+                                total     = @($todoList).Count
+                                completed = @($todoList | Where-Object status -eq 'completed').Count
+                            } | ConvertTo-Json -Compress
+                        }
+                        default {
+                            # User-defined tool (Register-ShpTool): invoke the
+                            # backing command with the model-supplied arguments
+                            # and return its output. Runs real PowerShell with
+                            # the caller's privileges - registration is the
+                            # opt-in. Unknown names keep the default error.
+                            if ($userToolCommands.ContainsKey($tc.Name)) {
+                                $splat = @{}
+                                if ($fargs) {
+                                    foreach ($prop in $fargs.PSObject.Properties) { $splat[$prop.Name] = $prop.Value }
+                                }
+                                $output = (& $userToolCommands[$tc.Name] @splat 2>&1 | Out-String).Trim()
+                                $toolResult = @{ output = $output } | ConvertTo-Json -Compress
+                                if (-not $userToolsCalled.Contains($tc.Name)) { $null = $userToolsCalled.Add($tc.Name) }
+                            }
+                        }
+                    }
+                } catch { $toolResult = (@{ error=$_.Exception.Message } | ConvertTo-Json -Compress) }
+                $toolCallsExecuted += [pscustomobject]@{ Name=$tc.Name; Arguments=$tc.Arguments; ResultPreview=$toolResult.Substring(0,[Math]::Min(200,$toolResult.Length)) }
+                if ($mode -eq 'responses') {
+                    $null = $respInput.Add(@{ type='function_call_output'; call_id=$tc.Id; output=$toolResult })
+                } else {
+                    $null = $chatMessages.Add(@{ role='tool'; tool_call_id=$tc.Id; name=$tc.Name; content=$toolResult })
+                }
+            }
+            continue
+        }
+
+        if ($turn.FinishReason -eq 'tool_calls' -and $turn.ToolCalls.Count -eq 0) {
+            $consecutiveEmptyNudges++
+            if ($consecutiveEmptyNudges -ge $maxConsecutiveEmptyNudges) {
+                Write-Warning ("Model signalled a tool call but emitted none {0} times in a row; treating the last turn as final." -f $consecutiveEmptyNudges)
+                if ($ShowThinking) { Write-Host '(giving up on empty tool-call nudges; returning the result so far)' -ForegroundColor DarkGray }
+                break
+            }
+            Write-Warning ("Model claimed a tool call but emitted none. Nudging ({0}/{1})." -f $consecutiveEmptyNudges, $maxConsecutiveEmptyNudges)
+            $nudge = 'Your previous turn signalled a tool call but contained no usable tool call. If you still need a tool, emit it as a structured tool_calls object (not as text). If you have finished the task, reply with your final answer in plain text and do not request a tool.'
+            if ($mode -eq 'responses') {
+                $null = $respInput.Add(@{ role='assistant'; content=$turn.Content })
+                $null = $respInput.Add(@{ role='user'; content=$nudge })
+            } else {
+                $null = $chatMessages.Add(@{ role='assistant'; content=$turn.AssistantMessage.content })
+                $null = $chatMessages.Add(@{ role='user'; content=$nudge })
+            }
+            continue
+        }
+        break
+    }
+    $sw.Stop()
+
+    # -ShowThinking was asked for but the model exposed no reasoning trace on
+    # this backend (a non-reasoning model, or a model whose only path here
+    # returns none). Say so plainly so the absent thinking is not mistaken for a
+    # bug or a broken switch.
+    if ($ShowThinking -and $reasoningLog.Count -eq 0) {
+        Write-Host ("(-ShowThinking: model '{0}' exposed no reasoning trace on this backend; showed the iteration and tool-call trace only.)" -f $Model) -ForegroundColor Yellow
+    }
+
+    $rawHeaders = @{}
+    foreach ($key in $turn.Response.Headers.Keys) { $rawHeaders[$key] = ($turn.Response.Headers[$key] -join ', ') }
+
+    $priceKey = ($turn.ModelName, $Model | Where-Object { $_ } | ForEach-Object { $_.ToLower() } |
+        Where-Object { $script:PriceTable.ContainsKey($_) } | Select-Object -First 1)
+    $pricing = if ($priceKey) { $script:PriceTable[$priceKey] } else { $null }
+
+    $freshInputTokens = [Math]::Max(0, $totalPrompt - $totalCached - $totalCacheWrite)
+    $costUSD=$null; $credits=$null; $breakdown=$null
+    if ($pricing) {
+        $cInput  = ($freshInputTokens * $pricing.Input)       / 1e6
+        $cCached = ($totalCached      * $pricing.CachedInput) / 1e6
+        $cWrite  = if ($pricing.CacheWrite) { ($totalCacheWrite * $pricing.CacheWrite) / 1e6 } else { 0 }
+        $cOutput = ($totalCompletion  * $pricing.Output)      / 1e6
+        $costUSD = [Math]::Round($cInput + $cCached + $cWrite + $cOutput, 6)
+        $credits = [Math]::Round($costUSD / 0.01, 4)
+        $breakdown = [pscustomobject]@{
+            InputTokens=$freshInputTokens; CachedInputTokens=$totalCached
+            CacheWriteTokens=$totalCacheWrite; OutputTokens=$totalCompletion
+            InputCostUSD=[Math]::Round($cInput,6); CachedInputCostUSD=[Math]::Round($cCached,6)
+            CacheWriteCostUSD=[Math]::Round($cWrite,6); OutputCostUSD=[Math]::Round($cOutput,6)
+            Rates=$pricing; PriceTableKey=$priceKey
+        }
+    }
+
+    # When the model finishes via the circuit breaker (or any empty final turn)
+    # but actually performed file work, surface that instead of an empty string.
+    $finalContent = $turn.Content
+    if ([string]::IsNullOrWhiteSpace($finalContent)) {
+        $summaryParts = @()
+        if ($filesWritten.Count -gt 0) { $summaryParts += ('Files written: {0}' -f (@($filesWritten) -join ', ')) }
+        if ($filesRead.Count -gt 0)    { $summaryParts += ('Files read: {0}'    -f (@($filesRead)    -join ', ')) }
+        if ($summaryParts.Count -gt 0) {
+            $finalContent = '(The model returned no final message. ' + ($summaryParts -join '; ') + '.)'
+        }
+    }
+
+    # Structured output: when a JSON reply was requested, parse it onto
+    # ContentObject. Left $null when not requested, or when the reply could not
+    # be parsed (the raw text is always available on Content).
+    $contentObject = $null
+    if ($structured -and -not [string]::IsNullOrWhiteSpace($finalContent)) {
+        # Models frequently wrap JSON in a Markdown code fence even when asked
+        # not to; strip a surrounding ```json ... ``` (or bare ``` ... ```)
+        # before parsing so a well-formed reply still lands on ContentObject.
+        $jsonText = $finalContent.Trim()
+        $fence = [regex]::Match($jsonText, '(?s)^```[a-zA-Z]*\s*(.*?)\s*```$')
+        if ($fence.Success) { $jsonText = $fence.Groups[1].Value.Trim() }
+        try { $contentObject = $jsonText | ConvertFrom-Json -ErrorAction Stop }
+        catch { Write-Warning 'Structured output was requested but the reply was not valid JSON; ContentObject is null.' }
+    }
+
+    # Persist the server-side response id (or clear it) so the next
+    # UseServerSideState call continues from this one. Reset by Clear-ShpChat.
+    # Only when server-side state is still active (the backend may have rejected
+    # store, in which case we fell back to client-side history).
+    if ($UseServerSideState) {
+        $script:ShpLastResponseId = if ($serverSideActive -and $turn.PSObject.Properties.Match('ResponseId').Count -gt 0) { $turn.ResponseId } else { $null }
+    }
+
+    # Build the updated conversation history (prior turns plus this exchange) and
+    # record it so the NEXT call continues from it. Every call updates the
+    # session chat to its own constituted conversation; continuation is the
+    # default. Use Clear-ShpChat to reset. The explicit -History mode stays
+    # stateless and never writes to the session.
+    $newHistory = @(
+        foreach ($h in $priorHistory) { [pscustomobject]@{ role = [string]$h.role; content = [string]$h.content } }
+        [pscustomobject]@{ role = 'user';      content = $Prompt }
+        [pscustomobject]@{ role = 'assistant'; content = $finalContent }
+    )
+    if (-not $PSBoundParameters.ContainsKey('History')) { $script:ShpChat = $newHistory }
+
+    $result = [pscustomobject]@{
+        PSTypeName='ShellPilot.Result'
+        Model=$turn.ModelName; RequestedModel=$Model; Prompt=$Prompt
+        Content=$finalContent; FinishReason=$turn.FinishReason
+        ContentObject=$contentObject
+        Reasoning=($reasoningLog -join "`n`n")
+        Usage = [pscustomobject]@{ PromptTokens=$totalPrompt; CompletionTokens=$totalCompletion; TotalTokens=$totalPrompt+$totalCompletion }
+        Credits=$credits; CostUSD=$costUSD; CostBreakdown=$breakdown
+        Iterations=$iteration; ToolCalls=$toolCallsExecuted
+        ReasoningEffort=$(if ([string]::IsNullOrWhiteSpace($ReasoningEffort)) { $null } else { $ReasoningEffort })
+        MaxOutputTokens=$(if ($MaxOutputTokens -gt 0) { $MaxOutputTokens } else { $null })
+        History=@($newHistory)
+        BrowsingEnabled=[bool]$browsingEnabled; FileAccessEnabled=[bool]$fileAccessEnabled
+        TerminalEnabled=[bool]$terminalEnabled; UserPromptsEnabled=[bool]$userPromptsEnabled
+        StreamingEnabled=[bool]$streamingEnabled
+        FilesRead=@($filesRead); FilesWritten=@($filesWritten); ApiMode=$turn.Mode
+        CommandsRun=@($commandsRun); QuestionsAsked=@($questionsAsked)
+        TodoList=@($todoList)
+        UserToolsAvailable=@($userToolCommands.Keys); UserToolsCalled=@($userToolsCalled)
+        InstructionsApplied=@($instructionsApplied)
+        InstructionsAvailable=@($instructionCatalog.Name)
+        InstructionsLoaded=@($instructionsLoaded)
+        SkillsAvailable=@($skillCatalog.Name)
+        SkillsUsed=@($skillsUsed)
+        DurationMs=[int]$sw.Elapsed.TotalMilliseconds
+        Endpoint="$apiBase$(if ($turn.Mode -eq 'responses') {'/responses'} else {'/chat/completions'})"
+        Headers=$rawHeaders; Raw=$turn.Raw
+    }
+
+    # Record this call in the per-session usage log (every call, including
+    # stateless -History calls) so the session's token and credit spend can be
+    # analysed afterwards via Get-ShpUsage.
+    $null = $script:ShpUsageLog.Add([pscustomobject]@{
+        PSTypeName       = 'ShellPilot.UsageRecord'
+        Timestamp        = [DateTime]::UtcNow
+        Model            = $turn.ModelName
+        RequestedModel   = $Model
+        Prompt           = $Prompt
+        PromptTokens     = $totalPrompt
+        CompletionTokens = $totalCompletion
+        TotalTokens      = $totalPrompt + $totalCompletion
+        CachedTokens     = $totalCached
+        CostUSD          = $costUSD
+        Credits          = $credits
+        Iterations       = $iteration
+        ToolCalls        = @($toolCallsExecuted).Count
+        FinishReason     = $turn.FinishReason
+        DurationMs       = [int]$sw.Elapsed.TotalMilliseconds
+    })
+
+    $result
+}

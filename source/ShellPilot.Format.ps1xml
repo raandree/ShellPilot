@@ -1,0 +1,304 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Format views for ShellPilot output objects. Each public cmdlet that emits a
+    structured record tags it with a PSTypeName (ShellPilot.*); the views below
+    give those records a readable default table (or list) so Get-ShpModel and the
+    other cmdlets print nicely without an explicit Format-Table. Members not
+    listed here (for example the Raw model record, or a usage record''s full
+    Prompt text) remain on the object and are reachable with Select-Object or
+    Format-List *.
+-->
+<Configuration>
+  <ViewDefinitions>
+
+    <!-- Invoke-Shp result. A list view that shows the answer once with the key
+         metadata; the bulky History/Raw/Headers members (History repeats the
+         answer text, so the default object dump printed it twice) stay on the
+         object and are reachable with Select-Object / Format-List *. -->
+    <View>
+      <Name>ShellPilot.Result</Name>
+      <ViewSelectedBy>
+        <TypeName>ShellPilot.Result</TypeName>
+      </ViewSelectedBy>
+      <ListControl>
+        <ListEntries>
+          <ListEntry>
+            <ListItems>
+              <ListItem><PropertyName>Model</PropertyName></ListItem>
+              <ListItem><PropertyName>Prompt</PropertyName></ListItem>
+              <ListItem><PropertyName>FinishReason</PropertyName></ListItem>
+              <ListItem><PropertyName>ApiMode</PropertyName></ListItem>
+              <ListItem><PropertyName>Iterations</PropertyName></ListItem>
+              <ListItem><Label>ToolCalls</Label><ScriptBlock>@($_.ToolCalls).Count</ScriptBlock></ListItem>
+              <ListItem><Label>PromptTokens</Label><ScriptBlock>$_.Usage.PromptTokens</ScriptBlock></ListItem>
+              <ListItem><Label>CompletionTokens</Label><ScriptBlock>$_.Usage.CompletionTokens</ScriptBlock></ListItem>
+              <ListItem><Label>TotalTokens</Label><ScriptBlock>$_.Usage.TotalTokens</ScriptBlock></ListItem>
+              <ListItem><PropertyName>CostUSD</PropertyName></ListItem>
+              <ListItem><PropertyName>Credits</PropertyName></ListItem>
+              <ListItem><PropertyName>DurationMs</PropertyName></ListItem>
+              <ListItem><PropertyName>Content</PropertyName></ListItem>
+            </ListItems>
+          </ListEntry>
+        </ListEntries>
+      </ListControl>
+    </View>
+
+    <!-- Get-ShpModel -->
+    <View>
+      <Name>ShellPilot.Model</Name>
+      <ViewSelectedBy>
+        <TypeName>ShellPilot.Model</TypeName>
+      </ViewSelectedBy>
+      <TableControl>
+        <AutoSize />
+        <TableHeaders>
+          <TableColumnHeader>
+            <Label>Id</Label>
+          </TableColumnHeader>
+          <TableColumnHeader>
+            <Label>ServiceType</Label>
+          </TableColumnHeader>
+          <TableColumnHeader>
+            <Label>MaxContext</Label>
+            <Alignment>Right</Alignment>
+          </TableColumnHeader>
+          <TableColumnHeader>
+            <Label>MaxOutput</Label>
+            <Alignment>Right</Alignment>
+          </TableColumnHeader>
+          <TableColumnHeader>
+            <Label>ReasoningEfforts</Label>
+          </TableColumnHeader>
+        </TableHeaders>
+        <TableRowEntries>
+          <TableRowEntry>
+            <TableColumnItems>
+              <TableColumnItem>
+                <PropertyName>Id</PropertyName>
+              </TableColumnItem>
+              <TableColumnItem>
+                <PropertyName>ServiceType</PropertyName>
+              </TableColumnItem>
+              <TableColumnItem>
+                <ScriptBlock>if ($null -ne $_.MaxContextWindowTokens) { '{0:N0}' -f [long]$_.MaxContextWindowTokens }</ScriptBlock>
+              </TableColumnItem>
+              <TableColumnItem>
+                <ScriptBlock>if ($null -ne $_.MaxOutputTokens) { '{0:N0}' -f [long]$_.MaxOutputTokens }</ScriptBlock>
+              </TableColumnItem>
+              <TableColumnItem>
+                <ScriptBlock>$_.ReasoningEfforts -join ', '</ScriptBlock>
+              </TableColumnItem>
+            </TableColumnItems>
+          </TableRowEntry>
+        </TableRowEntries>
+      </TableControl>
+    </View>
+
+    <!-- Get-ShpUsage (per-call records) -->
+    <View>
+      <Name>ShellPilot.UsageRecord</Name>
+      <ViewSelectedBy>
+        <TypeName>ShellPilot.UsageRecord</TypeName>
+      </ViewSelectedBy>
+      <TableControl>
+        <AutoSize />
+        <TableHeaders>
+          <TableColumnHeader><Label>Time</Label></TableColumnHeader>
+          <TableColumnHeader><Label>Model</Label></TableColumnHeader>
+          <TableColumnHeader><Label>Prompt</Label><Alignment>Right</Alignment></TableColumnHeader>
+          <TableColumnHeader><Label>Completion</Label><Alignment>Right</Alignment></TableColumnHeader>
+          <TableColumnHeader><Label>Total</Label><Alignment>Right</Alignment></TableColumnHeader>
+          <TableColumnHeader><Label>CostUSD</Label><Alignment>Right</Alignment></TableColumnHeader>
+          <TableColumnHeader><Label>Credits</Label><Alignment>Right</Alignment></TableColumnHeader>
+          <TableColumnHeader><Label>Iter</Label><Alignment>Right</Alignment></TableColumnHeader>
+          <TableColumnHeader><Label>Tools</Label><Alignment>Right</Alignment></TableColumnHeader>
+          <TableColumnHeader><Label>Finish</Label></TableColumnHeader>
+          <TableColumnHeader><Label>ms</Label><Alignment>Right</Alignment></TableColumnHeader>
+        </TableHeaders>
+        <TableRowEntries>
+          <TableRowEntry>
+            <TableColumnItems>
+              <TableColumnItem>
+                <ScriptBlock>if ($_.Timestamp -is [datetime]) { $_.Timestamp.ToString('HH:mm:ss') } else { $_.Timestamp }</ScriptBlock>
+              </TableColumnItem>
+              <TableColumnItem><PropertyName>Model</PropertyName></TableColumnItem>
+              <TableColumnItem><PropertyName>PromptTokens</PropertyName></TableColumnItem>
+              <TableColumnItem><PropertyName>CompletionTokens</PropertyName></TableColumnItem>
+              <TableColumnItem><PropertyName>TotalTokens</PropertyName></TableColumnItem>
+              <TableColumnItem><PropertyName>CostUSD</PropertyName></TableColumnItem>
+              <TableColumnItem><PropertyName>Credits</PropertyName></TableColumnItem>
+              <TableColumnItem><PropertyName>Iterations</PropertyName></TableColumnItem>
+              <TableColumnItem><PropertyName>ToolCalls</PropertyName></TableColumnItem>
+              <TableColumnItem><PropertyName>FinishReason</PropertyName></TableColumnItem>
+              <TableColumnItem><PropertyName>DurationMs</PropertyName></TableColumnItem>
+            </TableColumnItems>
+          </TableRowEntry>
+        </TableRowEntries>
+      </TableControl>
+    </View>
+
+    <!-- Get-ShpUsage -Summary (aggregate totals) -->
+    <View>
+      <Name>ShellPilot.UsageSummary</Name>
+      <ViewSelectedBy>
+        <TypeName>ShellPilot.UsageSummary</TypeName>
+      </ViewSelectedBy>
+      <ListControl>
+        <ListEntries>
+          <ListEntry>
+            <ListItems>
+              <ListItem><PropertyName>Calls</PropertyName></ListItem>
+              <ListItem><PropertyName>PromptTokens</PropertyName></ListItem>
+              <ListItem><PropertyName>CompletionTokens</PropertyName></ListItem>
+              <ListItem><PropertyName>TotalTokens</PropertyName></ListItem>
+              <ListItem><PropertyName>CostUSD</PropertyName></ListItem>
+              <ListItem><PropertyName>Credits</PropertyName></ListItem>
+            </ListItems>
+          </ListEntry>
+        </ListEntries>
+      </ListControl>
+    </View>
+
+    <!-- Get-ShpUsage -Summary .ByModel breakdown -->
+    <View>
+      <Name>ShellPilot.UsageByModel</Name>
+      <ViewSelectedBy>
+        <TypeName>ShellPilot.UsageByModel</TypeName>
+      </ViewSelectedBy>
+      <TableControl>
+        <AutoSize />
+        <TableHeaders>
+          <TableColumnHeader><Label>Model</Label></TableColumnHeader>
+          <TableColumnHeader><Label>Calls</Label><Alignment>Right</Alignment></TableColumnHeader>
+          <TableColumnHeader><Label>Prompt</Label><Alignment>Right</Alignment></TableColumnHeader>
+          <TableColumnHeader><Label>Completion</Label><Alignment>Right</Alignment></TableColumnHeader>
+          <TableColumnHeader><Label>Total</Label><Alignment>Right</Alignment></TableColumnHeader>
+          <TableColumnHeader><Label>CostUSD</Label><Alignment>Right</Alignment></TableColumnHeader>
+          <TableColumnHeader><Label>Credits</Label><Alignment>Right</Alignment></TableColumnHeader>
+        </TableHeaders>
+        <TableRowEntries>
+          <TableRowEntry>
+            <TableColumnItems>
+              <TableColumnItem><PropertyName>Model</PropertyName></TableColumnItem>
+              <TableColumnItem><PropertyName>Calls</PropertyName></TableColumnItem>
+              <TableColumnItem><PropertyName>PromptTokens</PropertyName></TableColumnItem>
+              <TableColumnItem><PropertyName>CompletionTokens</PropertyName></TableColumnItem>
+              <TableColumnItem><PropertyName>TotalTokens</PropertyName></TableColumnItem>
+              <TableColumnItem><PropertyName>CostUSD</PropertyName></TableColumnItem>
+              <TableColumnItem><PropertyName>Credits</PropertyName></TableColumnItem>
+            </TableColumnItems>
+          </TableRowEntry>
+        </TableRowEntries>
+      </TableControl>
+    </View>
+
+    <!-- Get-ShpTool -->
+    <View>
+      <Name>ShellPilot.Tool</Name>
+      <ViewSelectedBy>
+        <TypeName>ShellPilot.Tool</TypeName>
+      </ViewSelectedBy>
+      <TableControl>
+        <AutoSize />
+        <TableHeaders>
+          <TableColumnHeader><Label>Name</Label></TableColumnHeader>
+          <TableColumnHeader><Label>Command</Label></TableColumnHeader>
+          <TableColumnHeader><Label>Description</Label></TableColumnHeader>
+        </TableHeaders>
+        <TableRowEntries>
+          <TableRowEntry>
+            <TableColumnItems>
+              <TableColumnItem><PropertyName>Name</PropertyName></TableColumnItem>
+              <TableColumnItem><PropertyName>Command</PropertyName></TableColumnItem>
+              <TableColumnItem><PropertyName>Description</PropertyName></TableColumnItem>
+            </TableColumnItems>
+          </TableRowEntry>
+        </TableRowEntries>
+      </TableControl>
+    </View>
+
+    <!-- Get-ShpDefault -->
+    <View>
+      <Name>ShellPilot.Default</Name>
+      <ViewSelectedBy>
+        <TypeName>ShellPilot.Default</TypeName>
+      </ViewSelectedBy>
+      <TableControl>
+        <AutoSize />
+        <TableHeaders>
+          <TableColumnHeader><Label>Model</Label></TableColumnHeader>
+          <TableColumnHeader><Label>ReasoningEffort</Label></TableColumnHeader>
+          <TableColumnHeader><Label>MaxOutputTokens</Label><Alignment>Right</Alignment></TableColumnHeader>
+        </TableHeaders>
+        <TableRowEntries>
+          <TableRowEntry>
+            <TableColumnItems>
+              <TableColumnItem><PropertyName>Model</PropertyName></TableColumnItem>
+              <TableColumnItem><PropertyName>ReasoningEffort</PropertyName></TableColumnItem>
+              <TableColumnItem><PropertyName>MaxOutputTokens</PropertyName></TableColumnItem>
+            </TableColumnItems>
+          </TableRowEntry>
+        </TableRowEntries>
+      </TableControl>
+    </View>
+
+    <!-- Get-ShpContext -->
+    <View>
+      <Name>ShellPilot.Context</Name>
+      <ViewSelectedBy>
+        <TypeName>ShellPilot.Context</TypeName>
+      </ViewSelectedBy>
+      <TableControl>
+        <AutoSize />
+        <TableHeaders>
+          <TableColumnHeader><Label>TimeoutSec</Label><Alignment>Right</Alignment></TableColumnHeader>
+          <TableColumnHeader><Label>MaxRetryCount</Label><Alignment>Right</Alignment></TableColumnHeader>
+          <TableColumnHeader><Label>RetryDelaySec</Label><Alignment>Right</Alignment></TableColumnHeader>
+          <TableColumnHeader><Label>NetworkOutageToleranceSec</Label><Alignment>Right</Alignment></TableColumnHeader>
+          <TableColumnHeader><Label>ApiBase</Label></TableColumnHeader>
+          <TableColumnHeader><Label>ApiKey</Label></TableColumnHeader>
+        </TableHeaders>
+        <TableRowEntries>
+          <TableRowEntry>
+            <TableColumnItems>
+              <TableColumnItem><PropertyName>TimeoutSec</PropertyName></TableColumnItem>
+              <TableColumnItem><PropertyName>MaxRetryCount</PropertyName></TableColumnItem>
+              <TableColumnItem><PropertyName>RetryDelaySec</PropertyName></TableColumnItem>
+              <TableColumnItem><PropertyName>NetworkOutageToleranceSec</PropertyName></TableColumnItem>
+              <TableColumnItem><PropertyName>ApiBase</PropertyName></TableColumnItem>
+              <TableColumnItem><PropertyName>ApiKey</PropertyName></TableColumnItem>
+            </TableColumnItems>
+          </TableRowEntry>
+        </TableRowEntries>
+      </TableControl>
+    </View>
+
+    <!-- Get-ShpCostEstimate -->
+    <View>
+      <Name>ShellPilot.CostEstimate</Name>
+      <ViewSelectedBy>
+        <TypeName>ShellPilot.CostEstimate</TypeName>
+      </ViewSelectedBy>
+      <TableControl>
+        <AutoSize />
+        <TableHeaders>
+          <TableColumnHeader><Label>Model</Label></TableColumnHeader>
+          <TableColumnHeader><Label>EstimatedInputTokens</Label><Alignment>Right</Alignment></TableColumnHeader>
+          <TableColumnHeader><Label>EstimatedInputCostUSD</Label><Alignment>Right</Alignment></TableColumnHeader>
+          <TableColumnHeader><Label>EstimatedInputCredits</Label><Alignment>Right</Alignment></TableColumnHeader>
+        </TableHeaders>
+        <TableRowEntries>
+          <TableRowEntry>
+            <TableColumnItems>
+              <TableColumnItem><PropertyName>Model</PropertyName></TableColumnItem>
+              <TableColumnItem><PropertyName>EstimatedInputTokens</PropertyName></TableColumnItem>
+              <TableColumnItem><PropertyName>EstimatedInputCostUSD</PropertyName></TableColumnItem>
+              <TableColumnItem><PropertyName>EstimatedInputCredits</PropertyName></TableColumnItem>
+            </TableColumnItems>
+          </TableRowEntry>
+        </TableRowEntries>
+      </TableControl>
+    </View>
+
+  </ViewDefinitions>
+</Configuration>

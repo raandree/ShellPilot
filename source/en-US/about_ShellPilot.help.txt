@@ -1,0 +1,53 @@
+TOPIC
+    about_ShellPilot
+
+SHORT DESCRIPTION
+    GitHub Copilot in your PowerShell terminal: device-flow auth, model listing,
+    chat and agentic tool-calling with usage and cost.
+
+LONG DESCRIPTION
+    ShellPilot brings the non-editor features of the GitHub Copilot Chat VS Code
+    extension to the PowerShell terminal and to automation scripts. It talks to
+    the same internal Copilot HTTP services, authenticates once with the GitHub
+    device-code flow, and returns rich objects (answer, token usage, estimated
+    cost) that compose with the pipeline.
+
+    All cmdlets use the noun prefix 'Shp'. Get started with:
+
+        Initialize-Shp          # device-code sign-in (run once)
+        Get-ShpModel            # list the models your account can reach
+        Invoke-Shp -Prompt '...'  # send a prompt; streams the reply by default
+
+    Invoke-Shp runs a tool-calling loop (web browsing, file read/write/list,
+    run_command, and ask_user, each opt-out), follows custom instructions and
+    Agent Skills, supports structured output, vision input, a live reasoning
+    trace (-ShowThinking), an opt-in manage_todo_list tool (-EnableTodoList),
+    and structured ShpProgress progress events. Start-ShpChat opens an
+    interactive console session.
+
+    Every public cmdlet has full comment-based help; use Get-Help <cmdlet> -Full.
+
+EXAMPLES
+    PS C:\> Initialize-Shp
+    PS C:\> Invoke-Shp -Prompt 'Explain PowerShell splatting in two sentences.'
+    PS C:\> Invoke-Shp -Model claude-opus-4.8 -Prompt 'Prove there are infinitely many primes.' -ShowThinking
+    PS C:\> Start-ShpChat
+
+NOTE:
+    ShellPilot calls internal Copilot endpoints intended for first-party
+    editors; they can change without notice. The cached OAuth token is stored in
+    clear text today, and the file/terminal tools run unsandboxed with your
+    privileges - disable them (-DisableFileAccess / -DisableTerminal) for
+    untrusted prompts.
+
+TROUBLESHOOTING NOTE:
+    See the GitHub repository for issues and new releases.
+
+SEE ALSO
+    - https://github.com/raandree/ShellPilot
+    - Get-Help Invoke-Shp -Full
+    - Get-Help Get-ShpModel -Full
+
+KEYWORDS
+    GitHub Copilot, AI, chat, agent, tool-calling, embeddings, PowerShell
+
