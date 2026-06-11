@@ -26,16 +26,13 @@ Chronological record of shipped changes and remaining work. Latest first.
 
 ## Log
 
-- 2026-06-11 - Switched the README header to the compact square brand glyph
-  (theme-switched, floated left at 140px) so the full intro fits beside it with
-  no wrap-under and no lines. Confirmed via GitHub's live github-markdown.css
-  that table cells always get a 1px border (borderless table impossible) and
-  that the wide wordmark can't hold the ~330-char intro beside it at any size.
-  Trade-off noted: the wordmark image is no longer shown in the rendered README.
-  Docs-only; committed on main. CHANGELOG branding entry updated.
 - 2026-06-11 - Reverted the README header from the header-less two-column HTML
-  table back to the left-floated wordmark (superseded the same day by the glyph
-  header above).
+  table back to the left-floated logo + intro + `<br clear="left">`. Reason: the
+  user asked to make the table lines invisible, which is impossible on
+  github.com (GitHub draws table-cell borders in CSS and strips the style that
+  would remove them); the float gives the same side-by-side layout with no
+  visible lines. Docs-only; committed on main. CHANGELOG entry reverted to the
+  floated-layout wording.
 - 2026-06-11 - Reworked the README header into a header-less two-column HTML
   table (superseded the same day by the revert above).
 - 2026-06-11 - Made the model's todo list on by default and renamed the opt-in

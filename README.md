@@ -1,19 +1,20 @@
 <!-- markdownlint-disable MD033 MD041 -->
-<!-- Compact square brand glyph floated left so the full intro fits beside it
-     with no wrap-under and no visible lines - a borderless side-by-side that an
-     HTML table can't give on github.com (GitHub draws a 1px border on every
-     table cell and strips the style/class that would remove it). The wide
-     wordmark is short, so a longer intro spills under it ("estimated cost."
-     orphaned below); the square glyph is tall enough for the whole paragraph to
-     sit to its right. Two transparent variants switch by theme via <picture>:
-     the teal glyph (-dark) on dark backgrounds, the navy glyph (-light) on
-     light backgrounds. GitHub resolves prefers-color-scheme correctly; some
-     in-editor Markdown previews may not, so judge it on github.com. -->
+<!-- Logo floated left so the intro fills the space to its right - the same
+     logo-left / text-right layout as a table but with no visible lines.
+     A real HTML <table> can't be made borderless on github.com: GitHub's
+     markdown CSS draws a 1px border on every table cell, and the inline style
+     / class that would remove it is stripped by GitHub's sanitiser (a
+     border="0" attribute is overridden by that CSS), so the float is the only
+     GitHub-safe borderless option. Two transparent variants switch by theme
+     via <picture>: on dark backgrounds the "Shell"-in-white logo (-on-dark),
+     on light backgrounds the "Shell"-in-black logo (-on-light). GitHub resolves
+     prefers-color-scheme correctly; some in-editor Markdown previews may not,
+     so judge it on github.com. -->
 <picture>
   <source media="(prefers-color-scheme: dark)"
-          srcset="assets/shellpilot-glyph-dark.png">
-  <img align="left" width="140" alt="ShellPilot"
-       src="assets/shellpilot-glyph-light.png">
+          srcset="assets/shellpilot-logo-on-dark.png">
+  <img align="left" width="300" alt="ShellPilot logo"
+       src="assets/shellpilot-logo-on-light.png">
 </picture>
 <!-- markdownlint-enable MD033 -->
 
