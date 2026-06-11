@@ -1,31 +1,30 @@
 <!-- markdownlint-disable MD033 MD041 -->
-<!-- Logo and intro laid out side by side in a two-column table with no header
-     row: the logo on the left, the intro text filling the right. Two
-     transparent logo variants switch by theme via <picture>: the "Shell"-in-
-     white logo (-on-dark) on dark backgrounds, the "Shell"-in-black logo
-     (-on-light) on light backgrounds. GitHub resolves prefers-color-scheme
-     correctly; some in-editor Markdown previews may not, so judge it on
-     github.com. Note: github.com draws a 1px border around HTML table cells
-     (the inline CSS that would remove it is stripped by GitHub). -->
-<table width="100%">
-  <tr>
-    <td width="300" valign="top">
-      <picture>
-        <source media="(prefers-color-scheme: dark)"
-                srcset="assets/shellpilot-logo-on-dark.png">
-        <img width="300" alt="ShellPilot logo"
-             src="assets/shellpilot-logo-on-light.png">
-      </picture>
-    </td>
-    <td valign="top">
-      GitHub Copilot in your PowerShell terminal. Authenticate once, list the
-      models your account can reach, and send prompts that stream back, call
-      tools, read and write files, run commands, follow your instructions and
-      Agent Skills, and return structured objects carrying token usage and
-      estimated cost.
-    </td>
-  </tr>
-</table>
+<!-- Logo floated left so the intro fills the space to its right - the same
+     logo-left / text-right layout as a table but with no visible lines.
+     A real HTML <table> can't be made borderless on github.com: GitHub's
+     markdown CSS draws a 1px border on every table cell, and the inline style
+     / class that would remove it is stripped by GitHub's sanitiser (a
+     border="0" attribute is overridden by that CSS), so the float is the only
+     GitHub-safe borderless option. Two transparent variants switch by theme
+     via <picture>: on dark backgrounds the "Shell"-in-white logo (-on-dark),
+     on light backgrounds the "Shell"-in-black logo (-on-light). GitHub resolves
+     prefers-color-scheme correctly; some in-editor Markdown previews may not,
+     so judge it on github.com. -->
+<picture>
+  <source media="(prefers-color-scheme: dark)"
+          srcset="assets/shellpilot-logo-on-dark.png">
+  <img align="left" width="300" alt="ShellPilot logo"
+       src="assets/shellpilot-logo-on-light.png">
+</picture>
+<!-- markdownlint-enable MD033 -->
+
+GitHub Copilot in your PowerShell terminal. Authenticate once, list the models
+your account can reach, and send prompts that stream back, call tools, read and
+write files, run commands, follow your instructions and Agent Skills, and return
+structured objects carrying token usage and estimated cost.
+
+<!-- markdownlint-disable MD033 -->
+<br clear="left">
 <!-- markdownlint-enable MD033 -->
 
 ---

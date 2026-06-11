@@ -38,9 +38,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Brand identity in the docs. The main `README.md` opens with the full
-  ShellPilot logo and the intro paragraph side by side in a header-less
-  two-column table (logo on the left, text on the right); the specs `README.md`
-  keeps the glyph floated in its top-right corner. The
+  ShellPilot logo floated to the left, with the intro paragraph filling the
+  space to its right (a borderless side-by-side layout - an HTML table can't be
+  made borderless on github.com because GitHub draws table-cell borders in CSS
+  and strips the style that would remove them); the specs `README.md` keeps the
+  glyph floated in its top-right corner. The
   wordmark ships as two transparent variants that switch by theme via a
   `prefers-color-scheme` `<picture>`: a "Shell"-in-white logo on dark backgrounds
   (`assets/shellpilot-logo-on-dark.png`) and a "Shell"-in-black logo on light
