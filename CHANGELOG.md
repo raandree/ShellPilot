@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- The deploy `Publish_GitHub_Wiki_Content` step failed with "Cannot bind
+  argument to parameter 'GitUserEmail' because it is an empty string". The git
+  identity was configured under a `GitConfig:` section with `UserName` /
+  `UserEmail` keys, but the Sampler.GitHubTasks and DscResource.DocGenerator
+  tasks read `$BuildInfo.GitHubConfig.GitHubConfigUserName` /
+  `GitHubConfigUserEmail` (and `GitHubFilesToAdd`). Renamed the section to
+  `GitHubConfig` with the exact key names the tasks expect, so the wiki publish
+  and the changelog-PR step can set the git author identity.
+
 ### Added
 
 - The GitHub Actions CI now surfaces the GitVersion build version (the way the

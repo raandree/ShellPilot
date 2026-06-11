@@ -4,23 +4,28 @@ Current working focus for ShellPilot. Overwrite this file as the focus shifts.
 
 ## Focus
 
-Most recent change: surfaced the GitVersion build version in the GitHub Actions
-UI to mirror Azure DevOps renaming each run to the semver. KEY CONSTRAINT
-(confirmed against the GitHub workflow-syntax docs): GitHub has NO equivalent of
-Azure's `##vso[build.updatebuildnumber]` - the run cannot be renamed mid-flight.
-`run-name` is evaluated before any job starts and may reference only the
-github/inputs contexts, so it can't contain a GitVersion value computed during
-the run. What IS supported (and what I did): a job's `name` can reference
-`needs.<job>.outputs`. So (1) the build job now exposes `outputs.fullSemVer` /
-`outputs.nuGetVersion` from the gitversion step; (2) the test job name is
-`Test ${{ needs.build.outputs.fullSemVer }} (${{ matrix.os }})` and the deploy
-job name `Deploy Module ${{ needs.build.outputs.fullSemVer }}` (deploy needs
-widened to [build, test] so build's outputs are in scope); (3) the build job
-writes `## ShellPilot <FullSemVer>` to $GITHUB_STEP_SUMMARY; (4) `run-name` shows
-`Release <tag>` for tag pushes and '' (GitHub default commit-message title) for
-branch builds. So the computed version shows on every run via job names +
-summary, and as the run title for releases. Verified: YAML parses; run-name /
-outputs / job names resolve; no editor errors. Committed on main; push deferred.
+Most recent change: fixed the deploy `Publish_GitHub_Wiki_Content` failure
+"Cannot bind argument to parameter 'GitUserEmail' because it is an empty
+string". (The PAT 403 from the prior run is resolved - the user re-scoped the
+token; the release v0.2.0-preview0002 published, and the version-stamped job
+names are live, e.g. `Deploy Module 0.2.0-preview.2+27`.) Root cause: the git
+identity was added to build.yaml under a `GitConfig:` section with `UserName` /
+`UserEmail` keys, but both Sampler.GitHubTasks (Create_ChangeLog_GitHub_PR) and
+DscResource.DocGenerator (Publish_GitHub_Wiki_Content) read
+`$BuildInfo.GitHubConfig.<key>` with the FIXED key names
+`GitHubConfigUserName` / `GitHubConfigUserEmail` / `GitHubFilesToAdd`
+(confirmed in both task sources and the Sampler dsccommunity
+build.yaml.template). So the lookup returned empty and the wiki task threw on
+the empty email. Fix: renamed the section to `GitHubConfig` with the exact key
+names, kept the user's values (Raimund / r.andree@live.com), and added
+`GitHubFilesToAdd: ['CHANGELOG.md']` so the very next step
+(Create_ChangeLog_GitHub_PR, which does `git config user.*` + `git add
+$GitHubFilesToAdd`) doesn't fail in turn. Verified build.yaml parses and the
+GitHubConfig keys/values resolve. Committed on main; push deferred.
+
+Preceding change: surfaced the GitVersion build version in the GitHub Actions
+UI (job names + run summary + Release <tag> run-name); GitHub has no
+##vso[build.updatebuildnumber] equivalent.
 
 Preceding change: reversed the previous publish-workflow fix per the user -
 instead of REMOVING the missing `Publish_GitHub_Wiki_Content` step, imported the

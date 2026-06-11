@@ -156,8 +156,14 @@ TaskHeader: |
   ""
 
 ####################################################
-#                Git Configuration                 #
+#                GitHub Configuration              #
 ####################################################
-GitConfig:
-  UserName: Raimund
-  UserEmail: r.andree@live.com
+# Read by Sampler.GitHubTasks (Create_ChangeLog_GitHub_PR) and
+# DscResource.DocGenerator (Publish_GitHub_Wiki_Content) via
+# $BuildInfo.GitHubConfig.<key>. The key names are fixed - the tasks look up
+# GitHubConfigUserName / GitHubConfigUserEmail / GitHubFilesToAdd exactly.
+GitHubConfig:
+  GitHubFilesToAdd:
+    - 'CHANGELOG.md'
+  GitHubConfigUserName: Raimund
+  GitHubConfigUserEmail: r.andree@live.com

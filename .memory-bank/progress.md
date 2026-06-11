@@ -26,6 +26,16 @@ Chronological record of shipped changes and remaining work. Latest first.
 
 ## Log
 
+- 2026-06-11 - Fixed the deploy Publish_GitHub_Wiki_Content failure "Cannot bind
+  argument to parameter 'GitUserEmail' because it is an empty string". The git
+  identity was under a `GitConfig:` section (`UserName`/`UserEmail`), but the
+  Sampler.GitHubTasks + DscResource.DocGenerator tasks read
+  `$BuildInfo.GitHubConfig.GitHubConfigUserName/GitHubConfigUserEmail/GitHubFilesToAdd`.
+  Renamed to `GitHubConfig` with the exact keys (+ GitHubFilesToAdd: CHANGELOG.md
+  so the changelog-PR step also works), kept the user's values. The prior PAT
+  403 is resolved (release v0.2.0-preview0002 published; version-stamped job
+  names live). Verified build.yaml parses + keys resolve. Committed on main;
+  push deferred. CHANGELOG Fixed.
 - 2026-06-11 - Surfaced the GitVersion build version in the GitHub Actions UI
   (the user wanted Azure's per-run version rename). GitHub has no
   `##vso[build.updatebuildnumber]` equivalent and run-name (github/inputs
