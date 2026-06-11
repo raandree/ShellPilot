@@ -26,6 +26,19 @@ Chronological record of shipped changes and remaining work. Latest first.
 
 ## Log
 
+- 2026-06-11 - Made the model's todo list on by default and renamed the opt-in
+  `-EnableTodoList` switch to an opt-out `-DisableTodoList` switch on Invoke-Shp.
+  The native manage_todo_list tool and its built-in planning nudge are now
+  offered on every call unless `-DisableTodoList` is passed - aligning the todo
+  list with the other on-by-default opt-out tools (-DisableBrowsing /
+  -DisableFileAccess / -DisableTerminal / -DisableUserPrompts). Both gating
+  sites flipped from `if ($EnableTodoList)` to `if (-not $DisableTodoList)`.
+  Updated comment-based help (.PARAMETER + .OUTPUTS), README, about_ShellPilot,
+  CHANGELOG (amended the Unreleased Added entry), the glossary "Todo list" row,
+  and the 5 todo-list unit tests (two intent tests reworked: default => 'agent'
+  intent; conversation-panel now needs -DisableTodoList plus the other disables).
+  Verified: AST parse clean, PSSA clean, build green (7 tasks, 0 errors),
+  isolated Pester 5/5 todo tests pass. Branch ai/todo-list-default; not pushed.
 - 2026-06-11 - Removed the bordered-box (single-cell HTML table) around the
   README logo per user request; logo is now a bare floated <picture> (align=left
   on the <img>). Two-variant theme switch and <br clear="left"> unchanged. User

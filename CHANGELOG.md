@@ -50,17 +50,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the ShellPilot app icon (`assets/shellpilot-icon.png`, a navy rounded square
   on a transparent surround), so the module displays its logo on the Gallery
   once published.
-- Todo-list tool and structured progress events. `Invoke-Shp -EnableTodoList`
+- Todo-list tool and structured progress events. By default `Invoke-Shp` now
   offers the model a native `manage_todo_list` tool so it can maintain a short
   ordered checklist of sub-tasks for a multi-step request (exactly one item
   in-progress at a time, normalised by the new private `ConvertTo-ShpTodoList`);
-  the final list is returned on the result's new `TodoList` member. By default
-  `Invoke-Shp` now also emits structured `ShpProgress` Information-stream records
-  for every tool call (`Kind = 'ToolCall'`) and every todo-list update
+  the final list is returned on the result's new `TodoList` member. Opt out with
+  `-DisableTodoList`, which suppresses both the tool and its built-in planning
+  guidance. `Invoke-Shp` also emits structured `ShpProgress` Information-stream
+  records for every tool call (`Kind = 'ToolCall'`) and every todo-list update
   (`Kind = 'TodoList'`), so a host can render live tool activity without parsing
   the `-ShowThinking` host trace; opt out with `-DisableProgressEvents`. The
-  records are silent on the console under the default `InformationPreference`,
-  and omitting `-EnableTodoList` adds no tool and changes nothing.
+  records are silent on the console under the default `InformationPreference`.
 - Table formatting: a `ShellPilot.Format.ps1xml` format file gives the
   structured records a readable default view, so `Get-ShpModel`,
   `Get-ShpUsage` (records and `-Summary`), `Get-ShpTool`, `Get-ShpDefault`,

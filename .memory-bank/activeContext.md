@@ -4,7 +4,22 @@ Current working focus for ShellPilot. Overwrite this file as the focus shifts.
 
 ## Focus
 
-Most recent change: removed the bordered-box (single-cell HTML table) around the
+Most recent change: made the model's todo list on by default and replaced the
+opt-in `-EnableTodoList` switch with an opt-out `-DisableTodoList` switch on
+Invoke-Shp, so the native manage_todo_list tool (and its built-in planning
+nudge) are offered on every call unless suppressed - mirroring the existing
+-DisableBrowsing / -DisableFileAccess / -DisableTerminal / -DisableUserPrompts
+opt-out tools. Both gating sites flipped from `if ($EnableTodoList)` to
+`if (-not $DisableTodoList)`; comment-based help, the .OUTPUTS note, the README
+"Todo list and live progress" section, about_ShellPilot, the CHANGELOG
+Unreleased entry, the glossary "Todo list" row, and the 5 todo-list unit tests
+were updated to match (two intent tests reworked: the default now offers the
+tool => 'agent' intent, and conversation-panel now requires -DisableTodoList
+plus the other tool disables). Verified: AST parse clean, PSSA clean, build
+green (7 tasks, 0 errors), isolated Pester 5/5 todo tests pass. Branch
+ai/todo-list-default; push deferred.
+
+Preceding change: removed the bordered-box (single-cell HTML table) around the
 README logo per user ("just remove the box"). The logo is now a bare floated
 <picture> - align="left" moved onto the <img>; the two-variant theme switch
 (shellpilot-logo-on-dark = white #EAF1F8 Shell, shellpilot-logo-on-light =
@@ -41,9 +56,10 @@ comments and kept within the 80-char line limit.
 All branding work is docs/metadata only; no module code change. Branch
 ai/docs-brand-logo (not merged; push deferred).
 
-Prior in-flight feature work: a native, opt-in `manage_todo_list` tool plus
-structured progress events for Invoke-Shp. `-EnableTodoList` offers the model a
-`manage_todo_list` tool so it can maintain a short per-turn checklist of
+Prior in-flight feature work: a native `manage_todo_list` tool (now on by
+default) plus structured progress events for Invoke-Shp. The model is offered a
+`manage_todo_list` tool (unless `-DisableTodoList`) so it can maintain a short
+per-turn checklist of
 sub-tasks (exactly one in-progress at a time); the model sends the full list on
 every call and a new private `ConvertTo-ShpTodoList` normaliser enforces every
 invariant (status coercion to not-started/in-progress/completed, only the first
@@ -56,9 +72,9 @@ one per todo update (Kind 'TodoList') via Write-Information - so a host (e.g.
 DeskPilot) can render live tool activity and the checklist by reading
 $shell.Streams.Information instead of scraping the -ShowThinking host trace; opt
 out with `-DisableProgressEvents`. The records are silent on the console under
-the default InformationPreference, and omitting -EnableTodoList offers no tool
-and changes nothing (a tool-less prompt keeps the conversation-panel intent;
-with the tool offered the intent is 'agent'). Built on branch
+the default InformationPreference, and passing -DisableTodoList suppresses the
+tool (a tool-less prompt keeps the conversation-panel intent; with the tool
+offered - the default - the intent is 'agent'). Built on branch
 ai/todo-list-progress-events; build green (7 tasks, 0 errors), 53 isolated tests
 pass (11 new ConvertTo-ShpTodoList + 5 new Invoke-Shp todo/progress + all
 prior), PSSA clean on both changed source files, helpQuality param-doc gate

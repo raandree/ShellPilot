@@ -202,13 +202,13 @@ function Invoke-Shp {
         Do not offer the user-defined tools registered with Register-ShpTool for
         this call. By default any registered tool is exposed to the model.
 
-    .PARAMETER EnableTodoList
-        Offer the model the built-in manage_todo_list tool so it can maintain a
-        short ordered checklist of sub-tasks for a multi-step request (exactly
-        one item in-progress at a time). Off by default; when enabled, the final
-        normalised list is returned on the result's TodoList member and a
-        TodoList progress event is emitted on each update. Omitting this switch
-        adds no tool and changes nothing.
+    .PARAMETER DisableTodoList
+        Do not offer the model the built-in manage_todo_list tool. By default the
+        tool is offered so the model can maintain a short ordered checklist of
+        sub-tasks for a multi-step request (exactly one item in-progress at a
+        time), the final normalised list is returned on the result's TodoList
+        member, and a TodoList progress event is emitted on each update. Pass
+        this switch to suppress the tool and its built-in planning guidance.
 
     .PARAMETER DisableProgressEvents
         Suppress the structured ShpProgress Information-stream records that
@@ -386,8 +386,8 @@ function Invoke-Shp {
         and loaded on demand (InstructionsAvailable / InstructionsLoaded), the
         local files the model read and wrote (FilesRead / FilesWritten), the
         shell commands it ran (CommandsRun), the questions it asked on the
-        console (QuestionsAsked), the per-turn todo checklist it maintained when
-        -EnableTodoList is set (TodoList), any reasoning the model exposed
+        console (QuestionsAsked), the per-turn todo checklist it maintained
+        unless -DisableTodoList is set (TodoList), any reasoning the model exposed
         (Reasoning), the running conversation history (History), and the raw API
         payload.
 
@@ -462,7 +462,7 @@ function Invoke-Shp {
 
         [switch]$DisableUserTools,
 
-        [switch]$EnableTodoList,
+        [switch]$DisableTodoList,
 
         [switch]$DisableProgressEvents,
 
@@ -658,11 +658,12 @@ function Invoke-Shp {
             }
         })
     }
-    # Todo-list tool (opt-in via -EnableTodoList): let the model maintain a short
-    # ordered checklist of sub-tasks for a multi-step request. It sends the FULL
-    # list on every call (idempotent replace, never a delta) and keeps exactly
-    # one item in-progress; ConvertTo-ShpTodoList enforces those invariants.
-    if ($EnableTodoList) {
+    # Todo-list tool (on by default; opt out via -DisableTodoList): let the model
+    # maintain a short ordered checklist of sub-tasks for a multi-step request. It
+    # sends the FULL list on every call (idempotent replace, never a delta) and
+    # keeps exactly one item in-progress; ConvertTo-ShpTodoList enforces those
+    # invariants.
+    if (-not $DisableTodoList) {
         $null = $tools.Add(@{
             type='function'
             function=@{
@@ -780,7 +781,7 @@ function Invoke-Shp {
     # When the todo-list tool is offered, add a short built-in instruction so the
     # model reliably plans and tracks multi-step work rather than relying on the
     # tool description alone.
-    if ($EnableTodoList) {
+    if (-not $DisableTodoList) {
         $null = $extraInstructions.Add('For any multi-step task, call manage_todo_list to plan and track sub-tasks: keep exactly one item in-progress, send the full list on each update, and mark items completed as soon as they finish. Skip it for trivial one-step requests.')
         $null = $instructionsApplied.Add([pscustomobject]@{ Kind='TodoListGuidance'; Source='(built-in)'; Chars=0 })
     }
@@ -822,9 +823,9 @@ function Invoke-Shp {
     $questionsAsked = New-Object System.Collections.Generic.List[string]
     $userToolsCalled = New-Object System.Collections.Generic.List[string]
     $reasoningLog = New-Object System.Collections.Generic.List[string]
-    # Todo list (manage_todo_list, opt-in via -EnableTodoList): the model's
-    # current normalised checklist for this turn. Empty unless the tool is
-    # offered and called; surfaced on the result's TodoList member.
+    # Todo list (manage_todo_list, on by default; opt out via -DisableTodoList):
+    # the model's current normalised checklist for this turn. Empty unless the
+    # tool is offered and called; surfaced on the result's TodoList member.
     $todoList = @()
     # Structured progress emitter: write one ShpProgress-tagged Information
     # record per tool call and per todo-list update so a host can render live

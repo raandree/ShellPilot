@@ -122,12 +122,13 @@ Unregister-ShpTool -All
 
 ### Todo list and live progress
 
-For multi-step work, opt in to the native `manage_todo_list` tool so the model
-plans and tracks sub-tasks (exactly one in-progress at a time). The final
-checklist comes back on the result's `TodoList` member.
+For multi-step work, the model uses the native `manage_todo_list` tool by
+default to plan and track sub-tasks (exactly one in-progress at a time); the
+final checklist comes back on the result's `TodoList` member. Opt out with
+`-DisableTodoList`.
 
 ```powershell
-$r = Invoke-Shp -Prompt 'Refactor the parser and add tests.' -EnableTodoList
+$r = Invoke-Shp -Prompt 'Refactor the parser and add tests.'
 $r.TodoList   # id / title / status for each sub-task
 ```
 

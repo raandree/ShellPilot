@@ -626,7 +626,7 @@ Describe 'Invoke-Shp' {
             InModuleScope $script:moduleName { $script:ShpChat = @() }
         }
 
-        It 'Offers manage_todo_list only when -EnableTodoList is set (intent = agent)' {
+        It 'Offers manage_todo_list by default (intent = agent)' {
             InModuleScope $script:moduleName {
                 Mock Invoke-CopilotTurn {
                     $script:capturedTodoTools  = $Tools
@@ -638,13 +638,13 @@ Describe 'Invoke-Shp' {
                         ModelName = $Model; ResponseId = $null; CopilotUsage = $null; Raw = @{}; Response = [pscustomobject]@{ Headers = @{} }
                     }
                 }
-                $null = Invoke-Shp -Prompt 'plan it' -EnableTodoList -DisableBrowsing -DisableFileAccess -DisableTerminal -DisableUserPrompts
+                $null = Invoke-Shp -Prompt 'plan it' -DisableBrowsing -DisableFileAccess -DisableTerminal -DisableUserPrompts
                 @($script:capturedTodoTools.function.name) | Should -Contain 'manage_todo_list'
                 $script:capturedTodoIntent | Should -Be 'agent'
             }
         }
 
-        It 'Omits the tool and keeps the conversation-panel intent without -EnableTodoList' {
+        It 'Omits the tool and keeps the conversation-panel intent with -DisableTodoList' {
             InModuleScope $script:moduleName {
                 Mock Invoke-CopilotTurn {
                     $script:capturedTodoTools  = $Tools
@@ -656,7 +656,7 @@ Describe 'Invoke-Shp' {
                         ModelName = $Model; ResponseId = $null; CopilotUsage = $null; Raw = @{}; Response = [pscustomobject]@{ Headers = @{} }
                     }
                 }
-                $null = Invoke-Shp -Prompt 'hi' -DisableBrowsing -DisableFileAccess -DisableTerminal -DisableUserPrompts
+                $null = Invoke-Shp -Prompt 'hi' -DisableTodoList -DisableBrowsing -DisableFileAccess -DisableTerminal -DisableUserPrompts
                 @($script:capturedTodoTools) | Should -BeNullOrEmpty
                 $script:capturedTodoIntent | Should -Be 'conversation-panel'
             }
@@ -683,7 +683,7 @@ Describe 'Invoke-Shp' {
                         }
                     }
                 }
-                $r = Invoke-Shp -Prompt 'do three things' -EnableTodoList -DisableBrowsing -DisableFileAccess -DisableTerminal -DisableUserPrompts
+                $r = Invoke-Shp -Prompt 'do three things' -DisableBrowsing -DisableFileAccess -DisableTerminal -DisableUserPrompts
                 @($r.TodoList).Count  | Should -Be 2
                 $r.TodoList[0].status | Should -Be 'in-progress'
                 $r.TodoList[1].status | Should -Be 'not-started'
@@ -714,7 +714,7 @@ Describe 'Invoke-Shp' {
                         }
                     }
                 }
-                $null = Invoke-Shp -Prompt 'one step' -EnableTodoList -DisableBrowsing -DisableFileAccess -DisableTerminal -DisableUserPrompts -InformationVariable todoInfo
+                $null = Invoke-Shp -Prompt 'one step' -DisableBrowsing -DisableFileAccess -DisableTerminal -DisableUserPrompts -InformationVariable todoInfo
                 $progress = @($todoInfo | Where-Object { $_.Tags -contains 'ShpProgress' })
                 @($progress | Where-Object { $_.MessageData.Kind -eq 'ToolCall' }) | Should -Not -BeNullOrEmpty
                 @($progress | Where-Object { $_.MessageData.Kind -eq 'TodoList' }) | Should -Not -BeNullOrEmpty
@@ -742,7 +742,7 @@ Describe 'Invoke-Shp' {
                         }
                     }
                 }
-                $null = Invoke-Shp -Prompt 'one step' -EnableTodoList -DisableProgressEvents -DisableBrowsing -DisableFileAccess -DisableTerminal -DisableUserPrompts -InformationVariable todoInfo2
+                $null = Invoke-Shp -Prompt 'one step' -DisableProgressEvents -DisableBrowsing -DisableFileAccess -DisableTerminal -DisableUserPrompts -InformationVariable todoInfo2
                 @($todoInfo2 | Where-Object { $_.Tags -contains 'ShpProgress' }) | Should -BeNullOrEmpty
             }
         }

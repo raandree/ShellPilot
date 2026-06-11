@@ -21,9 +21,9 @@ LONG DESCRIPTION
     Invoke-Shp runs a tool-calling loop (web browsing, file read/write/list,
     run_command, and ask_user, each opt-out), follows custom instructions and
     Agent Skills, supports structured output, vision input, a live reasoning
-    trace (-ShowThinking), an opt-in manage_todo_list tool (-EnableTodoList),
-    and structured ShpProgress progress events. Start-ShpChat opens an
-    interactive console session.
+    trace (-ShowThinking), an on-by-default manage_todo_list tool
+    (-DisableTodoList to opt out), and structured ShpProgress progress events.
+    Start-ShpChat opens an interactive console session.
 
     Every public cmdlet has full comment-based help; use Get-Help <cmdlet> -Full.
 
