@@ -37,12 +37,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Brand identity in the docs: the ShellPilot glyph now appears as a small,
-  theme-aware logo floated in the top-right corner of the main `README.md` and
-  the specs `README.md`. Two PNG assets live under `assets/` (a navy glyph for
-  light themes, a teal glyph for dark themes), each with a fully transparent
-  background, and they switch automatically via a `prefers-color-scheme`
-  picture source.
+- Brand identity in the docs. The main `README.md` now leads with the primary
+  ShellPilot wordmark (icon + name) as a top-left banner; the specs `README.md`
+  keeps the compact glyph floated in its top-right corner. All brand PNGs under
+  `assets/` have fully transparent backgrounds and switch by theme via a
+  `prefers-color-scheme` picture source: the wordmark shows its dark-ink variant
+  on light themes and its brighter variant on dark themes, and the glyph shows
+  navy on light / teal on dark.
 - Module icon for the PowerShell Gallery: the manifest now sets `IconUri` to
   the ShellPilot app icon (`assets/shellpilot-icon.png`, a navy rounded square
   on a transparent surround), so the module displays its logo on the Gallery

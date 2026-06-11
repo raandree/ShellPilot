@@ -1,13 +1,15 @@
-# ShellPilot
-
-<!-- markdownlint-disable MD033 -->
+<!-- markdownlint-disable MD033 MD041 -->
+<!-- Primary wordmark, theme-aware by contrast: the dark-ink logo (SP #1) on
+     light themes, the brighter logo (SP #2) on dark themes. -->
 <picture>
   <source media="(prefers-color-scheme: dark)"
-          srcset="assets/shellpilot-glyph-dark.png">
-  <img align="right" width="120" alt="ShellPilot logo"
-       src="assets/shellpilot-glyph-light.png">
+          srcset="assets/shellpilot-logo-light.png">
+  <img width="300" alt="ShellPilot"
+       src="assets/shellpilot-logo-dark.png">
 </picture>
 <!-- markdownlint-enable MD033 -->
+
+# ShellPilot
 
 GitHub Copilot in your PowerShell terminal. Authenticate once, list the models
 your account can reach, and send prompts that stream back, call tools, read and

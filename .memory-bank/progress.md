@@ -26,6 +26,17 @@ Chronological record of shipped changes and remaining work. Latest first.
 
 ## Log
 
+- 2026-06-11 - Test (user request): main README.md now leads with the primary
+  ShellPilot wordmark (icon + name) as a top-left banner, replacing the compact
+  glyph it had top-right. Added two transparent, auto-cropped wordmark PNGs to
+  assets/ (shellpilot-logo-dark.png = SP #1 dark ink; shellpilot-logo-light.png
+  = SP #2 brighter), processed from flattened 24bpp off-white exports via
+  color-to-alpha + alpha remap (T=24) and a content-bbox crop, using the same
+  throwaway .NET/System.Drawing helper pattern. README picture maps them by
+  contrast (dark-ink on light theme, brighter on dark). Caveat: both variants
+  have dark-navy \"Shell\" text -> low contrast on GitHub dark theme. Kept the H1
+  below the banner; disabled markdownlint MD041 at the top (banner precedes H1).
+  specs/README.md unchanged (still glyph top-right). Branch ai/docs-brand-logo.
 - 2026-06-11 - Made the three brand PNGs under assets/ fully transparent. The
   design-board exports were flattened 24bpp-RGB on off-white (#F6F6F6); now
   32bpp ARGB with transparent backgrounds. Glyphs: color-to-alpha vs white +
