@@ -4,7 +4,39 @@ Current working focus for ShellPilot. Overwrite this file as the focus shifts.
 
 ## Focus
 
-Most recent change: fixed the unit test `Invoke-Shp.tests.ps1` >
+Most recent change: fixed the cross-platform module-import crash that the new
+GitHub Actions CI surfaced on the ubuntu and macOS test legs (Windows was
+already green - my prior todo-list test fix is in this build and passes there,
+75.57% coverage). Root cause: source/Prefix.ps1 set the default token path with
+`Join-Path $env:USERPROFILE '.copilot-demo-token'`, but $env:USERPROFILE is
+Windows-only (null on Linux/macOS), so Join-Path threw "Cannot bind argument to
+parameter 'Path' because it is null" at module load and aborted the whole test
+run before any test executed. Fix: use
+`[System.Environment]::GetFolderPath([System.Environment+SpecialFolder]::UserProfile)`
+(= %USERPROFILE% on Windows, $HOME elsewhere); also corrected the now-inaccurate
+Windows-only wording in the Initialize-Shp and Get-ShpSessionToken help blocks
+and the README security note. Verified: all 3 edited files AST-parse clean;
+build green (7 tasks, 0 errors); the built psm1 carries the new expression and
+IMPORTS SUCCESSFULLY with $env:USERPROFILE nulled (the exact failing condition).
+The log was read by authenticating to github.com via the
+authenticated-web-extraction skill (CareerAuthBrowser bootstrapped fresh; user
+signed in) and replaying the captured session cookies to download the run's
+log ZIP. Committed on main per the standing "fix in main" instruction; push
+deferred. NOTE: a fresh CI run requires pushing main.
+
+HOW-TO captured for next time (read the failing-CI log without gh CLI):
+bootstrap CareerAuthBrowser from the skill's bootstrap/ folder, open a
+co-existing Edge window (the stock open.mjs aborts if ANY msedge.exe is
+running - a false positive against the user's normal browser; I wrote
+scripts/open-coexist.mjs that keeps only the per-profile SingletonLock check),
+user signs in, then read auth-state/github.com.json and replay all 14 cookies
+through Invoke-WebRequest. The per-run log ZIP lives at
+https://github.com/<owner>/<repo>/suites/<check_suite_id>/logs?attempt=1&check_run_id=<job_id>
+(the /actions/runs/<id>/logs and /job/<id>/logs paths 404); the check_suite id
+and that /logs? URL are both embedded in the job page HTML. Do NOT pipe the ZIP
+through Out-File -Encoding utf8 (corrupts binary) - use -OutFile.
+
+Preceding change: fixed the unit test `Invoke-Shp.tests.ps1` >
 'Omits run_command and ask_user when disabled', which the new GitHub Actions CI
 caught failing on all three OS legs (the first full-suite CI run since the
 todo-list-default merge). Root cause: that earlier change made

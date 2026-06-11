@@ -26,6 +26,19 @@ Chronological record of shipped changes and remaining work. Latest first.
 
 ## Log
 
+- 2026-06-11 - Fixed the cross-platform module-import crash on Linux/macOS that
+  the new GitHub Actions CI caught (ubuntu + macOS test legs; Windows was green
+  with the prior todo-list test fix, 75.57% coverage). source/Prefix.ps1 built
+  the default token path with `Join-Path $env:USERPROFILE '.copilot-demo-token'`,
+  but $env:USERPROFILE is Windows-only (null elsewhere) so Join-Path threw at
+  module load and aborted the test run before any test ran. Switched to
+  `[System.Environment]::GetFolderPath('UserProfile')` (= %USERPROFILE% on
+  Windows, $HOME on Linux/macOS) and corrected the Windows-only wording in the
+  Initialize-Shp/Get-ShpSessionToken help and the README. Verified: 3 files
+  AST-parse clean; build green; built psm1 imports with $env:USERPROFILE nulled
+  (the exact failing condition). Read the CI log by authenticating to github.com
+  (authenticated-web-extraction skill) and replaying session cookies to pull the
+  run log ZIP. Committed on main; push deferred. CHANGELOG Fixed updated.
 - 2026-06-11 - Fixed the unit test 'Omits run_command and ask_user when
   disabled' (tests/Unit/Public/Invoke-Shp.tests.ps1) that the new GitHub Actions
   CI caught failing on ubuntu/windows/macos (the first full-suite CI run after

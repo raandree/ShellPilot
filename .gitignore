@@ -3,6 +3,9 @@ output/
 # Scratch build/test logs from the .work/ dev runners (the .ps1 helpers stay tracked)
 .work/*.log
 
+# Local-only agent prompt log (kept out of the repo per "remove prompt history log file")
+.memory-bank/promptHistory.md
+
 **.bak
 *.local.*
 !**/README.md

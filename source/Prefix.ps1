@@ -8,7 +8,9 @@ $script:DefaultUserAgent     = 'GithubCopilot/1.155.0'
 $script:DefaultEditorVersion = 'vscode/1.95.0'
 $script:DefaultPluginVersion = 'copilot-chat/0.22.0'
 $script:DefaultIntegrationId = 'vscode-chat'
-$script:DefaultTokenPath     = Join-Path $env:USERPROFILE '.copilot-demo-token'
+# UserProfile resolves to %USERPROFILE% on Windows and $HOME on Linux/macOS, so
+# the default token path works cross-platform ($env:USERPROFILE is null off Windows).
+$script:DefaultTokenPath     = Join-Path ([System.Environment]::GetFolderPath([System.Environment+SpecialFolder]::UserProfile)) '.copilot-demo-token'
 
 $script:EndpointMap = @{
     Enterprise = 'https://api.enterprise.githubcopilot.com'

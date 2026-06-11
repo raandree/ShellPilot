@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Module import crashed on Linux and macOS. The default token path was built
+  with `Join-Path $env:USERPROFILE '.copilot-demo-token'`, but `$env:USERPROFILE`
+  is a Windows-only variable and is `$null` elsewhere, so `Join-Path` threw
+  "Cannot bind argument to parameter 'Path' because it is null" at load time and
+  every command (and the CI test run) failed on non-Windows. The path now uses
+  `[System.Environment]::GetFolderPath('UserProfile')`, which resolves to
+  `%USERPROFILE%` on Windows and `$HOME` on Linux/macOS.
 - `Invoke-Shp -ShowThinking` showed no reasoning trace for models such as
   `claude-opus-4.8`. The switch forced streaming off and routed to the
   `/responses` endpoint, which those models reject - and their non-streaming

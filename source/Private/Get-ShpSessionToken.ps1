@@ -18,7 +18,7 @@ function Get-ShpSessionToken {
         User-Agent header value sent with the request.
 
     .EXAMPLE
-        Get-ShpSessionToken -TokenPath $env:USERPROFILE\.copilot-demo-token
+        Get-ShpSessionToken -TokenPath (Join-Path $HOME '.copilot-demo-token')
 
         Reads the cached OAuth token and exchanges it for a short-lived Copilot
         session token plus the per-account API endpoints.

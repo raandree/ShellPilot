@@ -13,7 +13,8 @@ function Initialize-Shp {
 
     .PARAMETER TokenPath
         File path for the cached token.
-        Default: $env:USERPROFILE\.copilot-demo-token.
+        Default: .copilot-demo-token in your home directory (%USERPROFILE% on
+        Windows, $HOME on Linux/macOS).
 
     .PARAMETER ClientId
         OAuth client_id. Default: the public VS Code Copilot Chat client.
