@@ -26,6 +26,17 @@ Chronological record of shipped changes and remaining work. Latest first.
 
 ## Log
 
+- 2026-06-11 - Fixed the unit test 'Omits run_command and ask_user when
+  disabled' (tests/Unit/Public/Invoke-Shp.tests.ps1) that the new GitHub Actions
+  CI caught failing on ubuntu/windows/macos (the first full-suite CI run after
+  the todo-list-default merge). The todo-default change made manage_todo_list
+  opt-out, but this tool-gating test disabled only browsing/file/terminal/
+  user-prompts then asserted `@($capturedTools) | Should -BeNullOrEmpty`, so the
+  always-offered todo tool failed it. Added `-DisableTodoList` to the call to
+  restore the "all disabled => no tools" invariant. Verified 42/42 pass via
+  `build.ps1 -Tasks test -PesterScript .../Invoke-Shp.tests.ps1`. The workflow
+  itself is correct (Build green; the Test matrix caught a real regression).
+  Committed on main (user: "fix in main"); push deferred. Test-only, no CHANGELOG.
 - 2026-06-11 - Replaced the Azure Pipelines CI (azure-pipelines.yml, deleted)
   with a GitHub Actions workflow (.github/workflows/ci.yml). Faithful
   three-stage translation: Build (GitVersion 5.* via dotnet-gitversion +

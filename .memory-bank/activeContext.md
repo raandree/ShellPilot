@@ -4,7 +4,24 @@ Current working focus for ShellPilot. Overwrite this file as the focus shifts.
 
 ## Focus
 
-Most recent change: replaced the Azure DevOps CI (azure-pipelines.yml, now
+Most recent change: fixed the unit test `Invoke-Shp.tests.ps1` >
+'Omits run_command and ask_user when disabled', which the new GitHub Actions CI
+caught failing on all three OS legs (the first full-suite CI run since the
+todo-list-default merge). Root cause: that earlier change made
+manage_todo_list opt-out (offered unless -DisableTodoList), but this tool-gating
+test still disabled only browsing/file/terminal/user-prompts and then asserted
+`@($capturedTools) | Should -BeNullOrEmpty` - so the always-offered todo tool
+left the list non-empty (a Hashtable). The todo-default commit reworked the
+intent tests but missed this one. Fix: added `-DisableTodoList` to the call so
+the "everything disabled => no tools offered" invariant holds again. Verified:
+the Invoke-Shp test file runs 42/42 pass via the Sampler harness
+(`build.ps1 -Tasks test -PesterScript tests/Unit/Public/Invoke-Shp.tests.ps1`).
+Committed directly on main per the user's "fix in main"; push deferred. NOTE for
+future: the GitHub Actions workflow is working correctly - the Build job is
+green and the Test matrix legitimately failed on a real regression; re-running
+CI green now just needs this fix pushed to main.
+
+Preceding change: replaced the Azure DevOps CI (azure-pipelines.yml, now
 deleted) with a GitHub Actions workflow at .github/workflows/ci.yml - a
 faithful translation of the three Azure stages. Build: GitVersion via the
 `dotnet-gitversion` global tool (pinned 5.* to match the v5 GitVersion.yml
@@ -17,8 +34,7 @@ plus push-to-main-or-v*-tag, running `-Tasks publish` then
 `-Tasks Create_ChangeLog_GitHub_PR`. Adds pull_request + workflow_dispatch
 triggers and keeps the CHANGELOG.md paths-ignore and the `v*` / `!v*-*` tag
 filter. Needs repo secrets GitHubToken + GalleryApiToken. Verified: parses via
-powershell-yaml ConvertFrom-Yaml; no module/source code touched. Branch
-ai/github-actions-ci; push deferred.
+powershell-yaml ConvertFrom-Yaml; no module/source code touched.
 
 Preceding change: reverted the README header from the header-less two-column
 HTML table back to the left-floated `<picture>` logo + intro + `<br

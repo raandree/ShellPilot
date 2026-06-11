@@ -302,7 +302,9 @@ Describe 'Invoke-Shp' {
 
         It 'Omits run_command and ask_user when disabled' {
             InModuleScope $script:moduleName {
-                $null = Invoke-Shp -Prompt 'hi' -DisableBrowsing -DisableFileAccess -DisableTerminal -DisableUserPrompts
+                # -DisableTodoList is required too: manage_todo_list is offered by
+                # default, so without it the tool list is never empty.
+                $null = Invoke-Shp -Prompt 'hi' -DisableBrowsing -DisableFileAccess -DisableTerminal -DisableUserPrompts -DisableTodoList
                 @($script:capturedTools) | Should -BeNullOrEmpty
             }
         }
