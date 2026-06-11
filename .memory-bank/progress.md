@@ -26,6 +26,19 @@ Chronological record of shipped changes and remaining work. Latest first.
 
 ## Log
 
+- 2026-06-11 - Ended the recurring logo theme/contrast loop: replaced the
+  README's theme-switching <picture> wordmark with ONE self-contained image on a
+  white card (assets/shellpilot-logo.png). Root cause (from the user's
+  screenshot pixels): a white page showing pale "Shell" + bright teal "Pilot" =
+  the dark asset (near-white Shell) rendered on a light background, so the viewer
+  resolved prefers-color-scheme:dark while painting light - hence edits to the
+  light asset were invisible ("no change at all"). Built by compositing the
+  dark-ink wordmark (#04101F Shell + teal) on a white card, 48px padding;
+  verified crisp on white and #0d1117. Single <img> inside the bordered-box
+  table (border/float/clear unchanged). Deleted the now-unused logo-on-light/
+  logo-on-dark PNGs. Trade-off vs the earlier transparent wordmark is
+  intentional (transparency caused the theme-dependent mis-contrast).
+  Branch ai/docs-brand-logo.
 - 2026-06-11 - Deepened the light-theme logo's "Shell" ink from navy #001834 to
   near-black navy #04101F for crisper contrast on white (user: "Shell" low
   contrast). Recoloured only the navy "Shell" (G<52 & B>=G & R<80, 37972 px),

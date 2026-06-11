@@ -4,21 +4,25 @@ Current working focus for ShellPilot. Overwrite this file as the focus shifts.
 
 ## Focus
 
-Most recent change: deepened the light-theme logo's "Shell" ink from navy
-#001834 to near-black navy #04101F for crisper contrast on white (user said
-"Shell" looked low-contrast). Recoloured only the navy "Shell" - distinguished
-from the teal glyph + teal "Pilot" by a low green channel (G<52 & B>=G & R<80,
-37972 px) - via a throwaway .NET/System.Drawing helper (deleted), verified by
-compositing on white. The teal glyph and "Pilot" are untouched; on-dark.png is
-unchanged. NOTE/CAVEAT still open: the user's screenshot showed a *pale* "Shell"
-on a *white* page, which looks like the dark-theme asset (near-white Shell)
-rendering on a light page - i.e. their previewer may be serving the
-prefers-color-scheme:dark <source> on a light background. If it still looks pale
-after this change, the dark variant is the one being shown and its Shell is the
-one to adjust. User chose to keep theme-switching (not a baked card).
+Most recent change: ended the recurring logo contrast/theme problem by dropping
+the theme-switching <picture> for the README wordmark and using ONE
+self-contained image on a white card (assets/shellpilot-logo.png). Root cause
+proven from the user's screenshot pixels: a white page showing a *pale* "Shell"
++ *bright* teal "Pilot" = the dark-theme asset (near-white Shell) being rendered
+on a light background, i.e. the viewer resolved prefers-color-scheme:dark while
+painting light - so edits to the light asset were invisible ("no change at
+all"). Fix: composited the dark-ink wordmark (#04101F Shell + teal) on a white
+card with 48px padding (throwaway .NET/System.Drawing helper, deleted); verified
+crisp on both white and #0d1117 composites. README now uses a single <img
+src=shellpilot-logo.png> inside the bordered-box table (border/float/clear
+unchanged). Deleted the now-unused shellpilot-logo-on-light.png and
+shellpilot-logo-on-dark.png. assets/ now: glyph-dark, glyph-light, icon, logo.
+The glyph (specs/README) and the Gallery icon stay transparent; only the README
+wordmark became a card. Trade-off vs the earlier "transparent" request is
+intentional: transparency is what caused the theme-dependent mis-contrast.
 
-Preceding change: fixed the dark-theme contrast by generating the light-"Shell"
-on-dark.png and renaming assets by target background (on-light / on-dark).
+Preceding change: deepened the (then light-theme) logo's "Shell" to #04101F -
+superseded by this card, which keeps that dark ink.
 
 Preceding change: framed the logo in a bordered box (floated single-cell HTML
 table; GitHub styles the cell border since inline CSS is stripped).

@@ -3,16 +3,11 @@
      its right. The box is a single-cell HTML table: GitHub styles table cells
      with a theme-adaptive 1px border that renders as the frame (inline CSS
      borders are stripped by GitHub, so a table is the portable way). The logo
-     is theme-aware: a dark-ink wordmark on light themes (default src), and a
-     light-"Shell" + teal wordmark on dark themes (the picture source). Files
-     are named by the background they are for, so the mapping stays obvious. -->
+     is a single self-contained image on a white card, so it stays crisp on any
+     page background and does not depend on prefers-color-scheme (which some
+     viewers resolve inconsistently). -->
 <table align="left"><tr><td>
-<picture>
-  <source media="(prefers-color-scheme: dark)"
-          srcset="assets/shellpilot-logo-on-dark.png">
-  <img width="300" alt="ShellPilot logo"
-       src="assets/shellpilot-logo-on-light.png">
-</picture>
+<img width="300" alt="ShellPilot logo" src="assets/shellpilot-logo.png">
 </td></tr></table>
 <!-- markdownlint-enable MD033 -->
 
