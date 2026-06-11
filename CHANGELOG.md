@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- The GitHub Actions CI now surfaces the GitVersion build version (the way the
+  Azure DevOps pipeline renamed each run). The `build` job exposes the version
+  as an output; the test and deploy jobs show it in their display names (e.g.
+  `Test 0.6.0-preview0003 (ubuntu-latest)`), the build job writes it to the run
+  summary, and tag-triggered runs use `Release <tag>` as the run title.
+  (GitHub Actions cannot rename a run mid-run like Azure's
+  `##vso[build.updatebuildnumber]`, so the version is shown in job names instead
+  of the run title for branch builds.)
 - `DscResource.DocGenerator` is now a build dependency
   (`RequiredModules.psd1`) and its tasks are imported via `ModuleBuildTasks`
   (`Task.*`). This provides `Publish_GitHub_Wiki_Content` (plus the

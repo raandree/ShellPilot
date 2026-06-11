@@ -4,7 +4,25 @@ Current working focus for ShellPilot. Overwrite this file as the focus shifts.
 
 ## Focus
 
-Most recent change: reversed the previous publish-workflow fix per the user -
+Most recent change: surfaced the GitVersion build version in the GitHub Actions
+UI to mirror Azure DevOps renaming each run to the semver. KEY CONSTRAINT
+(confirmed against the GitHub workflow-syntax docs): GitHub has NO equivalent of
+Azure's `##vso[build.updatebuildnumber]` - the run cannot be renamed mid-flight.
+`run-name` is evaluated before any job starts and may reference only the
+github/inputs contexts, so it can't contain a GitVersion value computed during
+the run. What IS supported (and what I did): a job's `name` can reference
+`needs.<job>.outputs`. So (1) the build job now exposes `outputs.fullSemVer` /
+`outputs.nuGetVersion` from the gitversion step; (2) the test job name is
+`Test ${{ needs.build.outputs.fullSemVer }} (${{ matrix.os }})` and the deploy
+job name `Deploy Module ${{ needs.build.outputs.fullSemVer }}` (deploy needs
+widened to [build, test] so build's outputs are in scope); (3) the build job
+writes `## ShellPilot <FullSemVer>` to $GITHUB_STEP_SUMMARY; (4) `run-name` shows
+`Release <tag>` for tag pushes and '' (GitHub default commit-message title) for
+branch builds. So the computed version shows on every run via job names +
+summary, and as the run title for releases. Verified: YAML parses; run-name /
+outputs / job names resolve; no editor errors. Committed on main; push deferred.
+
+Preceding change: reversed the previous publish-workflow fix per the user -
 instead of REMOVING the missing `Publish_GitHub_Wiki_Content` step, imported the
 module that PROVIDES it. That task ships with DscResource.DocGenerator (confirmed
 in the installed 0.13.0: it exports the alias `Task.Publish_GitHub_Wiki_Content`,

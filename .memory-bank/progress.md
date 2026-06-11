@@ -26,6 +26,16 @@ Chronological record of shipped changes and remaining work. Latest first.
 
 ## Log
 
+- 2026-06-11 - Surfaced the GitVersion build version in the GitHub Actions UI
+  (the user wanted Azure's per-run version rename). GitHub has no
+  `##vso[build.updatebuildnumber]` equivalent and run-name (github/inputs
+  contexts only, pre-run) can't carry a mid-run-computed version. Implemented the
+  supported alternative: build job exposes outputs.fullSemVer/nuGetVersion; test
+  + deploy job NAMES embed `needs.build.outputs.fullSemVer` (deploy needs widened
+  to [build, test]); build writes the version to $GITHUB_STEP_SUMMARY; run-name
+  shows `Release <tag>` for tags, '' (GitHub default) otherwise. Verified YAML
+  parses and expressions resolve; no editor errors. Committed on main; push
+  deferred. CHANGELOG Added.
 - 2026-06-11 - Reversed the prior publish fix per the user: instead of removing
   the missing `Publish_GitHub_Wiki_Content` step, imported its providing module.
   Added `DscResource.DocGenerator` to RequiredModules.psd1, wired it into

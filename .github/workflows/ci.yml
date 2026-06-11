@@ -15,6 +15,15 @@
 #   GalleryApiToken - PowerShell Gallery API key used to publish the module.
 name: CI
 
+# Azure DevOps renames each run to the GitVersion number via
+# ##vso[build.updatebuildnumber]. GitHub Actions has no equivalent: run-name is
+# evaluated before any job starts and can only see the github/inputs contexts,
+# so it cannot contain a version GitVersion computes mid-run. The closest we can
+# get is: show the version in the run title for tag releases (the tag IS the
+# version), and stamp the computed GitVersion value into the test/deploy job
+# names and the build job summary on every run (see the build job's outputs).
+run-name: ${{ github.ref_type == 'tag' && format('Release {0}', github.ref_name) || '' }}
+
 on:
   push:
     branches:
@@ -40,6 +49,11 @@ jobs:
   build:
     name: Package Module
     runs-on: ubuntu-latest
+    # Expose the GitVersion value to downstream jobs so they can show it in their
+    # display names - the closest GitHub gets to Azure DevOps' run renaming.
+    outputs:
+      fullSemVer: ${{ steps.gitversion.outputs.FullSemVer }}
+      nuGetVersion: ${{ steps.gitversion.outputs.NuGetVersionV2 }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -63,6 +77,7 @@ jobs:
               "$($_.Name)=$($_.Value)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           }
           Write-Host -Object "ModuleVersion (FullSemVer): $($gitVersionObject.FullSemVer)"
+          "## ShellPilot $($gitVersionObject.FullSemVer)" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
 
       - name: Build & Package Module
         shell: pwsh
@@ -79,7 +94,7 @@ jobs:
           retention-days: 7
 
   test:
-    name: Test (${{ matrix.os }})
+    name: Test ${{ needs.build.outputs.fullSemVer }} (${{ matrix.os }})
     needs: build
     runs-on: ${{ matrix.os }}
     strategy:
@@ -114,8 +129,8 @@ jobs:
           if-no-files-found: warn
 
   deploy:
-    name: Deploy Module
-    needs: test
+    name: Deploy Module ${{ needs.build.outputs.fullSemVer }}
+    needs: [build, test]
     runs-on: ubuntu-latest
     # Only deploy from the upstream repository, for pushes to the default
     # branch or for version tags.
