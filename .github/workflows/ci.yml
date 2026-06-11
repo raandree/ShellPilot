@@ -1,0 +1,155 @@
+# Continuous integration pipeline for ShellPilot.
+#
+# Mirrors the former Azure Pipelines definition (azure-pipelines.yml):
+#   * Build  - calculate the version with GitVersion, build and package the
+#              module, then publish the output/ folder as a build artifact.
+#   * Test   - on Linux, Windows and macOS (PowerShell 7), reuse the build
+#              artifact and run the Sampler test workflow.
+#   * Deploy - on the upstream repository, for pushes to main or v* tags,
+#              publish the release to GitHub and the PowerShell Gallery and
+#              raise the changelog pull request.
+#
+# Required repository secrets (Settings > Secrets and variables > Actions):
+#   GitHubToken     - personal access token used to create the GitHub release
+#                     and the changelog pull request.
+#   GalleryApiToken - PowerShell Gallery API key used to publish the module.
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+      - '!v*-*'
+    paths-ignore:
+      - CHANGELOG.md
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  buildArtifactName: output
+  defaultBranch: main
+
+jobs:
+  build:
+    name: Package Module
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # GitVersion needs the full history to calculate the version.
+          fetch-depth: 0
+
+      - name: Calculate ModuleVersion (GitVersion)
+        id: gitversion
+        shell: pwsh
+        env:
+          # GitVersion 5.x targets an older .NET; allow it to run on the
+          # runner's newer shared framework.
+          DOTNET_ROLL_FORWARD: LatestMajor
+        run: |
+          dotnet tool install --global GitVersion.Tool --version 5.*
+          $env:PATH += [System.IO.Path]::PathSeparator + (Join-Path -Path $HOME -ChildPath '.dotnet/tools')
+          $gitVersionObject = dotnet-gitversion | ConvertFrom-Json
+          $gitVersionObject.PSObject.Properties.ForEach{
+              Write-Host -Object "Setting output '$($_.Name)' with value '$($_.Value)'."
+              "$($_.Name)=$($_.Value)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          }
+          Write-Host -Object "ModuleVersion (FullSemVer): $($gitVersionObject.FullSemVer)"
+
+      - name: Build & Package Module
+        shell: pwsh
+        env:
+          ModuleVersion: ${{ steps.gitversion.outputs.NuGetVersionV2 }}
+        run: ./build.ps1 -ResolveDependency -Tasks pack
+
+      - name: Publish Build Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.buildArtifactName }}
+          path: output/
+          if-no-files-found: error
+          retention-days: 7
+
+  test:
+    name: Test (${{ matrix.os }})
+    needs: build
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+          - macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download Build Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.buildArtifactName }}
+          path: output/
+
+      - name: Run Tests
+        shell: pwsh
+        run: ./build.ps1 -Tasks test
+
+      - name: Publish Test Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: CodeCoverage-${{ matrix.os }}
+          path: output/testResults/
+          if-no-files-found: warn
+
+  deploy:
+    name: Deploy Module
+    needs: test
+    runs-on: ubuntu-latest
+    # Only deploy from the upstream repository, for pushes to the default
+    # branch or for version tags.
+    if: >-
+      github.repository_owner == 'raandree' &&
+      (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/'))
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download Build Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.buildArtifactName }}
+          path: output/
+
+      - name: Publish Release
+        shell: pwsh
+        env:
+          GitHubToken: ${{ secrets.GitHubToken }}
+          GalleryApiToken: ${{ secrets.GalleryApiToken }}
+          ReleaseBranch: ${{ env.defaultBranch }}
+          MainGitBranch: ${{ env.defaultBranch }}
+        run: ./build.ps1 -Tasks publish
+
+      - name: Send Changelog PR
+        shell: pwsh
+        env:
+          GitHubToken: ${{ secrets.GitHubToken }}
+          ReleaseBranch: ${{ env.defaultBranch }}
+          MainGitBranch: ${{ env.defaultBranch }}
+        run: ./build.ps1 -Tasks Create_ChangeLog_GitHub_PR

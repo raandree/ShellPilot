@@ -4,22 +4,25 @@ Current working focus for ShellPilot. Overwrite this file as the focus shifts.
 
 ## Focus
 
-Most recent change: reverted the README header from the header-less two-column
-HTML table back to the left-floated `<picture>` logo + intro paragraph +
-`<br clear="left">`, because the user asked to make the table lines invisible
-and that is impossible on github.com: GitHub's markdown CSS draws a 1px border
-on every table cell and strips the inline style/class (and overrides any
-`border="0"` attribute) that would remove it, so a borderless table can't be
-rendered there. The float gives the same logo-left / text-right layout with no
-visible lines. A header comment now records why a table can't be borderless.
-Done on branch main (the user's earlier "do the change in this branch" still
-applies); push deferred. CHANGELOG unreleased "Brand identity" entry reverted
-from the table wording back to "floated to the left" with the borderless
-rationale. Verified: README renders; no new markdownlint errors in the edited
-block (MD033/MD041 disabled there).
+Most recent change: replaced the Azure DevOps CI (azure-pipelines.yml, now
+deleted) with a GitHub Actions workflow at .github/workflows/ci.yml - a
+faithful translation of the three Azure stages. Build: GitVersion via the
+`dotnet-gitversion` global tool (pinned 5.* to match the v5 GitVersion.yml
+syntax, with DOTNET_ROLL_FORWARD=LatestMajor so the net6 tool runs on the
+runner), then `./build.ps1 -ResolveDependency -Tasks pack`, uploading output/
+as the `output` artifact. Test: a matrix of ubuntu/windows/macos-latest on
+PowerShell 7 that downloads the artifact and runs `-Tasks test`, uploading the
+per-OS testResults. Deploy: gated to `github.repository_owner == 'raandree'`
+plus push-to-main-or-v*-tag, running `-Tasks publish` then
+`-Tasks Create_ChangeLog_GitHub_PR`. Adds pull_request + workflow_dispatch
+triggers and keeps the CHANGELOG.md paths-ignore and the `v*` / `!v*-*` tag
+filter. Needs repo secrets GitHubToken + GalleryApiToken. Verified: parses via
+powershell-yaml ConvertFrom-Yaml; no module/source code touched. Branch
+ai/github-actions-ci; push deferred.
 
-Preceding change: reworked the README header into a header-less two-column
-HTML table (now reverted, see above).
+Preceding change: reverted the README header from the header-less two-column
+HTML table back to the left-floated `<picture>` logo + intro + `<br
+clear="left">` (docs-only; a real GitHub table can't be made borderless).
 
 Earlier change: made the model's todo list on by default and replaced the
 opt-in `-EnableTodoList` switch with an opt-out `-DisableTodoList` switch on

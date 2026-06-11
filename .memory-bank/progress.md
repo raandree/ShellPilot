@@ -6,7 +6,7 @@ Chronological record of shipped changes and remaining work. Latest first.
 
 - ShellPilot is a Sampler-built PowerShell module (cmdlet prefix Shp) with 21
   public cmdlets, Pester 5 tests, QA gates (TestQuality, helpQuality),
-  GitVersion, and an Azure Pipelines CI. main builds at 0.2.0-preview0001.
+  GitVersion, and a GitHub Actions CI. main builds at 0.2.0-preview0001.
 - All 12 migration specs (002-013) are implemented; the backend-dependent ones
   are live-verified. Server-side state (011) is implemented but the Copilot
   proxy does not support it, so it falls back to client-side history.
@@ -26,6 +26,17 @@ Chronological record of shipped changes and remaining work. Latest first.
 
 ## Log
 
+- 2026-06-11 - Replaced the Azure Pipelines CI (azure-pipelines.yml, deleted)
+  with a GitHub Actions workflow (.github/workflows/ci.yml). Faithful
+  three-stage translation: Build (GitVersion 5.* via dotnet-gitversion +
+  `build.ps1 -ResolveDependency -Tasks pack`, uploads the output/ artifact),
+  Test (ubuntu/windows/macos matrix on PS7, downloads the artifact, `-Tasks
+  test`, uploads per-OS testResults), Deploy (gated to repo owner raandree +
+  push to main or v* tag; `-Tasks publish` then `Create_ChangeLog_GitHub_PR`).
+  Pinned GitVersion to 5.* for the v5 GitVersion.yml syntax; added pull_request
+  + workflow_dispatch; kept the CHANGELOG paths-ignore and v*/!v*-* tag filter.
+  Needs secrets GitHubToken + GalleryApiToken. Verified valid YAML via
+  powershell-yaml. CHANGELOG Unreleased > Changed updated. No source change.
 - 2026-06-11 - Reverted the README header from the header-less two-column HTML
   table back to the left-floated logo + intro + `<br clear="left">`. Reason: the
   user asked to make the table lines invisible, which is impossible on

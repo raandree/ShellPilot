@@ -30,6 +30,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Replaced the Azure Pipelines CI definition with a GitHub Actions workflow
+  (`.github/workflows/ci.yml`). It keeps the same three stages: build and
+  package the module (versioned with GitVersion), test on Linux, Windows and
+  macOS (PowerShell 7), and deploy - publish the release to GitHub and the
+  PowerShell Gallery and raise the changelog pull request - on pushes to `main`
+  or `v*` tags from the upstream repository. The deploy stage needs the
+  repository secrets `GitHubToken` and `GalleryApiToken`.
 - Documentation: filled in the `about_ShellPilot` help topic (previously the
   Plaster placeholder), added a `-ShowThinking` reasoning-trace example to the
   README, and brought the specs (feature map, roadmap statuses, open-decision
