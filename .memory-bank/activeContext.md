@@ -4,23 +4,16 @@ Current working focus for ShellPilot. Overwrite this file as the focus shifts.
 
 ## Focus
 
-Most recent change: per user request, the README wordmark now ships as TWO
-transparent variants behind a prefers-color-scheme <picture> switch:
-shellpilot-logo-on-dark.png (near-white #EAF1F8 "Shell" + teal, for dark
-backgrounds) and shellpilot-logo-on-light.png (near-black #04101F "Shell" +
-teal, for light backgrounds). Both are transparent (cornerA=0), restored from
-history (on-dark = the prior single shellpilot-logo.png; on-light = the #04101F
-variant at commit bb411ca) - no regeneration. The single shellpilot-logo.png was
-removed. Verified by compositing each on its target background (white Shell on
-#0d1117, black Shell on white) - both crisp. README <picture>: dark source =
-on-dark, default img src = on-light. KEY CAVEAT for the user: this is the
-two-asset approach that mis-rendered in their VS Code Markdown preview earlier;
-it resolves CORRECTLY on github.com, so it must be judged there, not in the
-in-editor preview. Bordered-box table / float / clear unchanged; glyph + Gallery
-icon untouched.
+Most recent change: removed the bordered-box (single-cell HTML table) around the
+README logo per user ("just remove the box"). The logo is now a bare floated
+<picture> - align="left" moved onto the <img>; the two-variant theme switch
+(shellpilot-logo-on-dark = white #EAF1F8 Shell, shellpilot-logo-on-light =
+black #04101F Shell, both transparent) and the <br clear="left"> after the intro
+are unchanged. User confirmed the two-variant switch as "perfect".
 
-Preceding change: single transparent dark-tuned logo (superseded - it could not
-serve light mode, which is why the user asked for two variants).
+Preceding change: shipped the two transparent logo variants behind the
+prefers-color-scheme <picture> (judge on github.com; some in-editor previews
+mis-resolve the theme).
 
 Preceding change: deepened the (then light-theme) logo's "Shell" to #04101F -
 superseded by this card, which keeps that dark ink.

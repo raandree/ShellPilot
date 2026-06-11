@@ -26,6 +26,10 @@ Chronological record of shipped changes and remaining work. Latest first.
 
 ## Log
 
+- 2026-06-11 - Removed the bordered-box (single-cell HTML table) around the
+  README logo per user request; logo is now a bare floated <picture> (align=left
+  on the <img>). Two-variant theme switch and <br clear="left"> unchanged. User
+  called the two-variant switch "perfect". Branch ai/docs-brand-logo.
 - 2026-06-11 - Switched the README wordmark to TWO transparent variants behind a
   prefers-color-scheme <picture> (user: "two versions ... one shell white, one
   shell black for light mode"). shellpilot-logo-on-dark.png = white #EAF1F8
