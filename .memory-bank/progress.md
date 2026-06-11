@@ -26,6 +26,16 @@ Chronological record of shipped changes and remaining work. Latest first.
 
 ## Log
 
+- 2026-06-11 - Fixed `./build.ps1 -Tasks publish` aborting with "Missing task
+  'Publish_GitHub_Wiki_Content'". That task comes from DscResource.DocGenerator
+  and Sampler only scaffolds it into the publish workflow for dsccommunity
+  modules; ShellPilot is a plain module with no DocGenerator dependency and no
+  wiki tasks, so the build.yaml publish workflow referenced an undefined task
+  and InvokeBuild aborted at resolution. Removed the wiki line, leaving the two
+  real tasks (Publish_release_to_GitHub + publish_module_to_gallery). Verified
+  without publishing: YAML parses; `build.ps1 -Tasks ?` resolves the full task
+  tree with no missing-task error. Committed on main; push deferred. CHANGELOG
+  Fixed updated.
 - 2026-06-11 - Fixed the cross-platform module-import crash on Linux/macOS that
   the new GitHub Actions CI caught (ubuntu + macOS test legs; Windows was green
   with the prior todo-list test fix, 75.57% coverage). source/Prefix.ps1 built

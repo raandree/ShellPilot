@@ -4,7 +4,25 @@ Current working focus for ShellPilot. Overwrite this file as the focus shifts.
 
 ## Focus
 
-Most recent change: fixed the cross-platform module-import crash that the new
+Most recent change: fixed `./build.ps1 -Tasks publish` aborting with "Missing
+task 'Publish_GitHub_Wiki_Content'". Root cause: that task ships with
+DscResource.DocGenerator and is only scaffolded into the publish workflow for
+`dsccommunity` module types (Sampler's build.yaml.template gates it behind
+dsccommunity/CompleteSample/All). ShellPilot is a plain module - it has no
+DscResource.DocGenerator dependency and no wiki tasks (Generate_Wiki_Content /
+Package_Wiki_Content), so the wiki line in build.yaml's publish workflow
+referenced a non-existent task and InvokeBuild aborted at workflow resolution
+(0 tasks, 1 error) before running anything. The only two real publish tasks are
+Sampler.GitHubTasks' `Publish_release_to_GitHub` (case-insensitive match for the
+yaml's `Publish_Release_To_GitHub`) and Sampler's `publish_module_to_gallery`.
+Fix: removed the `Publish_GitHub_Wiki_Content` line from build.yaml's publish
+workflow. Verified WITHOUT publishing (an external, non-reversible action):
+build.yaml parses (powershell-yaml) and lists only the two valid tasks, and
+`./build.ps1 -Tasks ?` (lists the task tree, executes nothing - build.ps1 has no
+-WhatIf passthrough) resolves the full graph with no "Missing task" error and
+zero errors. Committed on main per the standing "fix in main"; push deferred.
+
+Preceding change: fixed the cross-platform module-import crash that the new
 GitHub Actions CI surfaced on the ubuntu and macOS test legs (Windows was
 already green - my prior todo-list test fix is in this build and passes there,
 75.57% coverage). Root cause: source/Prefix.ps1 set the default token path with
