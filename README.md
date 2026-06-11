@@ -1,11 +1,11 @@
 <!-- markdownlint-disable MD033 MD041 -->
-<!-- Primary wordmark, theme-aware by contrast: the dark-ink logo (SP #1) on
-     light themes, the brighter logo (SP #2) on dark themes. -->
+<!-- Glyph floated left so the title and intro use the space to its right.
+     Theme-aware: navy glyph on light themes, teal glyph on dark themes. -->
 <picture>
   <source media="(prefers-color-scheme: dark)"
-          srcset="assets/shellpilot-logo-light.png">
-  <img width="300" alt="ShellPilot"
-       src="assets/shellpilot-logo-dark.png">
+          srcset="assets/shellpilot-glyph-dark.png">
+  <img align="left" width="96" alt="ShellPilot logo"
+       src="assets/shellpilot-glyph-light.png">
 </picture>
 <!-- markdownlint-enable MD033 -->
 
@@ -15,6 +15,10 @@ GitHub Copilot in your PowerShell terminal. Authenticate once, list the models
 your account can reach, and send prompts that stream back, call tools, read and
 write files, run commands, follow your instructions and Agent Skills, and return
 structured objects carrying token usage and estimated cost.
+
+<!-- markdownlint-disable MD033 -->
+<br clear="left">
+<!-- markdownlint-enable MD033 -->
 
 > **Status: experimental pre-release.** ShellPilot talks to the same internal
 > endpoints as the GitHub Copilot Chat extension. Those are intended for

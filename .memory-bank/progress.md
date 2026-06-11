@@ -26,6 +26,15 @@ Chronological record of shipped changes and remaining work. Latest first.
 
 ## Log
 
+- 2026-06-11 - Test (user request): reworked the main README.md header into a
+  logo-header layout - the ShellPilot glyph floated left (align="left", width
+  96) with the H1 and intro paragraph filling the space to its right, replacing
+  the full-width wordmark banner tried just before. Chose a left float over an
+  HTML table because GitHub's markdown CSS forces 1px cell borders (ugly grid
+  on a header); added a scoped <br clear="left"> after the intro so the Status
+  blockquote stays below the float on wide screens. Reused the existing
+  transparent, theme-aware glyph assets (no image work). The two wordmark PNGs
+  are now unused but left in assets/ for now. Branch ai/docs-brand-logo.
 - 2026-06-11 - Test (user request): main README.md now leads with the primary
   ShellPilot wordmark (icon + name) as a top-left banner, replacing the compact
   glyph it had top-right. Added two transparent, auto-cropped wordmark PNGs to
