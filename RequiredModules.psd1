@@ -24,4 +24,3 @@
     'DscResource.DocGenerator'  = 'latest'
     MarkdownLinkCheck           = 'latest'
 }
-
