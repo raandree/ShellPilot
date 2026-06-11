@@ -21,6 +21,8 @@ structured objects carrying token usage and estimated cost.
 <br clear="left">
 <!-- markdownlint-enable MD033 -->
 
+---
+
 > **Status: experimental pre-release.** ShellPilot talks to the same internal
 > endpoints as the GitHub Copilot Chat extension. Those are intended for
 > first-party editors and may change without notice. See
