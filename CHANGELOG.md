@@ -40,11 +40,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Brand identity in the docs: the ShellPilot glyph now appears as a small,
   theme-aware logo floated in the top-right corner of the main `README.md` and
   the specs `README.md`. Two PNG assets live under `assets/` (a navy glyph for
-  light themes, a teal glyph for dark themes) and switch automatically via a
-  `prefers-color-scheme` picture source.
+  light themes, a teal glyph for dark themes), each with a fully transparent
+  background, and they switch automatically via a `prefers-color-scheme`
+  picture source.
 - Module icon for the PowerShell Gallery: the manifest now sets `IconUri` to
-  the ShellPilot app icon (`assets/shellpilot-icon.png`, a navy rounded
-  square), so the module displays its logo on the Gallery once published.
+  the ShellPilot app icon (`assets/shellpilot-icon.png`, a navy rounded square
+  on a transparent surround), so the module displays its logo on the Gallery
+  once published.
 - Todo-list tool and structured progress events. `Invoke-Shp -EnableTodoList`
   offers the model a native `manage_todo_list` tool so it can maintain a short
   ordered checklist of sub-tasks for a multi-step request (exactly one item

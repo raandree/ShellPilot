@@ -4,18 +4,29 @@ Current working focus for ShellPilot. Overwrite this file as the focus shifts.
 
 ## Focus
 
-Most recent change: gave the module a PowerShell Gallery icon - the manifest
-PSData now sets IconUri to assets/shellpilot-icon.png (the navy rounded-square
-app icon, picked over the near-white light variant so it reads on the Gallery's
-light background). The icon is referenced by raw-GitHub URL, not bundled, so no
-build/packaging change was needed; build is green and the built output manifest
-carries the IconUri.
+Most recent change: made the three brand PNGs under assets/ fully transparent.
+The design-board exports were flattened 24bpp-RGB on an off-white (#F6F6F6)
+background; they are now 32bpp ARGB with transparent backgrounds. The two
+glyphs were processed with color-to-alpha against white plus a small alpha
+remap (T=20) that zeroes the off-white veil while decontaminating anti-aliased
+edges; the app icon (white glyph inside a navy rounded square) was processed
+with a border flood-fill so only the outer padding became transparent and the
+inner white glyph stayed intact. Done with a throwaway .NET/System.Drawing
+helper (no ImageMagick/Python available; .NET 10 needed an explicit
+System.Private.Windows.Core reference for Bitmap). Filenames are unchanged, so
+the README picture sources and the manifest IconUri still resolve; no build
+needed (assets are docs/metadata, not part of the module build).
 
-Preceding change: added the ShellPilot brand glyph to the docs - a small,
+Preceding change: gave the module a PowerShell Gallery icon - the manifest
+PSData sets IconUri to assets/shellpilot-icon.png (the navy rounded-square app
+icon). Referenced by raw-GitHub URL, not bundled; build green and the built
+output manifest carries the IconUri.
+
+Earlier change: added the ShellPilot brand glyph to the docs - a small,
 theme-aware logo floated in the top-right corner of the root README.md and
-specs/README.md, backed by two PNGs under assets/ (navy for light themes, teal
-for dark) that switch via a prefers-color-scheme picture source, scoped with
-markdownlint-disable MD033 comments and kept within the 80-char line limit.
+specs/README.md, backed by the two glyph PNGs that switch via a
+prefers-color-scheme picture source, scoped with markdownlint-disable MD033
+comments and kept within the 80-char line limit.
 All branding work is docs/metadata only; no module code change. Branch
 ai/docs-brand-logo (not merged; push deferred).
 

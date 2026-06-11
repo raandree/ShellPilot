@@ -26,6 +26,16 @@ Chronological record of shipped changes and remaining work. Latest first.
 
 ## Log
 
+- 2026-06-11 - Made the three brand PNGs under assets/ fully transparent. The
+  design-board exports were flattened 24bpp-RGB on off-white (#F6F6F6); now
+  32bpp ARGB with transparent backgrounds. Glyphs: color-to-alpha vs white +
+  alpha remap (T=20) to zero the off-white veil and decontaminate AA edges.
+  App icon (white glyph in a navy rounded square): border flood-fill so only
+  the outer padding cleared, inner glyph intact. Used a throwaway
+  .NET/System.Drawing helper (no ImageMagick/Python; .NET 10 needed an explicit
+  System.Private.Windows.Core reference). Filenames unchanged; README picture
+  sources and manifest IconUri still resolve; no build needed.
+  Branch ai/docs-brand-logo.
 - 2026-06-11 - Set the module's Gallery icon: the manifest PSData now defines
   IconUri pointing at assets/shellpilot-icon.png (the navy rounded-square app
   icon, chosen over the near-white light variant so it reads on the Gallery's
