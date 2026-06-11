@@ -7,15 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `DscResource.DocGenerator` is now a build dependency
+  (`RequiredModules.psd1`) and its tasks are imported via `ModuleBuildTasks`
+  (`Task.*`). This provides `Publish_GitHub_Wiki_Content` (plus the
+  `Generate_*`/`Package_Wiki_Content` and `*_For_Public_Commands` tasks), which
+  the `publish` workflow uses to publish documentation to the repository's
+  GitHub wiki.
+
 ### Fixed
 
 - `./build.ps1 -Tasks publish` aborted immediately with "Missing task
-  'Publish_GitHub_Wiki_Content'". That task is provided by
-  `DscResource.DocGenerator` and is only scaffolded for `dsccommunity` modules;
-  ShellPilot is a plain module with no wiki-generation pipeline, so the task was
-  never defined and InvokeBuild aborted while resolving the workflow. Removed the
-  `Publish_GitHub_Wiki_Content` step from the `publish` workflow in `build.yaml`,
-  leaving `Publish_Release_To_GitHub` and `publish_module_to_gallery`.
+  'Publish_GitHub_Wiki_Content'" because that task's module
+  (`DscResource.DocGenerator`) was not a dependency and its tasks were never
+  imported. The module is now declared and wired into `ModuleBuildTasks`, so the
+  workflow resolves and the task is available.
 - Module import crashed on Linux and macOS. The default token path was built
   with `Join-Path $env:USERPROFILE '.copilot-demo-token'`, but `$env:USERPROFILE`
   is a Windows-only variable and is `$null` elsewhere, so `Join-Path` threw

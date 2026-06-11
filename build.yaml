@@ -80,6 +80,7 @@ BuildWorkflow:
 
   publish:
     - Publish_Release_To_GitHub # Runs first, if token is expired it will fail early
+    - Publish_GitHub_Wiki_Content
     - publish_module_to_gallery
 
 ####################################################
@@ -136,6 +137,10 @@ ModuleBuildTasks:
     - '*.build.Sampler.ib.tasks'
   Sampler.GitHubTasks:
     - '*.ib.tasks'
+  # Provides Publish_GitHub_Wiki_Content (and the Generate_*/Package_Wiki_Content
+  # tasks) used by the publish workflow. Aliases are exported with a 'Task.' prefix.
+  DscResource.DocGenerator:
+    - 'Task.*'
 
 
 # Invoke-Build Header to be used to 'decorate' the terminal output of the tasks.

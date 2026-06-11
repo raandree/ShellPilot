@@ -4,23 +4,31 @@ Current working focus for ShellPilot. Overwrite this file as the focus shifts.
 
 ## Focus
 
-Most recent change: fixed `./build.ps1 -Tasks publish` aborting with "Missing
-task 'Publish_GitHub_Wiki_Content'". Root cause: that task ships with
-DscResource.DocGenerator and is only scaffolded into the publish workflow for
-`dsccommunity` module types (Sampler's build.yaml.template gates it behind
-dsccommunity/CompleteSample/All). ShellPilot is a plain module - it has no
-DscResource.DocGenerator dependency and no wiki tasks (Generate_Wiki_Content /
-Package_Wiki_Content), so the wiki line in build.yaml's publish workflow
-referenced a non-existent task and InvokeBuild aborted at workflow resolution
-(0 tasks, 1 error) before running anything. The only two real publish tasks are
-Sampler.GitHubTasks' `Publish_release_to_GitHub` (case-insensitive match for the
-yaml's `Publish_Release_To_GitHub`) and Sampler's `publish_module_to_gallery`.
-Fix: removed the `Publish_GitHub_Wiki_Content` line from build.yaml's publish
-workflow. Verified WITHOUT publishing (an external, non-reversible action):
-build.yaml parses (powershell-yaml) and lists only the two valid tasks, and
-`./build.ps1 -Tasks ?` (lists the task tree, executes nothing - build.ps1 has no
--WhatIf passthrough) resolves the full graph with no "Missing task" error and
-zero errors. Committed on main per the standing "fix in main"; push deferred.
+Most recent change: reversed the previous publish-workflow fix per the user -
+instead of REMOVING the missing `Publish_GitHub_Wiki_Content` step, imported the
+module that PROVIDES it. That task ships with DscResource.DocGenerator (confirmed
+in the installed 0.13.0: it exports the alias `Task.Publish_GitHub_Wiki_Content`,
+plus Generate_*/Package_Wiki_Content and, notably, *_For_Public_Commands tasks -
+so the wiki pipeline works for a plain module, not just DSC). Three edits:
+(1) added `'DscResource.DocGenerator' = 'latest'` to RequiredModules.psd1;
+(2) added a `DscResource.DocGenerator: - 'Task.*'` block to build.yaml's
+ModuleBuildTasks (the Sampler convention - the module's tasks are exposed as
+`Task.*` aliases, NOT *.ib.tasks files); (3) restored the
+`Publish_GitHub_Wiki_Content` line in the publish workflow (now between
+Publish_Release_To_GitHub and publish_module_to_gallery). Installed the dep via
+`build.ps1 -Tasks noop -ResolveDependency` (DscResource.DocGenerator 0.13.0 now
+in output/RequiredModules). Verified WITHOUT publishing: `build.ps1 -Tasks ?`
+resolves the full tree, logs `Loading Task.Publish_GitHub_Wiki_Content...`, lists
+the task ("Publish documentation to a GitHub Wiki repository"), and shows no
+missing-task error and zero errors. Committed on main; push deferred. CAVEAT for
+a real publish: the workflow now expects wiki CONTENT to publish - to produce it
+the publish (or a docs) workflow would also need Generate_Wiki_Content /
+Generate_Markdown_For_Public_Commands first, else Publish_GitHub_Wiki_Content has
+nothing to push; also needs the GitHub token/repo-owner context like the other
+GitHub tasks.
+
+Preceding change: (superseded) had removed the wiki step from the publish
+workflow to fix the same "Missing task" abort.
 
 Preceding change: fixed the cross-platform module-import crash that the new
 GitHub Actions CI surfaced on the ubuntu and macOS test legs (Windows was

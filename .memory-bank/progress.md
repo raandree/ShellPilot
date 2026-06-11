@@ -26,6 +26,18 @@ Chronological record of shipped changes and remaining work. Latest first.
 
 ## Log
 
+- 2026-06-11 - Reversed the prior publish fix per the user: instead of removing
+  the missing `Publish_GitHub_Wiki_Content` step, imported its providing module.
+  Added `DscResource.DocGenerator` to RequiredModules.psd1, wired it into
+  build.yaml ModuleBuildTasks as `DscResource.DocGenerator: - 'Task.*'` (its
+  tasks are exposed as Task.* aliases), and restored the wiki step in the publish
+  workflow. Installed the dep (DscResource.DocGenerator 0.13.0) via
+  `-ResolveDependency`. Confirmed the module exports `Task.Publish_GitHub_Wiki_Content`
+  (and *_For_Public_Commands tasks, so it works for non-DSC modules). Verified
+  without publishing: `build.ps1 -Tasks ?` loads the task and resolves the publish
+  workflow with no missing-task error. Committed on main; push deferred. Caveat:
+  a real publish still needs a Generate_Wiki_Content/Generate_Markdown_For_Public_Commands
+  step to produce content + the GitHub token context. CHANGELOG Added+Fixed.
 - 2026-06-11 - Fixed `./build.ps1 -Tasks publish` aborting with "Missing task
   'Publish_GitHub_Wiki_Content'". That task comes from DscResource.DocGenerator
   and Sampler only scaffolds it into the publish workflow for dsccommunity
