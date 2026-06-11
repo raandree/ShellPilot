@@ -4,22 +4,21 @@ Current working focus for ShellPilot. Overwrite this file as the focus shifts.
 
 ## Focus
 
-Most recent change: fixed the README logo's dark-theme contrast. Measurement
-confirmed the two source wordmarks are both dark-ink: SP #1 is all dark
-(navy "Shell" + dark teal #00414F glyph/"Pilot"), SP #2 has near-black navy
-"Shell" (#001F38) + bright teal (#009592) glyph/"Pilot". The old README served
-the all-dark SP #1 to the dark theme - hence "no contrast". There is NO
-light-ink wordmark in the source set, so one was generated: from SP #2, the
-navy "Shell" pixels (rule G<95 & B>=G & R<110) were recoloured to near-white
-(#EAF1F8) with alpha preserved, keeping the bright teal -> a proper white-"Shell"
-+ teal dark-theme logo (verified by compositing on #0d1117). Assets were
-renamed by the background they are FOR, to stop the recurring confusion:
-shellpilot-logo-on-light.png (= SP #1 dark ink) and shellpilot-logo-on-dark.png
-(= the new light-"Shell" variant). Old shellpilot-logo-dark/light.png deleted;
-the README <picture> now maps default src=on-light, dark srcset=on-dark. Built
-with a throwaway .NET/System.Drawing helper (deleted; .NET 10 needs the explicit
-System.Private.Windows.Core reference). The bordered-box table and the
-float/clear layout are unchanged. specs/README.md still uses the glyph.
+Most recent change: deepened the light-theme logo's "Shell" ink from navy
+#001834 to near-black navy #04101F for crisper contrast on white (user said
+"Shell" looked low-contrast). Recoloured only the navy "Shell" - distinguished
+from the teal glyph + teal "Pilot" by a low green channel (G<52 & B>=G & R<80,
+37972 px) - via a throwaway .NET/System.Drawing helper (deleted), verified by
+compositing on white. The teal glyph and "Pilot" are untouched; on-dark.png is
+unchanged. NOTE/CAVEAT still open: the user's screenshot showed a *pale* "Shell"
+on a *white* page, which looks like the dark-theme asset (near-white Shell)
+rendering on a light page - i.e. their previewer may be serving the
+prefers-color-scheme:dark <source> on a light background. If it still looks pale
+after this change, the dark variant is the one being shown and its Shell is the
+one to adjust. User chose to keep theme-switching (not a baked card).
+
+Preceding change: fixed the dark-theme contrast by generating the light-"Shell"
+on-dark.png and renaming assets by target background (on-light / on-dark).
 
 Preceding change: framed the logo in a bordered box (floated single-cell HTML
 table; GitHub styles the cell border since inline CSS is stripped).

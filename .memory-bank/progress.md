@@ -26,6 +26,14 @@ Chronological record of shipped changes and remaining work. Latest first.
 
 ## Log
 
+- 2026-06-11 - Deepened the light-theme logo's "Shell" ink from navy #001834 to
+  near-black navy #04101F for crisper contrast on white (user: "Shell" low
+  contrast). Recoloured only the navy "Shell" (G<52 & B>=G & R<80, 37972 px),
+  leaving the teal glyph + "Pilot"; throwaway .NET/System.Drawing helper
+  (deleted), verified on a white composite. Caveat recorded: the user's pale-
+  Shell-on-white screenshot looks like the dark asset rendering on a light page,
+  so if it still reads pale the dark variant is the one being served.
+  Branch ai/docs-brand-logo.
 - 2026-06-11 - Fixed the README logo's dark-theme contrast (user: "dark mode
   looks bad, no contrast"). Verified both source wordmarks are dark-ink: SP #1
   all dark (navy + dark teal #00414F), SP #2 near-black navy "Shell" #001F38 +
