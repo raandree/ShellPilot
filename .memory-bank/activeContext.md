@@ -4,13 +4,20 @@ Current working focus for ShellPilot. Overwrite this file as the focus shifts.
 
 ## Focus
 
-Most recent change: added the ShellPilot brand glyph to the docs - a small,
+Most recent change: gave the module a PowerShell Gallery icon - the manifest
+PSData now sets IconUri to assets/shellpilot-icon.png (the navy rounded-square
+app icon, picked over the near-white light variant so it reads on the Gallery's
+light background). The icon is referenced by raw-GitHub URL, not bundled, so no
+build/packaging change was needed; build is green and the built output manifest
+carries the IconUri.
+
+Preceding change: added the ShellPilot brand glyph to the docs - a small,
 theme-aware logo floated in the top-right corner of the root README.md and
 specs/README.md, backed by two PNGs under assets/ (navy for light themes, teal
 for dark) that switch via a prefers-color-scheme picture source, scoped with
 markdownlint-disable MD033 comments and kept within the 80-char line limit.
-Docs-only; no module or code change. Branch ai/docs-brand-logo (not merged;
-push deferred).
+All branding work is docs/metadata only; no module code change. Branch
+ai/docs-brand-logo (not merged; push deferred).
 
 Prior in-flight feature work: a native, opt-in `manage_todo_list` tool plus
 structured progress events for Invoke-Shp. `-EnableTodoList` offers the model a

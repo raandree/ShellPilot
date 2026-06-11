@@ -26,6 +26,12 @@ Chronological record of shipped changes and remaining work. Latest first.
 
 ## Log
 
+- 2026-06-11 - Set the module's Gallery icon: the manifest PSData now defines
+  IconUri pointing at assets/shellpilot-icon.png (the navy rounded-square app
+  icon, chosen over the near-white light variant so it reads on the Gallery's
+  light background). The icon is referenced by raw-GitHub URL, not bundled, so
+  no build/packaging change was needed; build green (7 tasks, 0 errors) and the
+  built output manifest carries the IconUri. Branch ai/docs-brand-logo.
 - 2026-06-11 - Added the ShellPilot brand glyph to the docs as a small,
   theme-aware logo floated in the top-right corner of the root README.md and
   specs/README.md, backed by two PNGs under assets/ (navy for light themes,
