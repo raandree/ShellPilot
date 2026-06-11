@@ -26,6 +26,15 @@ Chronological record of shipped changes and remaining work. Latest first.
 
 ## Log
 
+- 2026-06-11 - Switched the README wordmark to TWO transparent variants behind a
+  prefers-color-scheme <picture> (user: "two versions ... one shell white, one
+  shell black for light mode"). shellpilot-logo-on-dark.png = white #EAF1F8
+  Shell (dark bg); shellpilot-logo-on-light.png = black #04101F Shell (light bg);
+  both transparent, restored from history (on-dark = prior single logo; on-light
+  = bb411ca), no regeneration. Removed the single shellpilot-logo.png. Verified
+  each composited on its target bg. CAVEAT: this two-asset <picture> is what
+  mis-rendered in the user's VS Code preview earlier; it resolves correctly on
+  github.com (judge it there). Branch ai/docs-brand-logo.
 - 2026-06-11 - Reverted the white logo card back to a single TRANSPARENT,
   dark-tuned wordmark (user: "transparent again but with lighter colors", dark
   mode). assets/shellpilot-logo.png is now the transparent light-ink variant

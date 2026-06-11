@@ -2,12 +2,18 @@
 <!-- Full logo in a bordered box, floated left so the intro uses the space to
      its right. The box is a single-cell HTML table: GitHub styles table cells
      with a theme-adaptive 1px border that renders as the frame (inline CSS
-     borders are stripped by GitHub, so a table is the portable way). The logo
-     is a single transparent image with light ink ("Shell" near-white, "Pilot"
-     and glyph bright teal), tuned for dark backgrounds; one image (no
-     prefers-color-scheme switch, which some viewers resolve inconsistently). -->
+     borders are stripped by GitHub, so a table is the portable way). Two
+     transparent variants switch by theme via <picture>: on dark backgrounds the
+     "Shell"-in-white logo (-on-dark), on light backgrounds the "Shell"-in-black
+     logo (-on-light). GitHub resolves prefers-color-scheme correctly; some
+     in-editor Markdown previews may not, so judge it on github.com. -->
 <table align="left"><tr><td>
-<img width="300" alt="ShellPilot logo" src="assets/shellpilot-logo.png">
+<picture>
+  <source media="(prefers-color-scheme: dark)"
+          srcset="assets/shellpilot-logo-on-dark.png">
+  <img width="300" alt="ShellPilot logo"
+       src="assets/shellpilot-logo-on-light.png">
+</picture>
 </td></tr></table>
 <!-- markdownlint-enable MD033 -->
 

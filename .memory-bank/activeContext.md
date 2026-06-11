@@ -4,23 +4,23 @@ Current working focus for ShellPilot. Overwrite this file as the focus shifts.
 
 ## Focus
 
-Most recent change: per user request, replaced the white logo card with a
-single TRANSPARENT, dark-tuned wordmark again. assets/shellpilot-logo.png is now
-the transparent light-ink variant (near-white #EAF1F8 "Shell" + bright teal
-glyph/"Pilot") - restored from git (it was the deleted shellpilot-logo-on-dark.png
-at commit ee0e38a) and moved onto shellpilot-logo.png, so the README <img> ref
-needed no change (only the explanatory comment was updated). Verified by
-compositing on #0d1117 (crisp) and white. DELIBERATE TRADE-OFF: a single light
-transparent logo is low-contrast on a LIGHT background ("Shell" near-invisible on
-white) - accepted because the user explicitly wants transparent + dark mode and
-because the theme-switching <picture> mis-resolves in their VS Code preview
-(root cause of the whole saga). If both themes must look good, the fix is the
-two-transparent-asset <picture> (works on GitHub.com even though the local
-preview mis-resolves) - offered to the user. Also cleaned up five leftover
-.work/_*.ps1 temp helpers (kept the tracked runners Go.ps1, GenerateCodeFiles.ps1,
-Install-GhcpCli.ps1). Box/float/clear unchanged; glyph + Gallery icon untouched.
+Most recent change: per user request, the README wordmark now ships as TWO
+transparent variants behind a prefers-color-scheme <picture> switch:
+shellpilot-logo-on-dark.png (near-white #EAF1F8 "Shell" + teal, for dark
+backgrounds) and shellpilot-logo-on-light.png (near-black #04101F "Shell" +
+teal, for light backgrounds). Both are transparent (cornerA=0), restored from
+history (on-dark = the prior single shellpilot-logo.png; on-light = the #04101F
+variant at commit bb411ca) - no regeneration. The single shellpilot-logo.png was
+removed. Verified by compositing each on its target background (white Shell on
+#0d1117, black Shell on white) - both crisp. README <picture>: dark source =
+on-dark, default img src = on-light. KEY CAVEAT for the user: this is the
+two-asset approach that mis-rendered in their VS Code Markdown preview earlier;
+it resolves CORRECTLY on github.com, so it must be judged there, not in the
+in-editor preview. Bordered-box table / float / clear unchanged; glyph + Gallery
+icon untouched.
 
-Preceding change: white logo card (now reverted to transparent per this turn).
+Preceding change: single transparent dark-tuned logo (superseded - it could not
+serve light mode, which is why the user asked for two variants).
 
 Preceding change: deepened the (then light-theme) logo's "Shell" to #04101F -
 superseded by this card, which keeps that dark ink.
