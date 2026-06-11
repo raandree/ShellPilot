@@ -4,7 +4,21 @@ Current working focus for ShellPilot. Overwrite this file as the focus shifts.
 
 ## Focus
 
-Most recent change: made the model's todo list on by default and replaced the
+Most recent change: reworked the README header into a header-less two-column
+HTML table (`<table width="100%">`, no `<th>` row): the theme-switching
+`<picture>` logo in a fixed 300px left cell, the intro paragraph in the right
+cell, both `valign="top"`. This replaces the previous left-floated `<img>` plus
+`<br clear="left">` layout (the float's `align="left"` and the clear are gone). A
+header comment records that github.com draws a 1px border around HTML table
+cells (the inline CSS that would remove it is stripped), the same gotcha behind
+the earlier "remove the box" request. Done on branch main per the user's
+explicit "do the change in this branch" instruction (overriding the usual ai/*
+default); push deferred. The CHANGELOG's unreleased "Brand identity" entry was
+updated from "floated to the left" to the table layout. Verified: README
+renders, no new markdownlint errors in the edited block (MD033/MD041 disabled
+there) - the reported lint warnings are pre-existing elsewhere in the file.
+
+Preceding change: made the model's todo list on by default and replaced the
 opt-in `-EnableTodoList` switch with an opt-out `-DisableTodoList` switch on
 Invoke-Shp, so the native manage_todo_list tool (and its built-in planning
 nudge) are offered on every call unless suppressed - mirroring the existing
