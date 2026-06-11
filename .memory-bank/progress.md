@@ -26,6 +26,18 @@ Chronological record of shipped changes and remaining work. Latest first.
 
 ## Log
 
+- 2026-06-11 - Reverted the white logo card back to a single TRANSPARENT,
+  dark-tuned wordmark (user: "transparent again but with lighter colors", dark
+  mode). assets/shellpilot-logo.png is now the transparent light-ink variant
+  (near-white #EAF1F8 "Shell" + bright teal) - restored from git (the deleted
+  shellpilot-logo-on-dark.png at ee0e38a), moved onto shellpilot-logo.png so the
+  README <img> ref needed no change (only its comment was updated). Verified on
+  #0d1117 + white. DELIBERATE trade-off: low contrast on light backgrounds;
+  accepted because the user prioritises dark mode and the theme-switching
+  <picture> mis-resolves in their VS Code preview. Two-transparent-asset
+  <picture> offered as the both-themes fix (works on GitHub.com). Cleaned up 5
+  leftover .work/_*.ps1 temp helpers (kept tracked Go.ps1/GenerateCodeFiles.ps1/
+  Install-GhcpCli.ps1). Branch ai/docs-brand-logo.
 - 2026-06-11 - Ended the recurring logo theme/contrast loop: replaced the
   README's theme-switching <picture> wordmark with ONE self-contained image on a
   white card (assets/shellpilot-logo.png). Root cause (from the user's

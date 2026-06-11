@@ -4,22 +4,23 @@ Current working focus for ShellPilot. Overwrite this file as the focus shifts.
 
 ## Focus
 
-Most recent change: ended the recurring logo contrast/theme problem by dropping
-the theme-switching <picture> for the README wordmark and using ONE
-self-contained image on a white card (assets/shellpilot-logo.png). Root cause
-proven from the user's screenshot pixels: a white page showing a *pale* "Shell"
-+ *bright* teal "Pilot" = the dark-theme asset (near-white Shell) being rendered
-on a light background, i.e. the viewer resolved prefers-color-scheme:dark while
-painting light - so edits to the light asset were invisible ("no change at
-all"). Fix: composited the dark-ink wordmark (#04101F Shell + teal) on a white
-card with 48px padding (throwaway .NET/System.Drawing helper, deleted); verified
-crisp on both white and #0d1117 composites. README now uses a single <img
-src=shellpilot-logo.png> inside the bordered-box table (border/float/clear
-unchanged). Deleted the now-unused shellpilot-logo-on-light.png and
-shellpilot-logo-on-dark.png. assets/ now: glyph-dark, glyph-light, icon, logo.
-The glyph (specs/README) and the Gallery icon stay transparent; only the README
-wordmark became a card. Trade-off vs the earlier "transparent" request is
-intentional: transparency is what caused the theme-dependent mis-contrast.
+Most recent change: per user request, replaced the white logo card with a
+single TRANSPARENT, dark-tuned wordmark again. assets/shellpilot-logo.png is now
+the transparent light-ink variant (near-white #EAF1F8 "Shell" + bright teal
+glyph/"Pilot") - restored from git (it was the deleted shellpilot-logo-on-dark.png
+at commit ee0e38a) and moved onto shellpilot-logo.png, so the README <img> ref
+needed no change (only the explanatory comment was updated). Verified by
+compositing on #0d1117 (crisp) and white. DELIBERATE TRADE-OFF: a single light
+transparent logo is low-contrast on a LIGHT background ("Shell" near-invisible on
+white) - accepted because the user explicitly wants transparent + dark mode and
+because the theme-switching <picture> mis-resolves in their VS Code preview
+(root cause of the whole saga). If both themes must look good, the fix is the
+two-transparent-asset <picture> (works on GitHub.com even though the local
+preview mis-resolves) - offered to the user. Also cleaned up five leftover
+.work/_*.ps1 temp helpers (kept the tracked runners Go.ps1, GenerateCodeFiles.ps1,
+Install-GhcpCli.ps1). Box/float/clear unchanged; glyph + Gallery icon untouched.
+
+Preceding change: white logo card (now reverted to transparent per this turn).
 
 Preceding change: deepened the (then light-theme) logo's "Shell" to #04101F -
 superseded by this card, which keeps that dark ink.

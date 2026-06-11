@@ -3,9 +3,9 @@
      its right. The box is a single-cell HTML table: GitHub styles table cells
      with a theme-adaptive 1px border that renders as the frame (inline CSS
      borders are stripped by GitHub, so a table is the portable way). The logo
-     is a single self-contained image on a white card, so it stays crisp on any
-     page background and does not depend on prefers-color-scheme (which some
-     viewers resolve inconsistently). -->
+     is a single transparent image with light ink ("Shell" near-white, "Pilot"
+     and glyph bright teal), tuned for dark backgrounds; one image (no
+     prefers-color-scheme switch, which some viewers resolve inconsistently). -->
 <table align="left"><tr><td>
 <img width="300" alt="ShellPilot logo" src="assets/shellpilot-logo.png">
 </td></tr></table>

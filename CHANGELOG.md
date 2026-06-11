@@ -41,10 +41,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ShellPilot logo in a bordered box (a floated single-cell HTML table, whose
   GitHub-styled cell border draws the frame) with the intro paragraph to its
   right; the specs `README.md` keeps the glyph floated in its top-right corner.
-  The wordmark is a single self-contained image on a white card
-  (`assets/shellpilot-logo.png`) so "Shell" stays crisp on any page background
-  and does not depend on `prefers-color-scheme` (which some viewers resolve
-  inconsistently). The glyph and the Gallery icon remain transparent.
+  The wordmark is a single transparent image with light ink ("Shell" near-white,
+  "Pilot" and the glyph bright teal), tuned for dark backgrounds and rendered as
+  one image (no `prefers-color-scheme` switch, which some viewers resolve
+  inconsistently). The glyph and the Gallery icon are also transparent.
 - Module icon for the PowerShell Gallery: the manifest now sets `IconUri` to
   the ShellPilot app icon (`assets/shellpilot-icon.png`, a navy rounded square
   on a transparent surround), so the module displays its logo on the Gallery
