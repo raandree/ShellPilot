@@ -4,37 +4,25 @@ Current working focus for ShellPilot. Overwrite this file as the focus shifts.
 
 ## Focus
 
-Most recent change: wired up wiki-content generation so the deploy
-`Publish_GitHub_Wiki_Content` step has something to publish (user chose "keep it
-& add content generation"; they will initialize the wiki's first page
-themselves - a manual UI step I can't do). Background: the prior run's wiki
-failure moved past the identity fix to a clone-auth error - `Publish-WikiContent`
-clones `<repo>.wiki.git` ANONYMOUSLY (DscResource.DocGenerator psm1 ~line
-4570/4584; token only embedded post-clone for the push), and the wiki git repo
-401s until the wiki is enabled+initialized. Separately, no content was being
-generated. Changes: (1) added `platyPS = 'latest'` to RequiredModules.psd1 -
-Generate_Markdown_For_Public_Commands uses New-MarkdownHelp and skips-with-warning
-without it; (2) added a `docs` workflow to build.yaml:
-Generate_Wiki_Content (an ORCHESTRATOR that chains Create_Wiki_Output_Folder ->
-Generate_Markdown_For_Public_Commands -> Generate_External_Help_File_For_Public_Commands
--> Prepare_Markdown_FileNames_For_GitHub_Publish -> Clean_Markdown_Of_Public_Commands
--> Generate_Markdown_For_DSC_Resources -> Copy_Source_Wiki_Folder ->
-Clean_WikiContent_For_GitHub_Publish), then Generate_Wiki_Sidebar,
-Clean_Markdown_Metadata, Package_Wiki_Content; (3) included `docs` in `pack` so
-the build job's artifact carries output/WikiContent (the deploy job downloads it
-and Publish_GitHub_Wiki_Content reads output/WikiContent - the FOLDER, not the
-zip). VERIFIED locally via `build.ps1 -ResolveDependency -Tasks pack`: docs ran
-clean and produced output/WikiContent with 22 per-cmdlet .md pages + _Sidebar.md
-+ WikiContent.zip. The only failure was the FINAL package_module_nupkg step
-(Test-ModuleManifest NPE) - the known local .NET 10 runtime fault (techContext),
-NOT my change; CI on .NET 8 packages fine (it published preview0002/0003).
-Committed on main; push deferred. STILL REQUIRED for the wiki publish to
-succeed: the user must create the wiki's first page once in the GitHub UI (an
-uninitialized wiki 401s the clone even with a token).
+Most recent check (no code change): the deploy `Publish_GitHub_Wiki_Content`
+step failed again in run 3198559 with the SAME anonymous-clone 401 ("could not
+read Username ... No such device or address", git exit 128). Diagnosis: that run
+executed BEFORE the repo wiki was initialized. I then verified the wiki is NOW
+initialized and publicly cloneable: api.github.com shows has_wiki=true /
+public; the wiki git info/refs returns 200 anonymously; and an actual anonymous
+`git clone https://github.com/raandree/ShellPilot.wiki.git` (with
+GIT_TERMINAL_PROMPT=0 and credential.helper disabled) succeeds and contains
+Home.md. So no code/build change is needed - re-running the deploy (push a new
+commit or re-run the failed job) should clear the wiki clone. NOTE: this exposes
+the next-unrun steps for the first time - after the wiki push, the publish
+workflow runs `publish_module_to_gallery` (needs a valid GalleryApiToken and the
+module name available on the gallery) and then `Send Changelog PR`. Watch those
+on the next green-wiki run. The docs-generation work from the prior change is
+confirmed good (it produced output/WikiContent locally).
 
-Preceding change: fixed the deploy `Publish_GitHub_Wiki_Content` failure
-"Cannot bind argument to parameter 'GitUserEmail'" by renaming the build.yaml
-`GitConfig` section to `GitHubConfig` with the task-expected keys.
+Preceding change: wired up wiki-content generation so the deploy
+`Publish_GitHub_Wiki_Content` step has something to publish (added platyPS + a
+`docs` workflow, included `docs` in `pack`).
 
 Preceding change: surfaced the GitVersion build version in the GitHub Actions
 UI (job names + run summary + Release <tag> run-name); GitHub has no
