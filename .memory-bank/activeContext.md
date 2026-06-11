@@ -4,22 +4,31 @@ Current working focus for ShellPilot. Overwrite this file as the focus shifts.
 
 ## Focus
 
-Most recent change: reverted the README header from the header-less two-column
-HTML table back to the left-floated `<picture>` logo + intro paragraph +
-`<br clear="left">`, because the user asked to make the table lines invisible
-and that is impossible on github.com: GitHub's markdown CSS draws a 1px border
-on every table cell and strips the inline style/class (and overrides any
-`border="0"` attribute) that would remove it, so a borderless table can't be
-rendered there. The float gives the same logo-left / text-right layout with no
-visible lines. A header comment now records why a table can't be borderless.
-Done on branch main (the user's earlier "do the change in this branch" still
-applies); push deferred. CHANGELOG unreleased "Brand identity" entry reverted
-from the table wording back to "floated to the left" with the borderless
-rationale. Verified: README renders; no new markdownlint errors in the edited
-block (MD033/MD041 disabled there).
+Most recent change: switched the README header from the full wide wordmark to
+the compact square brand glyph (theme-switched via `<picture>`: teal
+shellpilot-glyph-dark on dark, navy shellpilot-glyph-light on light), floated
+left at width 140, so the entire intro paragraph now sits beside it with no
+wrap-under and no visible lines. Reason: the user wanted all the intro text on
+the right with no table borders, but (a) confirmed against GitHub's live
+github-markdown.css that every table td/th gets a 1px border that can't be
+removed (style/class stripped), so a borderless multi-column table is
+impossible on github.com, and (b) the wide-but-short wordmark can hold only
+~290 chars beside a float at any size, so the ~330-char intro orphaned its last
+words ("estimated cost.") underneath. A square glyph is tall enough for the
+whole paragraph to fit in the right column. Trade-off: the rendered README no
+longer shows the "ShellPilot" wordmark image (there is no H1 title either);
+offered to add a text title or revert. All five brand assets confirmed present
+in assets/: wordmark on-dark/on-light, glyph dark/light, icon. Done on branch
+main; push deferred. CHANGELOG branding entry updated to the glyph header.
+Verified: README renders; no new markdownlint errors in the edited block
+(MD033/MD041 disabled there).
 
-Preceding change: reworked the README header into a header-less two-column
-HTML table (now reverted, see above).
+Preceding change: reverted the README header from the header-less two-column
+HTML table back to the left-floated wordmark + `<br clear="left">` (now itself
+superseded by the glyph header above).
+
+Earlier change: reworked the README header into a header-less two-column
+HTML table (reverted).
 
 Earlier change: made the model's todo list on by default and replaced the
 opt-in `-EnableTodoList` switch with an opt-out `-DisableTodoList` switch on

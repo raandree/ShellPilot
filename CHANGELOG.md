@@ -37,18 +37,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Brand identity in the docs. The main `README.md` opens with the full
-  ShellPilot logo floated to the left, with the intro paragraph filling the
-  space to its right (a borderless side-by-side layout - an HTML table can't be
-  made borderless on github.com because GitHub draws table-cell borders in CSS
-  and strips the style that would remove them); the specs `README.md` keeps the
-  glyph floated in its top-right corner. The
-  wordmark ships as two transparent variants that switch by theme via a
-  `prefers-color-scheme` `<picture>`: a "Shell"-in-white logo on dark backgrounds
-  (`assets/shellpilot-logo-on-dark.png`) and a "Shell"-in-black logo on light
-  backgrounds (`assets/shellpilot-logo-on-light.png`). GitHub resolves the theme
-  correctly; some in-editor Markdown previews may not. The glyph and the Gallery
-  icon are also transparent.
+- Brand identity in the docs. The main `README.md` opens with the compact
+  ShellPilot brand glyph floated to the left and the full intro paragraph beside
+  it on the right - a borderless side-by-side layout that fits the whole intro
+  next to the mark (the wide wordmark is too short, so a longer intro orphaned
+  its last words underneath; an HTML table can't be made borderless on
+  github.com because GitHub draws table-cell borders in CSS and strips the style
+  that would remove them). The specs `README.md` keeps the glyph floated in its
+  top-right corner. Every mark ships as two transparent variants that switch by
+  theme via a `prefers-color-scheme` `<picture>`: the glyph as teal on dark
+  (`assets/shellpilot-glyph-dark.png`) and navy on light
+  (`assets/shellpilot-glyph-light.png`), and the full wordmark as a
+  "Shell"-in-white logo on dark (`assets/shellpilot-logo-on-dark.png`) and a
+  "Shell"-in-black logo on light (`assets/shellpilot-logo-on-light.png`). GitHub
+  resolves the theme correctly; some in-editor Markdown previews may not. The
+  Gallery icon is also transparent.
 - Module icon for the PowerShell Gallery: the manifest now sets `IconUri` to
   the ShellPilot app icon (`assets/shellpilot-icon.png`, a navy rounded square
   on a transparent surround), so the module displays its logo on the Gallery
