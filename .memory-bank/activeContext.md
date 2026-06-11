@@ -4,24 +4,37 @@ Current working focus for ShellPilot. Overwrite this file as the focus shifts.
 
 ## Focus
 
-Most recent change: fixed the deploy `Publish_GitHub_Wiki_Content` failure
-"Cannot bind argument to parameter 'GitUserEmail' because it is an empty
-string". (The PAT 403 from the prior run is resolved - the user re-scoped the
-token; the release v0.2.0-preview0002 published, and the version-stamped job
-names are live, e.g. `Deploy Module 0.2.0-preview.2+27`.) Root cause: the git
-identity was added to build.yaml under a `GitConfig:` section with `UserName` /
-`UserEmail` keys, but both Sampler.GitHubTasks (Create_ChangeLog_GitHub_PR) and
-DscResource.DocGenerator (Publish_GitHub_Wiki_Content) read
-`$BuildInfo.GitHubConfig.<key>` with the FIXED key names
-`GitHubConfigUserName` / `GitHubConfigUserEmail` / `GitHubFilesToAdd`
-(confirmed in both task sources and the Sampler dsccommunity
-build.yaml.template). So the lookup returned empty and the wiki task threw on
-the empty email. Fix: renamed the section to `GitHubConfig` with the exact key
-names, kept the user's values (Raimund / r.andree@live.com), and added
-`GitHubFilesToAdd: ['CHANGELOG.md']` so the very next step
-(Create_ChangeLog_GitHub_PR, which does `git config user.*` + `git add
-$GitHubFilesToAdd`) doesn't fail in turn. Verified build.yaml parses and the
-GitHubConfig keys/values resolve. Committed on main; push deferred.
+Most recent change: wired up wiki-content generation so the deploy
+`Publish_GitHub_Wiki_Content` step has something to publish (user chose "keep it
+& add content generation"; they will initialize the wiki's first page
+themselves - a manual UI step I can't do). Background: the prior run's wiki
+failure moved past the identity fix to a clone-auth error - `Publish-WikiContent`
+clones `<repo>.wiki.git` ANONYMOUSLY (DscResource.DocGenerator psm1 ~line
+4570/4584; token only embedded post-clone for the push), and the wiki git repo
+401s until the wiki is enabled+initialized. Separately, no content was being
+generated. Changes: (1) added `platyPS = 'latest'` to RequiredModules.psd1 -
+Generate_Markdown_For_Public_Commands uses New-MarkdownHelp and skips-with-warning
+without it; (2) added a `docs` workflow to build.yaml:
+Generate_Wiki_Content (an ORCHESTRATOR that chains Create_Wiki_Output_Folder ->
+Generate_Markdown_For_Public_Commands -> Generate_External_Help_File_For_Public_Commands
+-> Prepare_Markdown_FileNames_For_GitHub_Publish -> Clean_Markdown_Of_Public_Commands
+-> Generate_Markdown_For_DSC_Resources -> Copy_Source_Wiki_Folder ->
+Clean_WikiContent_For_GitHub_Publish), then Generate_Wiki_Sidebar,
+Clean_Markdown_Metadata, Package_Wiki_Content; (3) included `docs` in `pack` so
+the build job's artifact carries output/WikiContent (the deploy job downloads it
+and Publish_GitHub_Wiki_Content reads output/WikiContent - the FOLDER, not the
+zip). VERIFIED locally via `build.ps1 -ResolveDependency -Tasks pack`: docs ran
+clean and produced output/WikiContent with 22 per-cmdlet .md pages + _Sidebar.md
++ WikiContent.zip. The only failure was the FINAL package_module_nupkg step
+(Test-ModuleManifest NPE) - the known local .NET 10 runtime fault (techContext),
+NOT my change; CI on .NET 8 packages fine (it published preview0002/0003).
+Committed on main; push deferred. STILL REQUIRED for the wiki publish to
+succeed: the user must create the wiki's first page once in the GitHub UI (an
+uninitialized wiki 401s the clone even with a token).
+
+Preceding change: fixed the deploy `Publish_GitHub_Wiki_Content` failure
+"Cannot bind argument to parameter 'GitUserEmail'" by renaming the build.yaml
+`GitConfig` section to `GitHubConfig` with the task-expected keys.
 
 Preceding change: surfaced the GitVersion build version in the GitHub Actions
 UI (job names + run summary + Release <tag> run-name); GitHub has no

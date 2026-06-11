@@ -26,6 +26,18 @@ Chronological record of shipped changes and remaining work. Latest first.
 
 ## Log
 
+- 2026-06-11 - Added wiki-content generation so the deploy
+  Publish_GitHub_Wiki_Content step has content. Added platyPS to
+  RequiredModules.psd1 (Generate_Markdown_For_Public_Commands needs it, else
+  skips); added a `docs` build.yaml workflow (Generate_Wiki_Content orchestrator
+  + Generate_Wiki_Sidebar + Clean_Markdown_Metadata + Package_Wiki_Content) and
+  included `docs` in `pack` so the build artifact carries output/WikiContent.
+  Verified locally via `-Tasks pack`: docs produced 22 per-cmdlet .md pages +
+  _Sidebar.md + WikiContent.zip; only the final package_module_nupkg failed
+  (local .NET 10 Test-ModuleManifest NPE, not my change - CI packages fine).
+  User chose this path and will initialize the wiki's first page in the UI
+  (an uninitialized wiki 401s the anonymous clone Publish-WikiContent does).
+  Committed on main; push deferred. CHANGELOG Added.
 - 2026-06-11 - Fixed the deploy Publish_GitHub_Wiki_Content failure "Cannot bind
   argument to parameter 'GitUserEmail' because it is an empty string". The git
   identity was under a `GitConfig:` section (`UserName`/`UserEmail`), but the

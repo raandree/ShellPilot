@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Wiki documentation is now generated during the build so the deploy
+  `Publish_GitHub_Wiki_Content` step has content to publish. A new `docs` build
+  workflow runs `Generate_Wiki_Content` (per-command markdown via PlatyPS +
+  external help), `Generate_Wiki_Sidebar`, `Clean_Markdown_Metadata` and
+  `Package_Wiki_Content`; `docs` is included in `pack` so the build artifact
+  carries `output/WikiContent`. `platyPS` was added to `RequiredModules.psd1`
+  (the command-markdown task skips with a warning without it). Note: publishing
+  to the wiki also requires the repository wiki to be initialized once (create
+  the first page in the GitHub UI).
+
 ### Fixed
 
 - The deploy `Publish_GitHub_Wiki_Content` step failed with "Cannot bind

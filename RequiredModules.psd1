@@ -22,5 +22,8 @@
     Sampler                     = 'latest'
     'Sampler.GitHubTasks'       = 'latest'
     'DscResource.DocGenerator'  = 'latest'
+    # PlatyPS is used by DscResource.DocGenerator's Generate_Markdown_For_Public_Commands
+    # task to build per-cmdlet wiki pages; without it that task warns and skips.
+    platyPS                     = 'latest'
     MarkdownLinkCheck           = 'latest'
 }

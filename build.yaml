@@ -58,8 +58,20 @@ BuildWorkflow:
 
   pack:
     - build
-
+    - docs
     - package_module_nupkg
+
+  # Generate and package the GitHub Wiki content. Generate_Wiki_Content is an
+  # orchestrator that builds per-command markdown (via PlatyPS), the external
+  # help file, and runs the filename/cleanup steps; Generate_Wiki_Sidebar builds
+  # _Sidebar.md; Package_Wiki_Content zips it to output/WikiContent.zip. The
+  # WikiContent folder is then published by Publish_GitHub_Wiki_Content (publish
+  # workflow) from the build artifact.
+  docs:
+    - Generate_Wiki_Content
+    - Generate_Wiki_Sidebar
+    - Clean_Markdown_Metadata
+    - Package_Wiki_Content
 
 
 
