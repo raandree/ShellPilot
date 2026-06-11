@@ -26,6 +26,17 @@ Chronological record of shipped changes and remaining work. Latest first.
 
 ## Log
 
+- 2026-06-11 - Fixed the README logo's dark-theme contrast (user: "dark mode
+  looks bad, no contrast"). Verified both source wordmarks are dark-ink: SP #1
+  all dark (navy + dark teal #00414F), SP #2 near-black navy "Shell" #001F38 +
+  bright teal #009592. The README had served all-dark SP #1 to the dark theme.
+  No light-ink wordmark existed, so generated one: recoloured SP #2's navy
+  "Shell" (G<95 & B>=G & R<110) to near-white #EAF1F8, alpha preserved, teal
+  kept; verified on #0d1117. Renamed assets by target background to prevent
+  recurrence: shellpilot-logo-on-light.png (SP #1) + shellpilot-logo-on-dark.png
+  (new). Deleted old logo-dark/light.png; README <picture> remapped. Throwaway
+  .NET/System.Drawing helper (deleted). Box + float/clear unchanged.
+  Branch ai/docs-brand-logo.
 - 2026-06-11 - Test (user request): the user swapped the README header back to
   the full wordmark logo (width 300, floated left, H1 removed) and asked for a
   box around it. Wrapped the logo in a floated single-cell HTML table

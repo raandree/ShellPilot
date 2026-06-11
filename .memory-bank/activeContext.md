@@ -4,19 +4,25 @@ Current working focus for ShellPilot. Overwrite this file as the focus shifts.
 
 ## Focus
 
-Most recent change (test, on user request): the user swapped the README header
-back to the full wordmark logo (assets/shellpilot-logo-*.png, width 300, floated
-left, H1 removed) and asked for a box around it. Implemented the box as a
-floated single-cell HTML table (<table align="left"><tr><td>...): GitHub styles
-table cells with a theme-adaptive 1px border, which renders as the frame -
-portable because GitHub strips inline CSS (style="border") during HTML
-sanitisation, so a real CSS border would vanish on github.com. The float keeps
-the logo-left / intro-right layout; the existing <br clear="left"> still clears
-it. Two open notes flagged to the user, not changed: (1) their <picture>
-mapping is inverted for contrast (dark theme -> logo-dark.png = SP #1 dark ink =
-low contrast on dark; recommend swapping the two srcset/src files); (2) the
-box border is a subtle 1px - a bolder rounded frame would need to be baked into
-the PNGs. specs/README.md unchanged (glyph top-right).
+Most recent change: fixed the README logo's dark-theme contrast. Measurement
+confirmed the two source wordmarks are both dark-ink: SP #1 is all dark
+(navy "Shell" + dark teal #00414F glyph/"Pilot"), SP #2 has near-black navy
+"Shell" (#001F38) + bright teal (#009592) glyph/"Pilot". The old README served
+the all-dark SP #1 to the dark theme - hence "no contrast". There is NO
+light-ink wordmark in the source set, so one was generated: from SP #2, the
+navy "Shell" pixels (rule G<95 & B>=G & R<110) were recoloured to near-white
+(#EAF1F8) with alpha preserved, keeping the bright teal -> a proper white-"Shell"
++ teal dark-theme logo (verified by compositing on #0d1117). Assets were
+renamed by the background they are FOR, to stop the recurring confusion:
+shellpilot-logo-on-light.png (= SP #1 dark ink) and shellpilot-logo-on-dark.png
+(= the new light-"Shell" variant). Old shellpilot-logo-dark/light.png deleted;
+the README <picture> now maps default src=on-light, dark srcset=on-dark. Built
+with a throwaway .NET/System.Drawing helper (deleted; .NET 10 needs the explicit
+System.Private.Windows.Core reference). The bordered-box table and the
+float/clear layout are unchanged. specs/README.md still uses the glyph.
+
+Preceding change: framed the logo in a bordered box (floated single-cell HTML
+table; GitHub styles the cell border since inline CSS is stripped).
 
 Preceding change: glyph floated left as a logo header (now superseded by the
 user's full-logo-in-a-box).
