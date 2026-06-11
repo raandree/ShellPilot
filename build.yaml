@@ -154,3 +154,10 @@ TaskHeader: |
   Write-Build DarkGray "  $Path"
   Write-Build DarkGray "  $($Task.InvocationInfo.ScriptName):$($Task.InvocationInfo.ScriptLineNumber)"
   ""
+
+####################################################
+#                Git Configuration                 #
+####################################################
+GitConfig:
+  UserName: Raimund
+  UserEmail: r.andree@live.com
