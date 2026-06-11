@@ -1,5 +1,14 @@
 # ShellPilot specifications
 
+<!-- markdownlint-disable MD033 -->
+<picture>
+  <source media="(prefers-color-scheme: dark)"
+          srcset="../assets/shellpilot-glyph-dark.png">
+  <img align="right" width="96" alt="ShellPilot logo"
+       src="../assets/shellpilot-glyph-light.png">
+</picture>
+<!-- markdownlint-enable MD033 -->
+
 Design and scope documents for ShellPilot. Start with the overview, then the
 open decisions. The numbered specs that follow each describe a single pattern,
 its design, and its source hook points.

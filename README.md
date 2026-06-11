@@ -1,5 +1,14 @@
 # ShellPilot
 
+<!-- markdownlint-disable MD033 -->
+<picture>
+  <source media="(prefers-color-scheme: dark)"
+          srcset="assets/shellpilot-glyph-dark.png">
+  <img align="right" width="120" alt="ShellPilot logo"
+       src="assets/shellpilot-glyph-light.png">
+</picture>
+<!-- markdownlint-enable MD033 -->
+
 GitHub Copilot in your PowerShell terminal. Authenticate once, list the models
 your account can reach, and send prompts that stream back, call tools, read and
 write files, run commands, follow your instructions and Agent Skills, and return

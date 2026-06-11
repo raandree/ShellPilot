@@ -37,6 +37,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Brand identity in the docs: the ShellPilot glyph now appears as a small,
+  theme-aware logo floated in the top-right corner of the main `README.md` and
+  the specs `README.md`. Two PNG assets live under `assets/` (a navy glyph for
+  light themes, a teal glyph for dark themes) and switch automatically via a
+  `prefers-color-scheme` picture source.
 - Todo-list tool and structured progress events. `Invoke-Shp -EnableTodoList`
   offers the model a native `manage_todo_list` tool so it can maintain a short
   ordered checklist of sub-tasks for a multi-step request (exactly one item

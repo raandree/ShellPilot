@@ -4,7 +4,15 @@ Current working focus for ShellPilot. Overwrite this file as the focus shifts.
 
 ## Focus
 
-Most recent shipped change: a native, opt-in `manage_todo_list` tool plus
+Most recent change: added the ShellPilot brand glyph to the docs - a small,
+theme-aware logo floated in the top-right corner of the root README.md and
+specs/README.md, backed by two PNGs under assets/ (navy for light themes, teal
+for dark) that switch via a prefers-color-scheme picture source, scoped with
+markdownlint-disable MD033 comments and kept within the 80-char line limit.
+Docs-only; no module or code change. Branch ai/docs-brand-logo (not merged;
+push deferred).
+
+Prior in-flight feature work: a native, opt-in `manage_todo_list` tool plus
 structured progress events for Invoke-Shp. `-EnableTodoList` offers the model a
 `manage_todo_list` tool so it can maintain a short per-turn checklist of
 sub-tasks (exactly one in-progress at a time); the model sends the full list on

@@ -26,6 +26,12 @@ Chronological record of shipped changes and remaining work. Latest first.
 
 ## Log
 
+- 2026-06-11 - Added the ShellPilot brand glyph to the docs as a small,
+  theme-aware logo floated in the top-right corner of the root README.md and
+  specs/README.md, backed by two PNGs under assets/ (navy for light themes,
+  teal for dark) wired with a prefers-color-scheme picture source and scoped
+  markdownlint-disable MD033 comments. Docs-only; no module or code change.
+  Branch ai/docs-brand-logo.
 - 2026-06-09 - Added a native opt-in manage_todo_list tool + structured progress
   events to Invoke-Shp (branch ai/todo-list-progress-events). New private
   ConvertTo-ShpTodoList normalises the model's checklist (status coercion to
