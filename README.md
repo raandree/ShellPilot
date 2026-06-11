@@ -1,15 +1,18 @@
 <!-- markdownlint-disable MD033 MD041 -->
-<!-- Glyph floated left so the title and intro use the space to its right.
-     Theme-aware: navy glyph on light themes, teal glyph on dark themes. -->
+<!-- Full logo in a bordered box, floated left so the intro uses the space to
+     its right. The box is a single-cell HTML table: GitHub styles table cells
+     with a theme-adaptive 1px border that renders as the frame (inline CSS
+     borders are stripped by GitHub, so a table is the portable way). The logo
+     is theme-aware via <picture>. -->
+<table align="left"><tr><td>
 <picture>
   <source media="(prefers-color-scheme: dark)"
-          srcset="assets/shellpilot-glyph-dark.png">
-  <img align="left" width="96" alt="ShellPilot logo"
-       src="assets/shellpilot-glyph-light.png">
+          srcset="assets/shellpilot-logo-dark.png">
+  <img width="300" alt="ShellPilot logo"
+       src="assets/shellpilot-logo-light.png">
 </picture>
+</td></tr></table>
 <!-- markdownlint-enable MD033 -->
-
-# ShellPilot
 
 GitHub Copilot in your PowerShell terminal. Authenticate once, list the models
 your account can reach, and send prompts that stream back, call tools, read and

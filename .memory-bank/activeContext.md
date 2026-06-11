@@ -4,23 +4,22 @@ Current working focus for ShellPilot. Overwrite this file as the focus shifts.
 
 ## Focus
 
-Most recent change (test, on user request): the main README.md header now
-floats the ShellPilot glyph to the left (align="left", width 96) so the
-`# ShellPilot` H1 and the intro paragraph use the space to its right - a
-logo-header layout - replacing the full-width wordmark banner tried just before.
-A scoped <br clear="left"> after the intro keeps the Status blockquote below the
-float on wide viewports. Used a left float rather than an HTML <table> on
-purpose: GitHub's markdown CSS forces 1px borders on every table cell, which
-would draw an ugly grid around a header. The glyph is theme-aware via the
-existing transparent assets (navy shellpilot-glyph-light.png on light, teal
-shellpilot-glyph-dark.png on dark); no image processing was needed this turn.
-The two wordmark PNGs (shellpilot-logo-dark/light.png) are now UNUSED but left
-in assets/ during design iteration - candidates to delete if the glyph header
-is kept. markdownlint MD041 stays disabled at the top (HTML precedes the H1).
-specs/README.md unchanged (glyph top-right).
+Most recent change (test, on user request): the user swapped the README header
+back to the full wordmark logo (assets/shellpilot-logo-*.png, width 300, floated
+left, H1 removed) and asked for a box around it. Implemented the box as a
+floated single-cell HTML table (<table align="left"><tr><td>...): GitHub styles
+table cells with a theme-adaptive 1px border, which renders as the frame -
+portable because GitHub strips inline CSS (style="border") during HTML
+sanitisation, so a real CSS border would vanish on github.com. The float keeps
+the logo-left / intro-right layout; the existing <br clear="left"> still clears
+it. Two open notes flagged to the user, not changed: (1) their <picture>
+mapping is inverted for contrast (dark theme -> logo-dark.png = SP #1 dark ink =
+low contrast on dark; recommend swapping the two srcset/src files); (2) the
+box border is a subtle 1px - a bolder rounded frame would need to be baked into
+the PNGs. specs/README.md unchanged (glyph top-right).
 
-Preceding change: led the README with the primary wordmark banner (now
-superseded by this glyph header).
+Preceding change: glyph floated left as a logo header (now superseded by the
+user's full-logo-in-a-box).
 
 Preceding change: made the three earlier brand PNGs (two glyphs + app icon)
 fully transparent (32bpp ARGB) via color-to-alpha / border flood-fill, since

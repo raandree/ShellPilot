@@ -26,6 +26,15 @@ Chronological record of shipped changes and remaining work. Latest first.
 
 ## Log
 
+- 2026-06-11 - Test (user request): the user swapped the README header back to
+  the full wordmark logo (width 300, floated left, H1 removed) and asked for a
+  box around it. Wrapped the logo in a floated single-cell HTML table
+  (<table align="left"><tr><td>): GitHub styles table cells with a theme-adaptive
+  1px border that renders as the frame - portable because GitHub strips inline
+  CSS (style="border") during sanitisation. Float keeps logo-left/intro-right;
+  existing <br clear="left"> still clears it. Flagged (not changed): the
+  <picture> mapping is inverted for contrast, and a bolder rounded box would
+  need baking into the PNGs. Branch ai/docs-brand-logo.
 - 2026-06-11 - Test (user request): reworked the main README.md header into a
   logo-header layout - the ShellPilot glyph floated left (align="left", width
   96) with the H1 and intro paragraph filling the space to its right, replacing
