@@ -37,7 +37,8 @@ function Invoke-ReadFileTool {
     )
     try {
         $resolved = Resolve-Path -LiteralPath $Path -ErrorAction Stop
-        $item = Get-Item -LiteralPath $resolved -ErrorAction Stop
+        # -Force so hidden dot-files (e.g. .gitignore) are returned on Linux/macOS.
+        $item = Get-Item -LiteralPath $resolved -Force -ErrorAction Stop
         if ($item.PSIsContainer) {
             return (@{ path=$resolved.Path; error='Path is a directory; use list_directory instead.' } | ConvertTo-Json -Compress)
         }

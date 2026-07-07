@@ -21,6 +21,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `Initialize-Shp` failed on Linux/macOS with `Get-Item: Could not find item
+  <path>` even though the token file existed and `Test-Path` reported it as
+  present. The default token path is a dot-file (`~/.copilot-demo-token`), which
+  .NET flags as hidden on Unix, and `Get-Item -LiteralPath` returns nothing for
+  a hidden item unless `-Force` is passed. Added `-Force` to the `Get-Item`
+  calls in `Initialize-Shp`, and to the `read_file` and `write_file` tools,
+  which shared the same latent defect for hidden dot-files. Windows was
+  unaffected because a leading dot is not "hidden" there.
 - The deploy `Publish_GitHub_Wiki_Content` step failed with "Cannot bind
   argument to parameter 'GitUserEmail' because it is an empty string". The git
   identity was configured under a `GitConfig:` section with `UserName` /

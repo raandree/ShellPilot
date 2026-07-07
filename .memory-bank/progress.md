@@ -26,6 +26,22 @@ Chronological record of shipped changes and remaining work. Latest first.
 
 ## Log
 
+- 2026-07-07 - Fixed a Linux/macOS-only crash: Initialize-Shp threw
+  `Get-Item: Could not find item <path>` even when the token existed, because
+  the default token path is a dot-file (~/.copilot-demo-token) that .NET flags
+  as hidden on Unix, and Get-Item -LiteralPath omits hidden items without
+  -Force (while Test-Path still reports them present, and Get-Content reads
+  them fine - which is why Get-ShpSessionToken worked but Initialize-Shp did
+  not). Added -Force to both Get-Item calls in Initialize-Shp and to the
+  read_file / write_file tools (same latent defect for hidden dot-files).
+  Windows was unaffected (a leading dot isn't hidden there), which is why CI
+  never caught it. Added a cross-platform regression test (dot-name on Unix,
+  Hidden attribute on Windows). Root cause pinned to the PowerShell
+  FileSystemProvider: GetFileSystemItem returns null for hidden-without-Force
+  (-> "Could not find item"), whereas ItemExists/Test-Path uses a different
+  helper that ignores hidden. Verified: build green (7 tasks, 0 errors), PSSA
+  clean on the 3 changed files, targeted Pester 10/10 pass. Committed on
+  ai/fix-hidden-token-getitem; push deferred. CHANGELOG Fixed.
 - 2026-06-11 - Added wiki-content generation so the deploy
   Publish_GitHub_Wiki_Content step has content. Added platyPS to
   RequiredModules.psd1 (Generate_Markdown_For_Public_Commands needs it, else

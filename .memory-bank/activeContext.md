@@ -4,7 +4,21 @@ Current working focus for ShellPilot. Overwrite this file as the focus shifts.
 
 ## Focus
 
-Most recent check (no code change): the deploy `Publish_GitHub_Wiki_Content`
+Most recent change: fixed a Linux/macOS-only Initialize-Shp crash. On Unix the
+default token path is a dot-file (~/.copilot-demo-token) that .NET marks hidden,
+and `Get-Item -LiteralPath` omits hidden items without `-Force` (throwing
+"Could not find item"), while `Test-Path` still reports the file present and
+`Get-Content` reads it - so `Get-ShpSessionToken` worked but `Initialize-Shp`
+threw even though the token existed (the `vi` step in the bug report was a red
+herring; the file already existed from the first run's Set-Content). Fix: added
+`-Force` to both `Get-Item` calls in Initialize-Shp and to the read_file /
+write_file tools (same latent defect). Added a cross-platform regression test
+(dot-name on Unix, Hidden attribute on Windows). Windows was unaffected (a
+leading dot is not hidden there), which is why CI never caught it. Verified:
+build green (7 tasks, 0 errors), PSSA clean on the 3 changed files, targeted
+Pester 10/10 pass. Branch ai/fix-hidden-token-getitem; push deferred.
+
+Preceding focus (no code change): the deploy `Publish_GitHub_Wiki_Content`
 step failed again in run 3198559 with the SAME anonymous-clone 401 ("could not
 read Username ... No such device or address", git exit 128). Diagnosis: that run
 executed BEFORE the repo wiki was initialized. I then verified the wiki is NOW

@@ -52,7 +52,8 @@ function Invoke-WriteFileTool {
         } else {
             Set-Content -LiteralPath $Path -Value $Content -Encoding utf8NoBOM -NoNewline -ErrorAction Stop
         }
-        $item = Get-Item -LiteralPath $Path -ErrorAction Stop
+        # -Force so hidden dot-files (e.g. .gitignore) are returned on Linux/macOS.
+        $item = Get-Item -LiteralPath $Path -Force -ErrorAction Stop
         return ([pscustomobject]@{
             path=$item.FullName; bytes=$item.Length; created=(-not $existedBefore); appended=[bool]$Append
         } | ConvertTo-Json -Compress)
