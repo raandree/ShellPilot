@@ -10,7 +10,7 @@ $script:DefaultPluginVersion = 'copilot-chat/0.22.0'
 $script:DefaultIntegrationId = 'vscode-chat'
 # UserProfile resolves to %USERPROFILE% on Windows and $HOME on Linux/macOS, so
 # the default token path works cross-platform ($env:USERPROFILE is null off Windows).
-$script:DefaultTokenPath     = Join-Path ([System.Environment]::GetFolderPath([System.Environment+SpecialFolder]::UserProfile)) '.copilot-demo-token'
+$script:DefaultTokenPath     = Join-Path ([System.Environment]::GetFolderPath([System.Environment+SpecialFolder]::UserProfile)) '.shellpilot-token'
 
 # Session-token cache. The Copilot token exchange (Get-ShpSessionToken) returns
 # a short-lived session token that carries its own expires_at, so a token is

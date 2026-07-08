@@ -21,6 +21,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The default on-disk OAuth token file was renamed from `.copilot-demo-token`
+  to `.shellpilot-token` (still a hidden dot-file in the user's home directory).
+  The old name dated from ShellPilot's proof-of-concept origin; the new name is
+  branded to the module. `-TokenPath` still overrides the location. Because the
+  default path changed, existing users must re-run `Initialize-Shp` once to
+  write the token under the new name (or pass `-TokenPath` to point at the old
+  file); the previous `.copilot-demo-token` file is not migrated automatically
+  and can be deleted.
 - Cut the per-Turn network overhead so ShellPilot feels closer to the VS Code
   Copilot extension, with no change to the public API, result objects,
   streaming, tool loop, structured output, images, the responses API, retry, or

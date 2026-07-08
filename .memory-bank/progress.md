@@ -16,8 +16,7 @@ Chronological record of shipped changes and remaining work. Latest first.
 
 ## What is left
 
-- Encrypted token storage (open decision #5) and a renamed token-file default
-  before a stable release.
+- Encrypted token storage (open decision #5) before a stable release.
 - Publish to the PowerShell Gallery (open decision #7).
 - Streaming-path retry: route Invoke-ShpStreamRequest through Invoke-ShpWithRetry
   so the 429/5xx and 30s network-outage guarantees also cover streamed replies.
@@ -25,6 +24,19 @@ Chronological record of shipped changes and remaining work. Latest first.
   the file tools, user tools).
 
 ## Log
+
+- 2026-07-08 - Renamed the default on-disk OAuth token file from
+  `.copilot-demo-token` to `.shellpilot-token` ("ShellPilot is not just a
+  demo"). Still a hidden dot-file in the user's home directory, so the existing
+  cross-platform hidden-dot-file handling stays valid. Changed the single
+  literal in `$script:DefaultTokenPath` (source/Prefix.ps1) - every `-TokenPath`
+  default references that variable - plus the help/comment/example literals in
+  Initialize-Shp and Get-ShpSessionToken, the README security note, the
+  Initialize-Shp hidden-token regression test, and the techContext fact. No
+  migration logic (preview only): existing users re-run Initialize-Shp once, or
+  pass -TokenPath at the old location. Verified out-of-band: AST clean, build
+  green (7 tasks, 0 errors), isolated Initialize-Shp Pester 4/4. Branch
+  ai/rename-token-file; push deferred.
 
 - 2026-07-08 - Cut per-Turn network overhead (ShellPilot is the engine behind
   DeskPilot, which felt slower than the VS Code Copilot extension) with two

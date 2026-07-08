@@ -252,7 +252,7 @@ Every cmdlet has full comment-based help: `Get-Help Invoke-Shp -Full`.
 - **Internal endpoints.** ShellPilot calls the same private Copilot services as
   the editor extension. They can change or break without notice.
 - **Clear-text token.** The OAuth token is cached unencrypted as
-  `.copilot-demo-token` in your home directory (`%USERPROFILE%` on Windows,
+  `.shellpilot-token` in your home directory (`%USERPROFILE%` on Windows,
   `$HOME` on Linux/macOS). Unsuitable for shared machines;
   encrypted storage is planned.
 - **Unsandboxed tools.** `run_command` and the file tools run with your full

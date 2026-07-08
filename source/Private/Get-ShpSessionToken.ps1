@@ -33,7 +33,7 @@ function Get-ShpSessionToken {
         still-valid one is cached. The refreshed response replaces the cache.
 
     .EXAMPLE
-        Get-ShpSessionToken -TokenPath (Join-Path $HOME '.copilot-demo-token')
+        Get-ShpSessionToken -TokenPath (Join-Path $HOME '.shellpilot-token')
 
         Reads the cached OAuth token and exchanges it for a short-lived Copilot
         session token plus the per-account API endpoints (or returns the cached

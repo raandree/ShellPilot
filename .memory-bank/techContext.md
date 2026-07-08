@@ -36,8 +36,8 @@ ShellPilot talks to the same HTTP services as the Copilot Chat extension.
 - GitHub OAuth device-code flow using the public VS Code Copilot Chat
   client id.
 - The OAuth token is cached unencrypted at
-  $env:USERPROFILE\.copilot-demo-token (proof-of-concept default; a
-  hardening decision is open).
+  $env:USERPROFILE\.shellpilot-token (a hardening/encryption decision is
+  still open).
 - A short-lived session token is exchanged on each call and carries the
   per-account API endpoints.
 

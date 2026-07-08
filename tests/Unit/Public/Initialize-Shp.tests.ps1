@@ -22,13 +22,13 @@ Describe 'Initialize-Shp' {
     }
 
     It 'Returns a cached token file even when it is hidden' {
-        # Regression: the default token path is a dot-file (~/.copilot-demo-token),
+        # Regression: the default token path is a dot-file (~/.shellpilot-token),
         # which .NET flags as hidden on Linux/macOS. Get-Item without -Force then
         # throws "Could not find item" even though Test-Path reports it present, so
         # Initialize-Shp could never reuse a cached token off Windows. Reproduced
         # cross-platform: a leading dot is hidden on Unix; the Hidden attribute is
         # set explicitly on Windows to exercise the same Get-Item code path.
-        $tokenFile = Join-Path $TestDrive '.copilot-demo-token'
+        $tokenFile = Join-Path $TestDrive '.shellpilot-token'
         Set-Content -LiteralPath $tokenFile -Value 'gho_cached' -NoNewline
         if ($IsWindows) {
             (Get-Item -LiteralPath $tokenFile).Attributes = 'Hidden'

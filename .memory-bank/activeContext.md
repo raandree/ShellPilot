@@ -4,7 +4,28 @@ Current working focus for ShellPilot. Overwrite this file as the focus shifts.
 
 ## Focus
 
-Most recent change: cut per-Turn network overhead so ShellPilot (the engine
+Most recent change: renamed the default on-disk OAuth token file from
+`.copilot-demo-token` to `.shellpilot-token`. The old name dated from
+ShellPilot's proof-of-concept origin ("ShellPilot is not just a demo"); the new
+name is branded to the module and still a hidden dot-file in the user's home
+directory, so the existing cross-platform hidden-dot-file handling (the `-Force`
+on every `Get-Item`) stays valid. The default lives in exactly one place
+(`$script:DefaultTokenPath` in source/Prefix.ps1); every cmdlet's `-TokenPath`
+parameter references that variable, so only the single literal changed. Also
+updated the help/comment/example literals in Initialize-Shp and
+Get-ShpSessionToken, the README security note, the Initialize-Shp hidden-token
+regression test's TestDrive path, and the techContext current-state fact.
+Historical narrative in progress.md / past CHANGELOG versions keeps the old name
+(immutable records). No public API, behaviour, or migration logic changed: this
+is a plain default-path rename, so existing users re-run Initialize-Shp once (or
+pass -TokenPath) to write the token under the new name. Verified out-of-band
+(full local suite crashes on the .NET 10 access violation): 4 changed source/
+test files AST-parse clean, build green (7 tasks, 0 errors, 0 warnings, incl.
+the changelog task re-parsing CHANGELOG.md), and the isolated child-process
+Initialize-Shp Pester run is 4/4 green. Branch ai/rename-token-file; push
+deferred.
+
+Preceding change: cut per-Turn network overhead so ShellPilot (the engine
 behind DeskPilot) feels closer to the VS Code Copilot extension - two
 "expensive network setup once, then reuse" wins, with NO public-API,
 result-object, streaming, tool-loop, structured-output, image, responses-API,

@@ -13,7 +13,7 @@ function Initialize-Shp {
 
     .PARAMETER TokenPath
         File path for the cached token.
-        Default: .copilot-demo-token in your home directory (%USERPROFILE% on
+        Default: .shellpilot-token in your home directory (%USERPROFILE% on
         Windows, $HOME on Linux/macOS).
 
     .PARAMETER ClientId
@@ -64,7 +64,7 @@ function Initialize-Shp {
     if ((Test-Path -LiteralPath $TokenPath) -and -not $Force) {
         Write-Verbose "Token already present at $TokenPath. Use -Force to refresh."
         # -Force so Get-Item returns the file even when it is hidden: the default
-        # token path is a dot-file (~/.copilot-demo-token), which .NET flags as
+        # token path is a dot-file (~/.shellpilot-token), which .NET flags as
         # hidden on Linux/macOS, and Get-Item without -Force then fails with
         # "Could not find item" even though Test-Path reports it as present.
         return Get-Item -LiteralPath $TokenPath -Force
