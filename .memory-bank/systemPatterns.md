@@ -66,7 +66,9 @@ Get-ShpSessionToken, Invoke-CopilotTurn, the streaming helpers
 Invoke-WriteFileTool, New-DirectoryTool, Invoke-RunCommandTool [run_command],
 Read-ShpUserInput [ask_user]), the customisation loaders
 (Get-ShpInstructionContent, Get-ShpSkillCatalog, Get-ShpInstructionCatalog),
-the retry wrapper (Invoke-ShpWithRetry), the user-tool schema builder
+the retry wrapper (Invoke-ShpWithRetry), the shared connection-pooling HTTP
+client accessor (Get-ShpHttpClient) and its buffered non-streaming sender
+(Invoke-ShpHttpRequest), the user-tool schema builder
 (New-ShpToolSchema), and the vision content builder (ConvertTo-ShpImageContent).
 
 ## Recurring patterns
@@ -135,6 +137,31 @@ Invoke-RestMethod miss and the call hits the network. Connection options
 backend) resolve with the same precedence as the model defaults: explicit
 parameter > session context (Set-ShpContext, $script:ShpContext) > built-in
 default.
+
+### Connection and session-token reuse (per-Turn latency)
+
+A Turn is a loop - one API round-trip per tool iteration - so "do the expensive
+network setup once, then reuse" mirrors what the VS Code Copilot extension gets
+for free. Two module-scoped caches implement this without touching any public
+API, result object, or the streaming/tool-loop behaviour:
+
+- Session-token cache ($script:ShpSessionTokenCache): Get-ShpSessionToken caches
+  the token-exchange response keyed by a SHA-256 hash of the OAuth token plus the
+  Editor-Version, and returns it while more than a 60s safety margin
+  ($script:SessionTokenSafetyMarginSec) remains before its expires_at. -Force
+  bypasses the cache; Initialize-Shp clears it on re-auth. A partial/expired entry
+  is refetched.
+- Shared HttpClient ($script:ShpHttpClient, built lazily by Get-ShpHttpClient):
+  one connection-pooling client on a SocketsHttpHandler (2-min
+  PooledConnectionLifetime, HTTP/2 preferred) is reused for every request, so the
+  loop pays one TCP + TLS handshake instead of one per iteration. Per-request
+  Authorization/editor headers go on the HttpRequestMessage, never the shared
+  client; its Timeout stays InfiniteTimeSpan (streaming needs it) and the
+  non-streaming sender (Invoke-ShpHttpRequest) bounds itself with a
+  CancellationTokenSource. The shared client is never disposed per request;
+  Invoke-ShpStreamRequest disposes only the response and reader. Non-success
+  throws HttpResponseException so the Invoke-ShpWithRetry classification is
+  unchanged.
 
 ### User-defined tools
 

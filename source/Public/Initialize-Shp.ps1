@@ -135,6 +135,10 @@ function Initialize-Shp {
     if (-not $token) { throw 'Timed out waiting for device authorization.' }
 
     Set-Content -LiteralPath $TokenPath -Value $token -NoNewline -Encoding ascii
+    # A fresh OAuth token was written, so any session token cached from the
+    # previous OAuth token is stale - drop the whole cache so the next
+    # Get-ShpSessionToken exchanges against the new OAuth token.
+    $script:ShpSessionTokenCache.Clear()
     Write-Host ''
     Write-Host "Token written to: $TokenPath" -ForegroundColor Green
     # -Force so a hidden dot-file token path is returned rather than throwing.

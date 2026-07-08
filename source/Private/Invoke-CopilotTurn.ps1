@@ -141,9 +141,12 @@ function Invoke-CopilotTurn {
         if ($Store) { $payload.store = $true }
         if (-not [string]::IsNullOrWhiteSpace($PreviousResponseId)) { $payload.previous_response_id = $PreviousResponseId }
         $body = $payload | ConvertTo-Json -Depth 12
-        $iwr = @{ Method = 'Post'; Uri = "$ApiBase/responses"; SkipHeaderValidation = $true; Headers = $Headers; Body = $body; ErrorAction = 'Stop' }
-        if ($TimeoutSec -gt 0) { $iwr.TimeoutSec = $TimeoutSec }
-        $response = Invoke-ShpWithRetry -MaxRetryCount $MaxRetryCount -RetryDelaySec $RetryDelaySec -NetworkOutageToleranceSec $NetworkOutageToleranceSec -ArgumentList $iwr -ScriptBlock { param($p) Invoke-WebRequest @p }
+        # Route through the module's shared, pooled HttpClient (Invoke-ShpHttpRequest)
+        # so every Turn iteration reuses one warm connection; keep the retry wrapper
+        # so 429/5xx and network-outage handling are unchanged.
+        $reqOptions = @{ Method = 'Post'; Uri = "$ApiBase/responses"; Headers = $Headers; Body = $body }
+        if ($TimeoutSec -gt 0) { $reqOptions.TimeoutSec = $TimeoutSec }
+        $response = Invoke-ShpWithRetry -MaxRetryCount $MaxRetryCount -RetryDelaySec $RetryDelaySec -NetworkOutageToleranceSec $NetworkOutageToleranceSec -ArgumentList $reqOptions -ScriptBlock { param($p) Invoke-ShpHttpRequest @p }
         $parsed = $response.Content | ConvertFrom-Json
         $textContent = ''; $toolCalls = @(); $assistantItems = @(); $reasoningText = ''
         foreach ($item in @($parsed.output)) {
@@ -209,14 +212,17 @@ function Invoke-CopilotTurn {
         } finally {
             if ($req.Reader   -is [System.IDisposable]) { $req.Reader.Dispose() }
             if ($req.Response -is [System.IDisposable]) { $req.Response.Dispose() }
-            if ($req.Client   -is [System.IDisposable]) { $req.Client.Dispose() }
+            # $req.Client is the module's shared, pooled HttpClient - never dispose it.
         }
     }
 
     $body = $payload | ConvertTo-Json -Depth 10
-    $iwr = @{ Method = 'Post'; Uri = "$ApiBase/chat/completions"; SkipHeaderValidation = $true; Headers = $Headers; Body = $body; ErrorAction = 'Stop' }
-    if ($TimeoutSec -gt 0) { $iwr.TimeoutSec = $TimeoutSec }
-    $response = Invoke-ShpWithRetry -MaxRetryCount $MaxRetryCount -RetryDelaySec $RetryDelaySec -NetworkOutageToleranceSec $NetworkOutageToleranceSec -ArgumentList $iwr -ScriptBlock { param($p) Invoke-WebRequest @p }
+    # Route through the module's shared, pooled HttpClient (Invoke-ShpHttpRequest)
+    # so every Turn iteration reuses one warm connection; keep the retry wrapper
+    # so 429/5xx and network-outage handling are unchanged.
+    $reqOptions = @{ Method = 'Post'; Uri = "$ApiBase/chat/completions"; Headers = $Headers; Body = $body }
+    if ($TimeoutSec -gt 0) { $reqOptions.TimeoutSec = $TimeoutSec }
+    $response = Invoke-ShpWithRetry -MaxRetryCount $MaxRetryCount -RetryDelaySec $RetryDelaySec -NetworkOutageToleranceSec $NetworkOutageToleranceSec -ArgumentList $reqOptions -ScriptBlock { param($p) Invoke-ShpHttpRequest @p }
     $parsed = $response.Content | ConvertFrom-Json
     $msg = $parsed.choices[0].message
     $toolCalls = @()

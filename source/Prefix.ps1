@@ -12,6 +12,20 @@ $script:DefaultIntegrationId = 'vscode-chat'
 # the default token path works cross-platform ($env:USERPROFILE is null off Windows).
 $script:DefaultTokenPath     = Join-Path ([System.Environment]::GetFolderPath([System.Environment+SpecialFolder]::UserProfile)) '.copilot-demo-token'
 
+# Session-token cache. The Copilot token exchange (Get-ShpSessionToken) returns
+# a short-lived session token that carries its own expires_at, so a token is
+# reused across calls until it nears expiry instead of exchanging a fresh one on
+# every Turn (the round-trip VS Code also avoids). Keyed by a hash of the OAuth
+# token plus the Editor-Version (both shape the issued token); each value is the
+# full exchange response. Invalidated by Initialize-Shp on re-auth and bypassed
+# by Get-ShpSessionToken -Force. Session-scoped; never persisted to disk.
+$script:ShpSessionTokenCache = @{}
+
+# Safety margin (seconds) subtracted from a cached session token's expires_at
+# before it is considered reusable, so a token that is about to expire is
+# refetched rather than used for a request that would outlive it.
+$script:SessionTokenSafetyMarginSec = 60
+
 $script:EndpointMap = @{
     Enterprise = 'https://api.enterprise.githubcopilot.com'
     Individual = 'https://api.individual.githubcopilot.com'
@@ -76,6 +90,16 @@ $script:DefaultRetryDelaySec = 2
 # brief outage by default. Override per call (Invoke-Shp -NetworkOutageToleranceSec)
 # or for the session (Set-ShpContext -NetworkOutageToleranceSec); 0 disables it.
 $script:DefaultNetworkOutageToleranceSec = 30
+
+# Shared, connection-pooling HttpClient reused for every Copilot request. A Turn
+# is a loop - one API round-trip per tool iteration - so a fresh client (and its
+# TCP + TLS handshake) per request is pure overhead; VS Code keeps one warm
+# pooled HTTP/2 connection instead. Built lazily on first use by
+# Get-ShpHttpClient (backed by a SocketsHttpHandler with connection pooling) and
+# then reused, so per-request auth/editor headers are set on the
+# HttpRequestMessage, never on this shared client. Session-scoped; $null until
+# first used.
+$script:ShpHttpClient = $null
 
 # Registry of user-defined tools (see Register-ShpTool). Maps a tool name to a
 # record carrying the backing command name and the generated JSON schema, so

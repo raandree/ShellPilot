@@ -11,7 +11,7 @@ AfterAll {
 Describe 'Invoke-CopilotTurn' {
     It 'Normalizes a chat-completions response' {
         InModuleScope $script:moduleName {
-            Mock Invoke-WebRequest {
+            Mock Invoke-ShpHttpRequest {
                 $payload = [pscustomobject]@{
                     choices = @(
                         [pscustomobject]@{
@@ -37,7 +37,7 @@ Describe 'Invoke-CopilotTurn' {
     It 'Maps ReasoningEffort and MaxOutputTokens onto the chat payload' {
         InModuleScope $script:moduleName {
             $script:capturedBody = $null
-            Mock Invoke-WebRequest {
+            Mock Invoke-ShpHttpRequest {
                 $script:capturedBody = $Body
                 $payload = [pscustomobject]@{
                     choices = @([pscustomobject]@{ message = [pscustomobject]@{ content = 'ok' }; finish_reason = 'stop' })
@@ -57,7 +57,7 @@ Describe 'Invoke-CopilotTurn' {
     It 'Maps ReasoningEffort and MaxOutputTokens onto the responses payload' {
         InModuleScope $script:moduleName {
             $script:capturedBody = $null
-            Mock Invoke-WebRequest {
+            Mock Invoke-ShpHttpRequest {
                 $script:capturedBody = $Body
                 $payload = [pscustomobject]@{
                     output = @([pscustomobject]@{ type = 'message'; content = @([pscustomobject]@{ type = 'output_text'; text = 'ok' }) })
@@ -78,7 +78,7 @@ Describe 'Invoke-CopilotTurn' {
     It 'Omits the reasoning and token fields when not requested' {
         InModuleScope $script:moduleName {
             $script:capturedBody = $null
-            Mock Invoke-WebRequest {
+            Mock Invoke-ShpHttpRequest {
                 $script:capturedBody = $Body
                 $payload = [pscustomobject]@{
                     choices = @([pscustomobject]@{ message = [pscustomobject]@{ content = 'ok' }; finish_reason = 'stop' })
@@ -131,7 +131,7 @@ Describe 'Invoke-CopilotTurn' {
     It 'Maps -ResponseFormat json_object onto response_format' {
         InModuleScope $script:moduleName {
             $script:capturedBody = $null
-            Mock Invoke-WebRequest {
+            Mock Invoke-ShpHttpRequest {
                 $script:capturedBody = $Body
                 $payload = [pscustomobject]@{ choices = @([pscustomobject]@{ message = [pscustomobject]@{ content = '{}' }; finish_reason = 'stop' }); usage = [pscustomobject]@{ prompt_tokens = 1; completion_tokens = 1 }; model = 'm' } | ConvertTo-Json -Depth 8
                 [pscustomobject]@{ Content = $payload; Headers = @{} }
@@ -144,7 +144,7 @@ Describe 'Invoke-CopilotTurn' {
     It 'Maps -JsonSchema onto a json_schema response_format' {
         InModuleScope $script:moduleName {
             $script:capturedBody = $null
-            Mock Invoke-WebRequest {
+            Mock Invoke-ShpHttpRequest {
                 $script:capturedBody = $Body
                 $payload = [pscustomobject]@{ choices = @([pscustomobject]@{ message = [pscustomobject]@{ content = '{}' }; finish_reason = 'stop' }); usage = [pscustomobject]@{ prompt_tokens = 1; completion_tokens = 1 }; model = 'm' } | ConvertTo-Json -Depth 8
                 [pscustomobject]@{ Content = $payload; Headers = @{} }
@@ -160,7 +160,7 @@ Describe 'Invoke-CopilotTurn' {
     It 'Maps -Store and -PreviousResponseId onto the responses payload and returns the id' {
         InModuleScope $script:moduleName {
             $script:capturedBody = $null
-            Mock Invoke-WebRequest {
+            Mock Invoke-ShpHttpRequest {
                 $script:capturedBody = $Body
                 $payload = [pscustomobject]@{ output = @([pscustomobject]@{ type = 'message'; content = @([pscustomobject]@{ type = 'output_text'; text = 'ok' }) }); status = 'completed'; usage = [pscustomobject]@{ input_tokens = 1; output_tokens = 1 }; model = 'm'; id = 'resp_123' } | ConvertTo-Json -Depth 8
                 [pscustomobject]@{ Content = $payload; Headers = @{} }

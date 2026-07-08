@@ -8,9 +8,13 @@ function Invoke-ShpStreamRequest {
         response. It issues an HTTP POST with HttpCompletionOption.ResponseHeadersRead
         so the response body can be read incrementally as Server-Sent Events, and
         returns the open StreamReader together with the HttpResponseMessage and the
-        owning HttpClient so the caller can read the stream and dispose both when
-        finished. Request headers are added without validation so the editor
-        identifying headers are sent verbatim, matching the non-streaming path.
+        module's shared HttpClient. The request is sent through that shared,
+        connection-pooling client (Get-ShpHttpClient) so a streamed Turn reuses the
+        same warm connection as the rest of the Turn; the caller reads the stream
+        and disposes the reader and the response when finished, but must NOT
+        dispose the shared client. Request headers are added without validation so
+        the editor-identifying headers are sent verbatim, matching the
+        non-streaming path.
 
     .PARAMETER Uri
         The absolute request URI (for example https://api.example/chat/completions).
@@ -33,7 +37,8 @@ function Invoke-ShpStreamRequest {
 
         An object with Reader (System.IO.StreamReader), Response
         (System.Net.Http.HttpResponseMessage) and Client
-        (System.Net.Http.HttpClient) members.
+        (System.Net.Http.HttpClient) members. Client is the module's shared
+        HttpClient and must not be disposed by the caller.
     #>
     [CmdletBinding()]
     [OutputType([pscustomobject])]
@@ -48,10 +53,12 @@ function Invoke-ShpStreamRequest {
         [string]$Body
     )
 
-    $client = [System.Net.Http.HttpClient]::new()
-    $client.Timeout = [System.Threading.Timeout]::InfiniteTimeSpan
+    # Reuse the module's shared, pooled client so a streamed Turn rides the same
+    # warm connection as the rest of the Turn. The client is never disposed here
+    # (or by the caller); only the per-request message and the response are.
+    $client = Get-ShpHttpClient
+    $request = [System.Net.Http.HttpRequestMessage]::new([System.Net.Http.HttpMethod]::Post, $Uri)
     try {
-        $request = [System.Net.Http.HttpRequestMessage]::new([System.Net.Http.HttpMethod]::Post, $Uri)
         foreach ($entry in $Headers.GetEnumerator()) {
             if ($entry.Key -eq 'Content-Type') { continue }
             $null = $request.Headers.TryAddWithoutValidation([string]$entry.Key, [string]$entry.Value)
@@ -61,7 +68,7 @@ function Invoke-ShpStreamRequest {
 
         $response = $client.SendAsync($request, [System.Net.Http.HttpCompletionOption]::ResponseHeadersRead).GetAwaiter().GetResult()
     } catch {
-        $client.Dispose()
+        $request.Dispose()
         throw
     }
 
@@ -69,7 +76,7 @@ function Invoke-ShpStreamRequest {
         $errorBody = $response.Content.ReadAsStringAsync().GetAwaiter().GetResult()
         $status = [int]$response.StatusCode
         $response.Dispose()
-        $client.Dispose()
+        $request.Dispose()
         throw [System.Net.Http.HttpRequestException]::new(("Copilot streaming request to '{0}' failed with status {1}: {2}" -f $Uri, $status, $errorBody))
     }
 

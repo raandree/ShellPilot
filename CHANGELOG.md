@@ -19,6 +19,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   to the wiki also requires the repository wiki to be initialized once (create
   the first page in the GitHub UI).
 
+### Changed
+
+- Cut the per-Turn network overhead so ShellPilot feels closer to the VS Code
+  Copilot extension, with no change to the public API, result objects,
+  streaming, tool loop, structured output, images, the responses API, retry, or
+  network-outage tolerance - the only observable difference is lower latency.
+  - The Copilot session token is now cached module-wide and reused until it
+    nears expiry, instead of exchanging a fresh one on every Turn.
+    `Get-ShpSessionToken` keys a cache (a hash of the OAuth token plus the
+    Editor-Version) on the exchange response and returns it while more than a
+    60-second safety margin remains before its `expires_at`; a new `-Force`
+    switch bypasses the cache, and `Initialize-Shp` clears it on re-auth. A
+    second Turn within the token's validity makes no
+    `copilot_internal/v2/token` request.
+  - All requests now share one pooled `HttpClient` backed by a
+    `SocketsHttpHandler` (2-minute `PooledConnectionLifetime`, HTTP/2 preferred),
+    built lazily by the new private `Get-ShpHttpClient`. Because a Turn loops one
+    API round-trip per tool iteration, reusing one warm connection avoids a fresh
+    TCP + TLS handshake per iteration. `Invoke-ShpStreamRequest` now uses the
+    shared client (and no longer disposes it), and the non-streaming
+    `Invoke-CopilotTurn` path posts through it via the new private
+    `Invoke-ShpHttpRequest` (`SendAsync` + `ReadAsStringAsync`), while keeping the
+    `Invoke-ShpWithRetry` 429/5xx and network-outage classification intact.
+
 ### Fixed
 
 - The deploy `publish` workflow aborted whenever a release did not change the

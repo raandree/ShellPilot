@@ -26,6 +26,35 @@ Chronological record of shipped changes and remaining work. Latest first.
 
 ## Log
 
+- 2026-07-08 - Cut per-Turn network overhead (ShellPilot is the engine behind
+  DeskPilot, which felt slower than the VS Code Copilot extension) with two
+  reuse wins and NO public-API/result/streaming/tool-loop/structured-output/
+  image/responses/retry/outage change - only lower latency. (1) Session-token
+  cache: Get-ShpSessionToken caches the exchange response module-wide
+  ($script:ShpSessionTokenCache, keyed by a SHA-256 hash of the OAuth token +
+  Editor-Version) and returns it while more than a 60s safety margin
+  ($script:SessionTokenSafetyMarginSec) remains before expires_at, so a second
+  Turn within validity makes no copilot_internal/v2/token request; a new -Force
+  switch bypasses it and Initialize-Shp clears it on re-auth (null/partial entry
+  guarded). (2) Pooled HttpClient: one module-scoped client ($script:ShpHttpClient)
+  on a SocketsHttpHandler (2-min PooledConnectionLifetime, 90s idle, HTTP/2 via
+  DefaultRequestVersion 2.0 + RequestVersionOrLower where the .NET 5+ property
+  exists), built lazily by the new private Get-ShpHttpClient and reused for every
+  request; per-request auth/editor headers go on the HttpRequestMessage, Timeout
+  stays InfiniteTimeSpan for streaming. Invoke-ShpStreamRequest uses the shared
+  client and no longer disposes it (disposes request + response only); the
+  non-streaming Invoke-CopilotTurn path posts through the new private
+  Invoke-ShpHttpRequest (SendAsync + ReadAsStringAsync, per-request
+  CancellationTokenSource timeout, throws HttpResponseException on non-success so
+  Invoke-ShpWithRetry's 429/5xx + outage classification is unchanged). Verified
+  out-of-band (full local suite crashes on the .NET 10 access violation): 7
+  changed source files AST-parse clean, PSSA clean, build green (7 tasks/0
+  errors), isolated child-process Pester 72/72 green (Get-ShpSessionToken +3 new
+  cache tests, new Get-ShpHttpClient + Invoke-ShpHttpRequest tests,
+  Invoke-ShpStreamRequest, Invoke-CopilotTurn with 7 non-stream mocks moved to
+  Invoke-ShpHttpRequest, Get-ShpModel, Request-ShpEmbedding, Initialize-Shp,
+  Invoke-Shp 42). Branch ai/turn-network-overhead; push deferred. CHANGELOG
+  Changed updated; glossary gained Session-token cache + Shared HttpClient rows.
 - 2026-07-08 - Fixed the deploy `publish` workflow aborting whenever a release
   did not change the generated wiki markdown, using ONLY standard Sampler/
   DscResource.DocGenerator tasks. Read the failing CI log (run 28867462233 /
