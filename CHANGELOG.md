@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- The default on-disk OAuth token file was renamed from `.copilot-demo-token`
+  to `.shellpilot-token` (still a hidden dot-file in the user's home directory).
+  The old name dated from ShellPilot's proof-of-concept origin; the new name is
+  branded to the module. `-TokenPath` still overrides the location. Because the
+  default path changed, existing users must re-run `Initialize-Shp` once to
+  write the token under the new name (or pass `-TokenPath` to point at the old
+  file); the previous `.copilot-demo-token` file is not migrated automatically
+  and can be deleted.
+
 ## [0.2.0] - 2026-07-08
 
 ### Added
