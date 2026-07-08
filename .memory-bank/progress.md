@@ -27,24 +27,31 @@ Chronological record of shipped changes and remaining work. Latest first.
 ## Log
 
 - 2026-07-08 - Fixed the deploy `publish` workflow aborting whenever a release
-  did not change the generated wiki markdown. Read the failing CI log (run
-  28867462233 / job 85621725397) via the GitHub REST API
-  `/actions/jobs/<id>/logs` authenticated with the local `ghu_` OAuth token
-  (anonymous = 403; gh CLI absent). Root cause: DscResource.DocGenerator's
-  `Publish_GitHub_Wiki_Content` runs `git commit` unconditionally and its
-  `Invoke-Git` throws on any non-zero exit, so the benign "nothing to commit,
-  working tree clean" (exit 1, when the generated wiki equals the published
-  wiki) killed the chain before `publish_module_to_gallery` - GitHub release
-  v0.2.0-preview0006 exists but the Gallery only has 0.2.0-preview0005. Fix:
-  added `.build/Publish_GitHub_Wiki_Content.build.ps1` overriding the imported
-  task (build.ps1 loads `.build/` after module tasks; last-definition-wins,
-  confirmed by the `?` listing reporting the override's unique synopsis); it
-  reuses `Publish-WikiContent` and swallows only the "nothing to commit" error.
-  Also reordered build.yaml `publish` to release -> gallery -> wiki so the
-  fragile wiki step runs last. Verified: YAML parses, override AST-clean, PSSA
-  identical to the stock task (12 warnings/0 errors; QA doesn't scan .build/),
-  `-Tasks ?` resolves all workflows. Branch ai/fix-wiki-publish-nothing-to-commit;
-  push deferred. CHANGELOG Fixed. Push main to run the corrected deploy.
+  did not change the generated wiki markdown, using ONLY standard Sampler/
+  DscResource.DocGenerator tasks. Read the failing CI log (run 28867462233 /
+  job 85621725397) via the GitHub REST API `/actions/jobs/<id>/logs`
+  authenticated with the local `ghu_` OAuth token (anonymous = 403; gh CLI
+  absent). Root cause: the stock `Publish_GitHub_Wiki_Content` runs `git commit`
+  unconditionally and its `Invoke-Git` throws on any non-zero exit, so the
+  benign "nothing to commit, working tree clean" (exit 1, when the generated
+  wiki equals the published wiki) killed the chain before
+  `publish_module_to_gallery` - GitHub release v0.2.0-preview0006 exists but the
+  Gallery only has 0.2.0-preview0005. First attempt (a `.build/` override task)
+  was rejected by the user, who wanted standard tasks only. Standard-design fix:
+  DocGenerator expects `source/WikiSource/Home.md` with a `#.#.#` placeholder
+  that `Generate_Wiki_Content` -> `Copy_Source_Wiki_Folder` ->
+  `Set-WikiModuleVersion` replaces with the built module version, so the wiki
+  content changes every release and the stock task always has something to
+  commit. Every dsccommunity module ships this file; ShellPilot lacked it.
+  Actions: added `source/WikiSource/Home.md`, deleted the `.build/` override,
+  reverted the build.yaml `publish` order. Confirmed upstream is not fixed
+  (0.13.0 is latest; `main` still commits unconditionally, so a bump would not
+  help). Verified end-to-end: `build.ps1 -Tasks build,Create_Wiki_Output_Folder,
+  Copy_Source_Wiki_Folder` succeeds (9 tasks/0 errors) and emits
+  `output/WikiContent/Home.md` with the version substituted, no `#.#.#` left;
+  `-Tasks ?` shows the stock wiki task (no override). Branch
+  ai/fix-wiki-publish-nothing-to-commit; push deferred. CHANGELOG Fixed updated.
+  Push main to run the corrected deploy.
 - 2026-07-07 - Fixed a Linux/macOS-only crash: Initialize-Shp threw
   `Get-Item: Could not find item <path>` even when the token existed, because
   the default token path is a dot-file (~/.copilot-demo-token) that .NET flags

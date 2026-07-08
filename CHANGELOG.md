@@ -29,12 +29,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   before `publish_module_to_gallery` — so the module never reached the
   PowerShell Gallery even though the GitHub release was created (this is why
   `0.2.0-preview0006` appeared under GitHub Releases but not on the Gallery).
-  Added a project-local `.build/Publish_GitHub_Wiki_Content.build.ps1` task that
-  overrides the imported one and treats that benign "nothing to commit" case as
-  a no-op, re-throwing any other git failure so real problems still fail the
-  build. Also reordered the `publish` workflow to publish the module (GitHub
-  release, then the PowerShell Gallery) before the wiki, so the least critical
-  and historically most fragile step can no longer block the module publish.
+  Added `source/WikiSource/Home.md` with a `#.#.#` version placeholder. The
+  standard `Generate_Wiki_Content` task (via `Copy_Source_Wiki_Folder` and
+  `Set-WikiModuleVersion`) substitutes the built module version into the page,
+  so the published wiki content changes on every release and the stock
+  `Publish_GitHub_Wiki_Content` task always has something to commit. This is the
+  wiki landing-page convention DscResource.DocGenerator expects — every
+  dsccommunity module ships one and ShellPilot was simply missing it — so the
+  fix needs no custom build task and the `publish` workflow keeps using only the
+  standard Sampler tasks.
 - `Initialize-Shp` failed on Linux/macOS with `Get-Item: Could not find item
   <path>` even though the token file existed and `Test-Path` reported it as
   present. The default token path is a dot-file (`~/.copilot-demo-token`), which

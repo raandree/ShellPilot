@@ -4,36 +4,36 @@ Current working focus for ShellPilot. Overwrite this file as the focus shifts.
 
 ## Focus
 
-Most recent change: fixed the deploy `publish` workflow aborting whenever a
-release did not change the generated wiki markdown. Root cause (read from the
-failing CI log for run 28867462233 / job 85621725397, pulled via the GitHub
-REST API `/repos/raandree/ShellPilot/actions/jobs/<id>/logs` authenticated with
-the local `ghu_` OAuth token in ~/.copilot-demo-token - anonymous returns 403
-and gh CLI is not installed): DscResource.DocGenerator's
-`Publish_GitHub_Wiki_Content` runs `git commit` unconditionally and its
-`Invoke-Git` helper throws on ANY non-zero exit code, so the benign "nothing to
-commit, working tree clean" (git exit 1, when the generated wiki equals the
-already-published wiki) killed the whole publish chain BEFORE
-`publish_module_to_gallery`. That is why the GitHub API shows release
-v0.2.0-preview0006 published but the PowerShell Gallery only has
-0.2.0-preview0005. Fix (branch ai/fix-wiki-publish-nothing-to-commit, push
-deferred): added `.build/Publish_GitHub_Wiki_Content.build.ps1` that OVERRIDES
-the imported DocGenerator task - build.ps1 dot-sources `.build/**/*.ps1` AFTER
-the module tasks and InvokeBuild uses last-definition-wins (verified with a
-throwaway probe that logged "Redefined task", and confirmed in the real
-bootstrap because `build.ps1 -Tasks ?` reports the override's unique synopsis).
-The override reuses DocGenerator's `Publish-WikiContent` but swallows ONLY the
-"nothing to commit" error (re-throws everything else). Also reordered the
-build.yaml `publish` workflow to Publish_Release_To_GitHub ->
-publish_module_to_gallery -> Publish_GitHub_Wiki_Content so the fragile,
-least-critical wiki step runs last and can never again block the Gallery
-publish. Verified: build.yaml parses (order confirmed), the override AST-parses
-clean, PSSA on the new file is identical to the stock task (12 warnings / 0
-errors - all structural "param declared at file scope, used inside the task
-scriptblock" artifacts that PSSA can't track; QA does NOT scan `.build/`, only
-`source/`), and `build.ps1 -Tasks ?` resolves every workflow with no missing- or
-duplicate-task error. NOTE: to land 0.2.0-preview0006 (and its docs) on the
-Gallery, push main so a fresh deploy runs the corrected chain.
+Most recent change: reworked the deploy `publish` wiki fix to use ONLY standard
+Sampler/DscResource.DocGenerator tasks (the user did not want the custom
+`.build/` override from the first attempt). Same root cause as before: the
+stock `Publish_GitHub_Wiki_Content` runs `git commit` unconditionally and its
+`Invoke-Git` throws on any non-zero exit, so a release that does not change the
+generated wiki markdown produced "nothing to commit" (exit 1) and aborted the
+publish chain before `publish_module_to_gallery` (that is why release
+v0.2.0-preview0006 exists on GitHub but the Gallery only has 0.2.0-preview0005).
+The STANDARD-design fix (confirmed by reading DocGenerator 0.13.0 source):
+DocGenerator expects a `source/WikiSource/Home.md` containing a `#.#.#`
+placeholder; the metatask `Generate_Wiki_Content` runs `Copy_Source_Wiki_Folder`
+which copies `source/WikiSource/*` into `output/WikiContent` and calls
+`Set-WikiModuleVersion` to replace `#.#.#` with the built module version. Because
+the version changes every release, `Home.md` changes every release, so the stock
+wiki task always has something to commit and never throws. Every dsccommunity
+module ships this file; ShellPilot was simply missing it. Actions taken (branch
+ai/fix-wiki-publish-nothing-to-commit, push deferred): (1) added
+`source/WikiSource/Home.md` with `#.#.#`; (2) DELETED
+`.build/Publish_GitHub_Wiki_Content.build.ps1` (the override); (3) REVERTED the
+build.yaml `publish` order back to the original
+Publish_Release_To_GitHub -> Publish_GitHub_Wiki_Content ->
+publish_module_to_gallery. Also confirmed upstream is NOT fixed: 0.13.0 is the
+latest published DocGenerator and its `main` still commits unconditionally, so
+bumping the dependency would not have helped. Verified end-to-end:
+`build.ps1 -Tasks build,Create_Wiki_Output_Folder,Copy_Source_Wiki_Folder`
+succeeds (9 tasks, 0 errors) and emits `output/WikiContent/Home.md` with the
+version substituted and no `#.#.#` left; `Set-WikiModuleVersion` unit-tested on
+the file; `build.ps1 -Tasks ?` shows the stock wiki task (no "tolerating"
+override synopsis) and resolves all workflows. NOTE: push main so a fresh deploy
+runs the corrected chain and lands the module + docs on the Gallery.
 
 Preceding change: fixed a Linux/macOS-only Initialize-Shp crash. On Unix the
 default token path is a dot-file (~/.copilot-demo-token) that .NET marks hidden,
