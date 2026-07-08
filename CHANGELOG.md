@@ -21,6 +21,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The deploy `publish` workflow aborted whenever a release did not change the
+  generated wiki markdown (for example a fix that only touches a private code
+  path). DscResource.DocGenerator's `Publish_GitHub_Wiki_Content` runs
+  `git commit` unconditionally and treats the resulting "nothing to commit,
+  working tree clean" (git exit code 1) as fatal, which stopped the pipeline
+  before `publish_module_to_gallery` — so the module never reached the
+  PowerShell Gallery even though the GitHub release was created (this is why
+  `0.2.0-preview0006` appeared under GitHub Releases but not on the Gallery).
+  Added a project-local `.build/Publish_GitHub_Wiki_Content.build.ps1` task that
+  overrides the imported one and treats that benign "nothing to commit" case as
+  a no-op, re-throwing any other git failure so real problems still fail the
+  build. Also reordered the `publish` workflow to publish the module (GitHub
+  release, then the PowerShell Gallery) before the wiki, so the least critical
+  and historically most fragile step can no longer block the module publish.
 - `Initialize-Shp` failed on Linux/macOS with `Get-Item: Could not find item
   <path>` even though the token file existed and `Test-Path` reported it as
   present. The default token path is a dot-file (`~/.copilot-demo-token`), which

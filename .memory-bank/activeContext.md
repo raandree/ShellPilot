@@ -4,7 +4,38 @@ Current working focus for ShellPilot. Overwrite this file as the focus shifts.
 
 ## Focus
 
-Most recent change: fixed a Linux/macOS-only Initialize-Shp crash. On Unix the
+Most recent change: fixed the deploy `publish` workflow aborting whenever a
+release did not change the generated wiki markdown. Root cause (read from the
+failing CI log for run 28867462233 / job 85621725397, pulled via the GitHub
+REST API `/repos/raandree/ShellPilot/actions/jobs/<id>/logs` authenticated with
+the local `ghu_` OAuth token in ~/.copilot-demo-token - anonymous returns 403
+and gh CLI is not installed): DscResource.DocGenerator's
+`Publish_GitHub_Wiki_Content` runs `git commit` unconditionally and its
+`Invoke-Git` helper throws on ANY non-zero exit code, so the benign "nothing to
+commit, working tree clean" (git exit 1, when the generated wiki equals the
+already-published wiki) killed the whole publish chain BEFORE
+`publish_module_to_gallery`. That is why the GitHub API shows release
+v0.2.0-preview0006 published but the PowerShell Gallery only has
+0.2.0-preview0005. Fix (branch ai/fix-wiki-publish-nothing-to-commit, push
+deferred): added `.build/Publish_GitHub_Wiki_Content.build.ps1` that OVERRIDES
+the imported DocGenerator task - build.ps1 dot-sources `.build/**/*.ps1` AFTER
+the module tasks and InvokeBuild uses last-definition-wins (verified with a
+throwaway probe that logged "Redefined task", and confirmed in the real
+bootstrap because `build.ps1 -Tasks ?` reports the override's unique synopsis).
+The override reuses DocGenerator's `Publish-WikiContent` but swallows ONLY the
+"nothing to commit" error (re-throws everything else). Also reordered the
+build.yaml `publish` workflow to Publish_Release_To_GitHub ->
+publish_module_to_gallery -> Publish_GitHub_Wiki_Content so the fragile,
+least-critical wiki step runs last and can never again block the Gallery
+publish. Verified: build.yaml parses (order confirmed), the override AST-parses
+clean, PSSA on the new file is identical to the stock task (12 warnings / 0
+errors - all structural "param declared at file scope, used inside the task
+scriptblock" artifacts that PSSA can't track; QA does NOT scan `.build/`, only
+`source/`), and `build.ps1 -Tasks ?` resolves every workflow with no missing- or
+duplicate-task error. NOTE: to land 0.2.0-preview0006 (and its docs) on the
+Gallery, push main so a fresh deploy runs the corrected chain.
+
+Preceding change: fixed a Linux/macOS-only Initialize-Shp crash. On Unix the
 default token path is a dot-file (~/.copilot-demo-token) that .NET marks hidden,
 and `Get-Item -LiteralPath` omits hidden items without `-Force` (throwing
 "Could not find item"), while `Test-Path` still reports the file present and

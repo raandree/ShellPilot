@@ -26,6 +26,25 @@ Chronological record of shipped changes and remaining work. Latest first.
 
 ## Log
 
+- 2026-07-08 - Fixed the deploy `publish` workflow aborting whenever a release
+  did not change the generated wiki markdown. Read the failing CI log (run
+  28867462233 / job 85621725397) via the GitHub REST API
+  `/actions/jobs/<id>/logs` authenticated with the local `ghu_` OAuth token
+  (anonymous = 403; gh CLI absent). Root cause: DscResource.DocGenerator's
+  `Publish_GitHub_Wiki_Content` runs `git commit` unconditionally and its
+  `Invoke-Git` throws on any non-zero exit, so the benign "nothing to commit,
+  working tree clean" (exit 1, when the generated wiki equals the published
+  wiki) killed the chain before `publish_module_to_gallery` - GitHub release
+  v0.2.0-preview0006 exists but the Gallery only has 0.2.0-preview0005. Fix:
+  added `.build/Publish_GitHub_Wiki_Content.build.ps1` overriding the imported
+  task (build.ps1 loads `.build/` after module tasks; last-definition-wins,
+  confirmed by the `?` listing reporting the override's unique synopsis); it
+  reuses `Publish-WikiContent` and swallows only the "nothing to commit" error.
+  Also reordered build.yaml `publish` to release -> gallery -> wiki so the
+  fragile wiki step runs last. Verified: YAML parses, override AST-clean, PSSA
+  identical to the stock task (12 warnings/0 errors; QA doesn't scan .build/),
+  `-Tasks ?` resolves all workflows. Branch ai/fix-wiki-publish-nothing-to-commit;
+  push deferred. CHANGELOG Fixed. Push main to run the corrected deploy.
 - 2026-07-07 - Fixed a Linux/macOS-only crash: Initialize-Shp threw
   `Get-Item: Could not find item <path>` even when the token existed, because
   the default token path is a dot-file (~/.copilot-demo-token) that .NET flags

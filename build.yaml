@@ -91,9 +91,16 @@ BuildWorkflow:
     #- Merge_CodeCoverage_Files
 
   publish:
-    - Publish_Release_To_GitHub # Runs first, if token is expired it will fail early
-    - Publish_GitHub_Wiki_Content
+    # Publish the module (GitHub release, then PowerShell Gallery) before the
+    # wiki. Publish_Release_To_GitHub runs first so an expired token fails fast.
+    # The wiki step is the least critical and historically the most fragile
+    # (clone 401s, empty git identity, no-op commits), so it runs last and can
+    # no longer block the module from reaching the Gallery. A project-local
+    # override in .build/ also makes it tolerate an unchanged-content ("nothing
+    # to commit") no-op instead of aborting the whole workflow.
+    - Publish_Release_To_GitHub
     - publish_module_to_gallery
+    - Publish_GitHub_Wiki_Content
 
 ####################################################
 #       PESTER  Configuration                      #
