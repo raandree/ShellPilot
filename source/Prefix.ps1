@@ -91,6 +91,17 @@ $script:DefaultRetryDelaySec = 2
 # or for the session (Set-ShpContext -NetworkOutageToleranceSec); 0 disables it.
 $script:DefaultNetworkOutageToleranceSec = 30
 
+# Conservative fallback budget (estimated tokens) for the accumulated chat
+# messages of a single Turn, used by the context-window guard in Invoke-Shp
+# (Compress-ShpChatContext). A Turn is a loop and every tool result rides along
+# on the next request, so a few large file/page/command results could otherwise
+# overflow the model's real context window (for example the ~936k-token limit
+# behind the reported 413 / model_max_prompt_tokens_exceeded failure). When the
+# estimate exceeds this budget the oldest tool results are elided before the
+# next request. It is a fallback, not the per-model MaxContextWindowTokens from
+# Get-ShpModel; kept below the smallest windows in common use. 0 disables the guard.
+$script:DefaultMaxContextWindowTokens = 900000
+
 # Shared, connection-pooling HttpClient reused for every Copilot request. A Turn
 # is a loop - one API round-trip per tool iteration - so a fresh client (and its
 # TCP + TLS handshake) per request is pure overhead; VS Code keeps one warm

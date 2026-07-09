@@ -13,6 +13,8 @@ function Invoke-RunCommandTool {
         session's current directory (or -WorkingDirectory if given) - there is
         no sandboxing - so this is full terminal access and should be disabled
         for untrusted prompts. A timeout terminates a command that runs too long.
+        Standard output and standard error are each capped at MaxChars characters
+        so a chatty command cannot overflow the model context window.
 
     .PARAMETER Command
         The command line to execute. Interpreted by PowerShell 7, so it may use
@@ -26,6 +28,12 @@ function Invoke-RunCommandTool {
     .PARAMETER TimeoutSeconds
         Maximum number of seconds to let the command run before it is forcibly
         terminated (the whole process tree is killed). Defaults to 120.
+
+    .PARAMETER MaxChars
+        Upper bound on the returned stdout and stderr length (each capped
+        independently). Defaults to a non-zero cap; a clear
+        "...[truncated, original N chars]" marker is appended when it bites.
+        Pass 0 to disable the cap and return the full output.
 
     .EXAMPLE
         Invoke-RunCommandTool -Command 'git status --short'
@@ -49,7 +57,10 @@ function Invoke-RunCommandTool {
         [string]$WorkingDirectory,
 
         [ValidateRange(1, 86400)]
-        [int]$TimeoutSeconds = 120
+        [int]$TimeoutSeconds = 120,
+
+        [ValidateRange(0, [int]::MaxValue)]
+        [int]$MaxChars = 100000
     )
 
     $outFile = [System.IO.Path]::GetTempFileName()
@@ -82,6 +93,16 @@ function Invoke-RunCommandTool {
         $stderr = if (Test-Path -LiteralPath $errFile) { Get-Content -LiteralPath $errFile -Raw -ErrorAction SilentlyContinue } else { '' }
         if ($null -eq $stdout) { $stdout = '' }
         if ($null -eq $stderr) { $stderr = '' }
+
+        # Cap each stream so a chatty command cannot overflow the context window.
+        if ($MaxChars -gt 0) {
+            if ($stdout.Length -gt $MaxChars) {
+                $stdout = $stdout.Substring(0, $MaxChars) + " ...[truncated, original $($stdout.Length) chars]"
+            }
+            if ($stderr.Length -gt $MaxChars) {
+                $stderr = $stderr.Substring(0, $MaxChars) + " ...[truncated, original $($stderr.Length) chars]"
+            }
+        }
 
         return ([pscustomobject]@{
                 command  = $Command

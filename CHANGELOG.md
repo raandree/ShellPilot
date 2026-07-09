@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `read_file` now supports bounded, paged reads. The tool schema and
+  `Invoke-ReadFileTool` accept optional `offset`/`limit` (a 1-based line window)
+  and return a JSON envelope carrying `path`, `totalLines`, `offset`, `limit`,
+  `returnedLines`, `hasMore` and the window `text`, so the model can page
+  through a large file (read the first window, then request the next while
+  `hasMore` is true) instead of loading it whole. Existing `path`-only calls
+  keep working and return a bounded first window.
+
+### Changed
+
+- Every tool result handed back to the model is now bounded by default so one
+  large read cannot overflow the context window: `read_file`, `fetch_url` and
+  `run_command` output are each capped (default 100,000 characters) with a clear
+  `...[truncated, original N chars]` marker. A bare `read_file` returns a bounded
+  first window rather than the entire file.
 - The default on-disk OAuth token file was renamed from `.copilot-demo-token`
   to `.shellpilot-token` (still a hidden dot-file in the user's home directory).
   The old name dated from ShellPilot's proof-of-concept origin; the new name is
@@ -15,6 +32,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   write the token under the new name (or pass `-TokenPath` to point at the old
   file); the previous `.copilot-demo-token` file is not migrated automatically
   and can be deleted.
+
+### Fixed
+
+- Reading a large file (or many files) in one turn no longer overflows the model
+  context window and fails with `413 Request Entity Too Large` /
+  `model_max_prompt_tokens_exceeded`. Alongside the per-result caps above,
+  `Invoke-Shp` now guards the context window before each chat request, eliding
+  the oldest tool results (via the new private `Compress-ShpChatContext` helper)
+  when the estimated prompt exceeds a budget.
 
 ## [0.2.0] - 2026-07-08
 

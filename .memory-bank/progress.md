@@ -25,6 +25,20 @@ Chronological record of shipped changes and remaining work. Latest first.
 
 ## Log
 
+- 2026-07-09 - Fixed the read_file context-window overflow (413 /
+  model_max_prompt_tokens_exceeded on large or many files). read_file is now a
+  bounded, paging read (Invoke-ReadFileTool Offset/Limit + envelope path/
+  totalLines/offset/limit/returnedLines/hasMore/text; bare call returns a
+  bounded first window); every tool result is capped by a non-zero default
+  MaxChars=100000 with a truncation marker (read_file/fetch_url/run_command, and
+  the Invoke-Shp dispatch stopped passing -MaxChars 0); and a new private
+  Compress-ShpChatContext elides the oldest tool results before each chat turn
+  when the estimated prompt exceeds $script:DefaultMaxContextWindowTokens (900000).
+  Backward compatible (path-only read_file works). Added Pester coverage
+  (windowed read, hasMore, MaxChars cap, large-file regression, guard trimming).
+  Verified out-of-band: AST/PSSA clean, build green x2, isolated Pester green
+  (13/13, 47/47, QA 256/256). Branch ai/read-file-context-bound; push deferred.
+
 - 2026-07-08 - Renamed the default on-disk OAuth token file from
   `.copilot-demo-token` to `.shellpilot-token` ("ShellPilot is not just a
   demo"). Still a hidden dot-file in the user's home directory, so the existing

@@ -69,7 +69,8 @@ Read-ShpUserInput [ask_user]), the customisation loaders
 the retry wrapper (Invoke-ShpWithRetry), the shared connection-pooling HTTP
 client accessor (Get-ShpHttpClient) and its buffered non-streaming sender
 (Invoke-ShpHttpRequest), the user-tool schema builder
-(New-ShpToolSchema), and the vision content builder (ConvertTo-ShpImageContent).
+(New-ShpToolSchema), the context-window guard (Compress-ShpChatContext), and the
+vision content builder (ConvertTo-ShpImageContent).
 
 ## Recurring patterns
 
@@ -97,6 +98,23 @@ child PowerShell with full, unsandboxed privileges; ask_user blocks on Read-Host
 and degrades gracefully (a "no console" envelope) when non-interactive. Both
 run_command and ask_user surface what happened on the result (CommandsRun,
 QuestionsAsked). load_instruction mirrors load_skill for -InstructionRoot.
+
+### Bounded tool results and the context-window guard
+
+A Turn is a loop and every tool result is appended to the chat messages and
+resent on every later request, so an unbounded result overflows the model
+context window (the 413 / model_max_prompt_tokens_exceeded failure). Three
+layers keep the prompt bounded: (1) read_file is a paging read - Invoke-ReadFileTool
+takes Offset/Limit (a 1-based line window) and returns an envelope with
+totalLines and hasMore, so a bare call returns a bounded first window and the
+model pages a large file instead of loading it whole; (2) every single tool
+result is capped by a non-zero default MaxChars (100000) with a
+"...[truncated, original N chars]" marker (read_file / fetch_url / run_command;
+the dispatch no longer passes -MaxChars 0); (3) defence in depth -
+Compress-ShpChatContext estimates the accumulated messages (ConvertTo-ShpTokenCount)
+before each chat turn and elides the OLDEST tool-role message content to a short
+marker (keeping role + tool_call_id so the sequence stays valid) once the estimate
+exceeds $script:DefaultMaxContextWindowTokens (900000; 0 disables).
 
 ### Progressive disclosure for skills
 

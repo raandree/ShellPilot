@@ -572,7 +572,7 @@ function Invoke-Shp {
             type='function'
             function=@{
                 name='fetch_url'
-                description='Fetch an HTTP(S) URL and return the FULL page text (script/style stripped, HTML tags removed). There is no length limit.'
+                description='Fetch an HTTP(S) URL and return its visible page text (script/style stripped, HTML tags removed). Large pages are truncated to a bounded length, so do not rely on getting the entire page.'
                 parameters=@{ type='object'; required=@('url'); properties=@{ url=@{ type='string'; description='Absolute URL to fetch (https preferred).' } } }
             }
         })
@@ -582,8 +582,12 @@ function Invoke-Shp {
             type='function'
             function=@{
                 name='read_file'
-                description='Read a local file and return its FULL text. Use this whenever the user refers to a file by path or asks about local file contents.'
-                parameters=@{ type='object'; required=@('path'); properties=@{ path=@{ type='string'; description='Path to the file to read (absolute or relative to the current working directory).' } } }
+                description='Read a bounded window of a local file and return a JSON envelope (path, totalLines, offset, limit, returnedLines, hasMore, text). Use this whenever the user refers to a file by path or asks about local file contents. It returns a bounded first window, NOT the whole file: to read a large file, page through it by passing offset/limit (1-based line numbers) - read the first window, and while hasMore is true request the next window with offset set to the previous offset plus returnedLines. Never try to read an entire large file in one call.'
+                parameters=@{ type='object'; required=@('path'); properties=@{
+                    path=@{ type='string'; description='Path to the file to read (absolute or relative to the current working directory).' }
+                    offset=@{ type='integer'; description='1-based line number to start reading from. Defaults to 1 (the first line).' }
+                    limit=@{ type='integer'; description='Maximum number of lines to return in this window. Defaults to a bounded window; large files must be paged.' }
+                } }
             }
         })
         $null = $tools.Add(@{
@@ -883,6 +887,15 @@ function Invoke-Shp {
         try {
             $conv = if ($mode -eq 'responses') { $respInput } else { $chatMessages }
             $tls  = if ($mode -eq 'responses') { $respTools } else { $tools }
+            # Guard the context window (defence in depth): a Turn accumulates every
+            # tool result, so before a chat request trim the oldest tool results
+            # when the estimated prompt exceeds the budget - otherwise a few large
+            # read_file / fetch_url / run_command results overflow the window
+            # (the 413 / model_max_prompt_tokens_exceeded failure).
+            if ($mode -ne 'responses') {
+                $trimmedContext = Compress-ShpChatContext -Messages $chatMessages -MaxTokens $script:DefaultMaxContextWindowTokens
+                if ($trimmedContext -gt 0) { Write-Verbose ("Context guard elided {0} old tool result(s) to stay within the window." -f $trimmedContext) }
+            }
             $turn = Invoke-CopilotTurn -Mode $mode -Model $Model -ApiBase $apiBase -Headers $apiHeaders -Conversation $conv -Tools $tls -RequestReasoningSummary:($mode -eq 'responses' -and $requestReasoning) -ReasoningEffort $ReasoningEffort -MaxOutputTokens $MaxOutputTokens -Stream:($streamingEnabled -and $mode -eq 'chat') -EchoReasoning:($ShowThinking -and $streamingEnabled -and $mode -eq 'chat') -Store:($serverSideActive -and $mode -eq 'responses') -PreviousResponseId $previousResponseId @structuredParams @connectionParams
         } catch {
             $errText = $_.ErrorDetails.Message
@@ -964,9 +977,14 @@ function Invoke-Shp {
                 try {
                     $fargs = $tc.Arguments | ConvertFrom-Json
                     switch ($tc.Name) {
-                        'fetch_url' { $toolResult = Invoke-FetchUrlTool -Url $fargs.url -MaxChars 0 }
+                        'fetch_url' { $toolResult = Invoke-FetchUrlTool -Url ([string]$fargs.url) }
                         'read_file' {
-                            $toolResult = Invoke-ReadFileTool -Path $fargs.path -MaxChars 0
+                            # path-only stays a bounded first window; offset/limit
+                            # (1-based) let the model page through a large file.
+                            $readFileArgs = @{ Path = [string]$fargs.path }
+                            if ($fargs.PSObject.Properties['offset'] -and [int]$fargs.offset -ge 1) { $readFileArgs['Offset'] = [int]$fargs.offset }
+                            if ($fargs.PSObject.Properties['limit']  -and [int]$fargs.limit  -ge 1) { $readFileArgs['Limit']  = [int]$fargs.limit }
+                            $toolResult = Invoke-ReadFileTool @readFileArgs
                             if (-not $filesRead.Contains($fargs.path)) { $null = $filesRead.Add($fargs.path) }
                         }
                         'list_directory' { $toolResult = Invoke-ListDirectoryTool -Path $fargs.path }

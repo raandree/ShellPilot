@@ -9,13 +9,17 @@ function Invoke-FetchUrlTool {
         -DisableBrowsing). Downloads the page, strips
         script/style/markup, collapses whitespace, and returns a compact JSON
         envelope (url, status, contentType, length, text) or an error envelope.
+        The returned text is capped at MaxChars characters so one large page
+        cannot overflow the model context window.
 
     .PARAMETER Url
         Absolute URL to fetch. Provide the full https:// (or http://) address
         of the page whose visible text should be retrieved.
 
     .PARAMETER MaxChars
-        Optional cap on the returned text length. 0 (default) means no limit.
+        Upper bound on the returned text length. Defaults to a non-zero cap; a
+        clear "...[truncated, original N chars]" marker is appended when it
+        bites. Pass 0 to disable the cap and return the full page text.
 
     .EXAMPLE
         Invoke-FetchUrlTool -Url 'https://example.com'
@@ -35,7 +39,8 @@ function Invoke-FetchUrlTool {
         [Parameter(Mandatory)]
         [ValidateNotNullOrEmpty()]
         [string]$Url,
-        [int]$MaxChars = 0
+        [ValidateRange(0, [int]::MaxValue)]
+        [int]$MaxChars = 100000
     )
     try {
         $resp = Invoke-WebRequest -Uri $Url -UseBasicParsing -MaximumRedirection 5 -Headers @{ 'User-Agent' = 'Mozilla/5.0 (compatible; ShellPilotDemoBot/1.0)' } -TimeoutSec 60 -ErrorAction Stop

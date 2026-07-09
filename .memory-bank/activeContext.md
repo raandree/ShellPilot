@@ -4,7 +4,36 @@ Current working focus for ShellPilot. Overwrite this file as the focus shifts.
 
 ## Focus
 
-Most recent change: renamed the default on-disk OAuth token file from
+Most recent change: fixed a context-window overflow where reading a large file
+(or several) made the next call in the same Turn fail with 413 Request Entity
+Too Large / model_max_prompt_tokens_exceeded (the "summarize all the books" ~4.4
+MB case). Root cause in the built ShellPilot.psm1 / source: read_file returned
+the FULL file (dispatch passed -MaxChars 0), fetch_url/run_command output was
+unbounded too, and the chat message list only ever grew - so a whole multi-MB
+file rode along on every later request. Fix (three layers): (1) read_file is now
+a bounded, paging read - Invoke-ReadFileTool gained Offset/Limit (1-based line
+window) and returns an envelope (path, totalLines, offset, limit, returnedLines,
+hasMore, text); a bare path-only call returns a bounded FIRST window, not the
+whole file, and the tool schema/description tell the model to page with
+offset/limit while hasMore is true. (2) Every single tool result is capped by a
+non-zero default MaxChars=100000 with a "...[truncated, original N chars]"
+marker - Invoke-ReadFileTool/Invoke-FetchUrlTool (default 0 -> 100000) and
+Invoke-RunCommandTool (new MaxChars, caps stdout+stderr each); the Invoke-Shp
+dispatch no longer passes -MaxChars 0. (3) Defence-in-depth context guard: a new
+private Compress-ShpChatContext elides the OLDEST tool-role message content (to a
+short marker, keeping role/tool_call_id so the chat stays valid) when the
+estimated prompt (ConvertTo-ShpTokenCount) exceeds a budget; Invoke-Shp calls it
+before each chat turn against $script:DefaultMaxContextWindowTokens (new Prefix
+default, 900000; 0 disables). Backward compatible: path-only read_file still
+works. Verified out-of-band per repo protocol (full local suite crashes on the
+.NET 10 access violation): all changed files AST-parse clean, PSSA clean, build
+green (7 tasks/0 errors) twice, and isolated child-process Pester is green -
+Invoke-ReadFileTool+Compress-ShpChatContext 13/13, Invoke-FetchUrlTool+
+Invoke-RunCommandTool+Invoke-Shp 47/47, QA 256/256 (QA runs Get-Command in module
+scope so it DOES cover the new private function's help/test/PSSA). Branch
+ai/read-file-context-bound; push deferred.
+
+Preceding change: renamed the default on-disk OAuth token file from
 `.copilot-demo-token` to `.shellpilot-token`. The old name dated from
 ShellPilot's proof-of-concept origin ("ShellPilot is not just a demo"); the new
 name is branded to the module and still a hidden dot-file in the user's home
