@@ -25,6 +25,20 @@ Chronological record of shipped changes and remaining work. Latest first.
 
 ## Log
 
+- 2026-07-09 - Resolved the `git pull` rebase conflict: local `main`
+  (Usage.ContextTokens feature) had diverged from origin/main, which had gained
+  the read_file context-bound overflow fix (v0.3.0-preview0001). Rebased the
+  local commit onto origin/main (pull.rebase=true). Invoke-Shp.ps1 auto-merged
+  (the two commits touch disjoint regions - tool schema/dispatch + context guard
+  vs. peak-prompt tracking far below). Three markdown files conflicted and were
+  resolved as a union keeping both changes: CHANGELOG.md (both Added entries +
+  the read_file Changed/Fixed entries), progress.md (both log entries), and
+  activeContext.md (ContextTokens focus as tip, read_file fix noted as the parent
+  commit). Verified: no conflict markers remain, Invoke-Shp.ps1 AST-parses clean
+  with both features present, build green (7 tasks/0 errors/0 warnings, incl. the
+  changelog task re-parsing CHANGELOG.md), now 0.3.0-preview0002. main is ahead
+  of origin/main by 1; push deferred. Pre-rebase commit preserved on branch
+  ai/context-tokens-usage as a backup.
 - 2026-07-09 - Added `Usage.ContextTokens` to Invoke-Shp: the peak
   single-request prompt size in a turn (the max of each round-trip's
   PromptTokens), i.e. how full the model's context window got, as distinct from
