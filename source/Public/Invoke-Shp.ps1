@@ -391,6 +391,13 @@ function Invoke-Shp {
         (Reasoning), the running conversation history (History), and the raw API
         payload.
 
+        Usage.ContextTokens is the peak single-request prompt size - how full
+        the model's context window got this turn - as opposed to
+        Usage.PromptTokens, the billed sum of input tokens across every
+        tool-calling round-trip. For a turn with no tool calls the two are
+        equal; for a multi-round-trip turn ContextTokens is the largest single
+        request's prompt while PromptTokens is their sum.
+
     .LINK
         Get-ShpModel
 
@@ -817,7 +824,7 @@ function Invoke-Shp {
     }
 
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
-    $totalPrompt=0; $totalCompletion=0; $totalCached=0; $totalCacheWrite=0
+    $totalPrompt=0; $totalCompletion=0; $totalCached=0; $totalCacheWrite=0; $peakPromptTokens=0
     $iteration=0; $toolCallsExecuted=@(); $turn=$null
     $skillsUsed = New-Object System.Collections.Generic.List[string]
     $instructionsLoaded = New-Object System.Collections.Generic.List[string]
@@ -931,6 +938,11 @@ function Invoke-Shp {
         }
 
         $totalPrompt += $turn.PromptTokens
+        # Peak single-request prompt size = how full the model's context window
+        # got this turn. History only grows within a turn, so the last round-trip
+        # is normally the peak; take the max so it stays correct even if a later
+        # round-trip is smaller. Distinct from the billed $totalPrompt sum.
+        if ($turn.PromptTokens -gt $peakPromptTokens) { $peakPromptTokens = $turn.PromptTokens }
         $totalCompletion += $turn.CompletionTokens
         $totalCached += $turn.CachedTokens
         $totalCacheWrite += $turn.CacheWriteTokens
@@ -1166,7 +1178,7 @@ function Invoke-Shp {
         Content=$finalContent; FinishReason=$turn.FinishReason
         ContentObject=$contentObject
         Reasoning=($reasoningLog -join "`n`n")
-        Usage = [pscustomobject]@{ PromptTokens=$totalPrompt; CompletionTokens=$totalCompletion; TotalTokens=$totalPrompt+$totalCompletion }
+        Usage = [pscustomobject]@{ PromptTokens=$totalPrompt; CompletionTokens=$totalCompletion; TotalTokens=$totalPrompt+$totalCompletion; ContextTokens=$peakPromptTokens }
         Credits=$credits; CostUSD=$costUSD; CostBreakdown=$breakdown
         Iterations=$iteration; ToolCalls=$toolCallsExecuted
         ReasoningEffort=$(if ([string]::IsNullOrWhiteSpace($ReasoningEffort)) { $null } else { $ReasoningEffort })
@@ -1202,6 +1214,7 @@ function Invoke-Shp {
         CompletionTokens = $totalCompletion
         TotalTokens      = $totalPrompt + $totalCompletion
         CachedTokens     = $totalCached
+        ContextTokens    = $peakPromptTokens
         CostUSD          = $costUSD
         Credits          = $credits
         Iterations       = $iteration

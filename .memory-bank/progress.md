@@ -25,6 +25,19 @@ Chronological record of shipped changes and remaining work. Latest first.
 
 ## Log
 
+- 2026-07-09 - Added `Usage.ContextTokens` to Invoke-Shp: the peak
+  single-request prompt size in a turn (the max of each round-trip's
+  PromptTokens), i.e. how full the model's context window got, as distinct from
+  PromptTokens (the billed sum of input tokens across round-trips). Purely
+  additive - no existing token or cost field changed. Also carried on the
+  ShellPilot.UsageRecord and aggregated as a MAXIMUM by Get-ShpUsage -Summary
+  (overall and per model, since occupancy does not add across calls). Documented
+  in Invoke-Shp .OUTPUTS + Get-ShpUsage help, glossary row "Context tokens"
+  added, CHANGELOG Added entry. Motivated by DeskPilot's context-window gauge /
+  auto-compaction, which over-reported occupancy from the summed PromptTokens.
+  Verified out-of-band: 4 changed files AST-parse clean, 2 changed source files
+  PSSA clean, build green, isolated child-process Pester of the two affected
+  files 50/50 green. Branch ai/context-tokens-usage; push deferred.
 - 2026-07-09 - Fixed the read_file context-window overflow (413 /
   model_max_prompt_tokens_exceeded on large or many files). read_file is now a
   bounded, paging read (Invoke-ReadFileTool Offset/Limit + envelope path/
@@ -38,7 +51,6 @@ Chronological record of shipped changes and remaining work. Latest first.
   (windowed read, hasMore, MaxChars cap, large-file regression, guard trimming).
   Verified out-of-band: AST/PSSA clean, build green x2, isolated Pester green
   (13/13, 47/47, QA 256/256). Branch ai/read-file-context-bound; push deferred.
-
 - 2026-07-08 - Renamed the default on-disk OAuth token file from
   `.copilot-demo-token` to `.shellpilot-token` ("ShellPilot is not just a
   demo"). Still a hidden dot-file in the user's home directory, so the existing
