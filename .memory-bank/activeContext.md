@@ -32,7 +32,11 @@ local suite crashes on the .NET 10 access violation): the 4 changed files
 AST-parse clean, the 2 changed source files are PSSA clean, the build is green,
 and isolated child-process Pester of the two affected files is 50/50 green
 (including 4 new ContextTokens tests plus the updated Get-ShpUsage summary
-max test). Branch ai/context-tokens-usage; push deferred.
+max test). This work was rebased onto main last turn (commit 6922793) and is
+now on origin/main (e01cd72); the redundant pre-rebase branch
+ai/context-tokens-usage was deleted this turn - its content was already in main,
+and the branch was in fact behind main (it lacked the v0.3.0-preview0001
+read_file/context-overflow fix).
 
 Immediately preceding change (now the parent commit, released as
 v0.3.0-preview0001): bounded read_file and every tool result to stop a large
@@ -51,4 +55,3 @@ on-disk OAuth token file from `.copilot-demo-token` to `.shellpilot-token`; cut
 per-Turn network overhead (session-token cache + pooled HttpClient); reworked
 the deploy wiki fix to use only stock Sampler / DscResource.DocGenerator tasks;
 fixed a Linux/macOS-only Initialize-Shp hidden-dot-file crash.
-

@@ -25,6 +25,15 @@ Chronological record of shipped changes and remaining work. Latest first.
 
 ## Log
 
+- 2026-07-09 - Deleted the redundant ai/context-tokens-usage branch. It still
+  pointed at the pre-rebase commit e1082c0, whose Usage.ContextTokens work was
+  already in main (rebased as 6922793 last turn, now on origin/main e01cd72). The
+  branch was in fact behind main - it never had the v0.3.0-preview0001 read_file/
+  context-overflow fix - so a content merge would have added nothing and only
+  risked dropping main's read_file changelog/notes (the append-style CHANGELOG/
+  activeContext/progress files are a union on main vs ContextTokens-only on the
+  branch). Per the user's choice, force-deleted the branch (recoverable via
+  reflog / SHA e1082c0 for now). No code or file change to main.
 - 2026-07-09 - Resolved the `git pull` rebase conflict: local `main`
   (Usage.ContextTokens feature) had diverged from origin/main, which had gained
   the read_file context-bound overflow fix (v0.3.0-preview0001). Rebased the
