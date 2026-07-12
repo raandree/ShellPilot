@@ -25,6 +25,20 @@ Chronological record of shipped changes and remaining work. Latest first.
 
 ## Log
 
+- 2026-07-12 - Resolved the `git pull` merge conflict on `main`. Local `main`
+  (the gpt-5.6 pricing fix, d8f26cf) had diverged from origin/main, which had
+  gained three commits: the Usage.ContextTokens feature (6922793) plus two
+  memory-bank docs commits (e01cd72, bc7d6cf, released as v0.3.0-preview0002/0003).
+  CHANGELOG.md and the source/test files (Invoke-Shp.ps1, Get-ShpUsage.ps1 and
+  their tests) auto-merged (disjoint changes: my change is pure PriceTable.psd1
+  data). Only the two narrative memory-bank files conflicted and were resolved as
+  a chronological union: activeContext.md focus is now gpt-5.6 pricing (newest) ->
+  Usage.ContextTokens (relabelled "Preceding change") -> the read_file/context-
+  overflow parent (v0.3.0-preview0001), dropping the duplicated verbose read_file
+  block since the post-conflict text already covers it; progress.md keeps my
+  gpt-5.6 entry above the remote's three entries. Verified: no conflict markers
+  remain, merged tree builds green (7 tasks/0 errors, CHANGELOG re-parsed). Merge
+  commit 3d02592; main is ahead of origin/main by 2; push deferred.
 - 2026-07-12 - Fixed `Invoke-Shp` not reporting `CostUSD`/`Credits` for the
   `gpt-5.6` model family (`gpt-5.6-luna`, `gpt-5.6-sol`, `gpt-5.6-terra`). Cost is
   data-driven from `PriceTable.psd1` and the price-key lookup is an exact,
