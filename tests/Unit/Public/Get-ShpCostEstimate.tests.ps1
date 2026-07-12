@@ -33,4 +33,14 @@ Describe 'Get-ShpCostEstimate' {
             }
         }
     }
+
+    It 'Prices the gpt-5.6 family (<Model>) from the shipped price table' -ForEach @(
+        @{ Model = 'gpt-5.6-luna' }
+        @{ Model = 'gpt-5.6-sol' }
+        @{ Model = 'gpt-5.6-terra' }
+    ) {
+        $r = Get-ShpCostEstimate -Text 'hello' -Model $Model
+        $r.EstimatedInputCostUSD | Should -BeGreaterThan 0
+        $r.EstimatedInputCredits | Should -BeGreaterThan 0
+    }
 }

@@ -4,7 +4,33 @@ Current working focus for ShellPilot. Overwrite this file as the focus shifts.
 
 ## Focus
 
-Most recent change: fixed a context-window overflow where reading a large file
+Most recent change: fixed `Invoke-Shp` not reporting `CostUSD`/`Credits` for the
+`gpt-5.6` model family. The user hit it with `Invoke-Shp -Model gpt-5.6-luna
+-Prompt hello` (cost/credit fields empty). Root cause: cost is data-driven from
+`PriceTable.psd1` and the price-key lookup is an exact, case-insensitive match on
+the server-reported model name then the requested model
+(`$turn.ModelName, $Model | ... ContainsKey`); none of the three gpt-5.6 variants
+existed in the table, so no rate resolved and `CostUSD`/`Credits`/`CostBreakdown`
+stayed null. Reproduced live: `gpt-5.6-luna`, `gpt-5.6-sol` and `gpt-5.6-terra`
+all return the requested id as the actual model and all three were unpriced
+(base `gpt-5.6` is `model_not_supported`). Fix is pure data per the module's
+design ("Edit this file... no module code changes needed"): added the three
+variants to `source/PriceTable.psd1` with illustrative flagship rates mirroring
+gpt-5.5 (Input 5.00 / CachedInput 0.50 / CacheWrite $null / Output 30.00),
+keeping the CachedInput = Input/10 convention; the Suffix.ps1 completer picks
+them up automatically from `$script:PriceTable.Keys`. Added a data-driven
+regression test (Get-ShpCostEstimate.tests.ps1, `-ForEach` over the three
+variants asserting non-null EstimatedInputCostUSD/Credits from the SHIPPED table,
+no mock). Verified out-of-band per repo protocol (full local suite crashes on the
+.NET 10 access violation): build green (7 tasks/0 errors, PriceTable.psd1 copied
+via CopyPaths), isolated child-process Pester 6/6 green, PSSA clean on both
+changed files, price table imports with all three keys, and the live
+`gpt-5.6-luna` call now reports CostUSD=0.00097 / Credits=0.097 /
+PriceTableKey=gpt-5.6-luna. Committed on main per the user's explicit "fix it in
+the current branch"; push deferred. NOTE: the rates are illustrative placeholders
+- update PriceTable.psd1 to the real published gpt-5.6 rates when known.
+
+Preceding change: fixed a context-window overflow where reading a large file
 (or several) made the next call in the same Turn fail with 413 Request Entity
 Too Large / model_max_prompt_tokens_exceeded (the "summarize all the books" ~4.4
 MB case). Root cause in the built ShellPilot.psm1 / source: read_file returned

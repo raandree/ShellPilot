@@ -25,6 +25,22 @@ Chronological record of shipped changes and remaining work. Latest first.
 
 ## Log
 
+- 2026-07-12 - Fixed `Invoke-Shp` not reporting `CostUSD`/`Credits` for the
+  `gpt-5.6` model family (`gpt-5.6-luna`, `gpt-5.6-sol`, `gpt-5.6-terra`). Cost is
+  data-driven from `PriceTable.psd1` and the price-key lookup is an exact,
+  case-insensitive match on the server-reported then requested model; none of the
+  three variants were in the table, so the rate never resolved and the cost/credit
+  fields stayed null (reproduced live for all three; base `gpt-5.6` is
+  `model_not_supported`). Pure-data fix per the module's design: added the three
+  variants to `source/PriceTable.psd1` with illustrative flagship rates mirroring
+  gpt-5.5 (Input 5.00 / CachedInput 0.50 / Output 30.00). Added a data-driven
+  regression test (`-ForEach` over the three variants against the shipped table,
+  no mock). Verified out-of-band: build green (7 tasks/0 errors), isolated Pester
+  6/6, PSSA clean, live `gpt-5.6-luna` now reports CostUSD=0.00097/Credits=0.097.
+  Committed on main (user asked to fix in the current branch); push deferred.
+  CHANGELOG Fixed updated. Rates are illustrative placeholders - update to the
+  real published gpt-5.6 rates when known.
+
 - 2026-07-09 - Fixed the read_file context-window overflow (413 /
   model_max_prompt_tokens_exceeded on large or many files). read_file is now a
   bounded, paging read (Invoke-ReadFileTool Offset/Limit + envelope path/

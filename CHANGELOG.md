@@ -35,6 +35,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `Invoke-Shp` now reports `CostUSD` and `Credits` for the `gpt-5.6` model
+  family. The three variants (`gpt-5.6-luna`, `gpt-5.6-sol`, `gpt-5.6-terra`)
+  were missing from the price table, so their cost and credit fields came back
+  empty; added illustrative rates for all three (adjust `PriceTable.psd1` to the
+  real published rates as needed).
 - Reading a large file (or many files) in one turn no longer overflows the model
   context window and fails with `413 Request Entity Too Large` /
   `model_max_prompt_tokens_exceeded`. Alongside the per-result caps above,

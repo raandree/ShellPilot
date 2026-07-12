@@ -8,6 +8,9 @@
     'gpt-5.5'           = @{ Input = 5.00; CachedInput = 0.50;  CacheWrite = $null; Output = 30.00 }
     'gpt-5.2'           = @{ Input = 1.75; CachedInput = 0.175; CacheWrite = $null; Output = 14.00 }
     'gpt-5.4'           = @{ Input = 2.50; CachedInput = 0.25;  CacheWrite = $null; Output = 15.00 }
+    'gpt-5.6-luna'      = @{ Input = 5.00; CachedInput = 0.50;  CacheWrite = $null; Output = 30.00 }
+    'gpt-5.6-sol'       = @{ Input = 5.00; CachedInput = 0.50;  CacheWrite = $null; Output = 30.00 }
+    'gpt-5.6-terra'     = @{ Input = 5.00; CachedInput = 0.50;  CacheWrite = $null; Output = 30.00 }
     'gpt-5-mini'        = @{ Input = 0.25; CachedInput = 0.025; CacheWrite = $null; Output = 2.00  }
     'gpt-5.4-mini'      = @{ Input = 0.75; CachedInput = 0.075; CacheWrite = $null; Output = 4.50  }
     'gpt-5.4-nano'      = @{ Input = 0.20; CachedInput = 0.02;  CacheWrite = $null; Output = 1.25  }
