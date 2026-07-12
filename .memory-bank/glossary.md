@@ -21,6 +21,7 @@ propose a new row instead of inventing a synonym.
 | Credits | The cost expressed in Copilot premium-request units (USD cost / 0.01). | points, tokens |
 | Reasoning effort | The model thinking-depth level (low..max) sent as reasoning_effort. | thinking level, effort budget |
 | Context window | A model's maximum input capacity (for example 1M tokens); a capability, not a per-request setting. | context size, token window |
+| Context tokens | The peak single-request prompt size in a turn (`Usage.ContextTokens`): how full the context window actually got, as opposed to PromptTokens (the billed sum of input tokens across round-trips). Aggregated as a maximum, never a sum. | context usage, window fill, occupancy tokens |
 | Session default | The sticky model/effort/output-cap set by Select-ShpModel and applied by Invoke-Shp. | global default, preference |
 | Session chat | The running user/assistant turns Invoke-Shp continues by default; reset with Clear-ShpChat. | conversation, thread, history |
 | Terminal tool | The run_command tool that runs a shell command line in a child PowerShell and returns its output. | shell tool, exec tool, bash tool |

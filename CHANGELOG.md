@@ -16,6 +16,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   through a large file (read the first window, then request the next while
   `hasMore` is true) instead of loading it whole. Existing `path`-only calls
   keep working and return a bounded first window.
+- `Invoke-Shp` now reports `Usage.ContextTokens`: the peak single-request
+  prompt size in a turn - how full the model's context window actually got - as
+  opposed to `Usage.PromptTokens`, which is the billed sum of input tokens
+  across every tool-calling round-trip. For a turn with no tool calls the two
+  are equal; for a multi-round-trip turn `ContextTokens` is the largest single
+  request's prompt while `PromptTokens` is their sum. The per-call usage record
+  carries the field too, and `Get-ShpUsage -Summary` aggregates it as a maximum
+  (occupancy does not add across calls) both overall and per model. Purely
+  additive - existing token and cost fields (`PromptTokens`, `CompletionTokens`,
+  `TotalTokens`, `CachedTokens`, cost) are unchanged.
 
 ### Changed
 

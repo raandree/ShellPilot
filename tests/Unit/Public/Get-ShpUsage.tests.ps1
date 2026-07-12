@@ -28,7 +28,7 @@ Describe 'Get-ShpUsage' {
 
     It 'Returns the recorded usage records' {
         InModuleScope $script:moduleName {
-            $script:ShpUsageLog.Add([pscustomobject]@{ Timestamp = [datetime]::UtcNow; Model = 'm1'; RequestedModel = 'm1'; Prompt = 'p'; PromptTokens = 10; CompletionTokens = 5; TotalTokens = 15; CachedTokens = 0; CostUSD = 0.001; Credits = 0.1; Iterations = 1; ToolCalls = 0; FinishReason = 'stop'; DurationMs = 10 })
+            $script:ShpUsageLog.Add([pscustomobject]@{ Timestamp = [datetime]::UtcNow; Model = 'm1'; RequestedModel = 'm1'; Prompt = 'p'; PromptTokens = 10; CompletionTokens = 5; TotalTokens = 15; CachedTokens = 0; ContextTokens = 10; CostUSD = 0.001; Credits = 0.1; Iterations = 1; ToolCalls = 0; FinishReason = 'stop'; DurationMs = 10 })
         }
         $u = @(Get-ShpUsage)
         $u.Count    | Should -Be 1
@@ -37,15 +37,21 @@ Describe 'Get-ShpUsage' {
 
     It 'Aggregates totals and a per-model breakdown with -Summary' {
         InModuleScope $script:moduleName {
-            $script:ShpUsageLog.Add([pscustomobject]@{ Model = 'm1'; PromptTokens = 10; CompletionTokens = 5; TotalTokens = 15; CostUSD = 0.001; Credits = 0.1 })
-            $script:ShpUsageLog.Add([pscustomobject]@{ Model = 'm1'; PromptTokens = 20; CompletionTokens = 10; TotalTokens = 30; CostUSD = 0.002; Credits = 0.2 })
-            $script:ShpUsageLog.Add([pscustomobject]@{ Model = 'm2'; PromptTokens = 1; CompletionTokens = 1; TotalTokens = 2; CostUSD = $null; Credits = $null })
+            # ContextTokens is the per-turn peak context-window occupancy, chosen
+            # here to differ from PromptTokens so the max/sum distinction is real.
+            $script:ShpUsageLog.Add([pscustomobject]@{ Model = 'm1'; PromptTokens = 10; CompletionTokens = 5; TotalTokens = 15; ContextTokens = 8; CostUSD = 0.001; Credits = 0.1 })
+            $script:ShpUsageLog.Add([pscustomobject]@{ Model = 'm1'; PromptTokens = 20; CompletionTokens = 10; TotalTokens = 30; ContextTokens = 25; CostUSD = 0.002; Credits = 0.2 })
+            $script:ShpUsageLog.Add([pscustomobject]@{ Model = 'm2'; PromptTokens = 1; CompletionTokens = 1; TotalTokens = 2; ContextTokens = 1; CostUSD = $null; Credits = $null })
         }
         $s = Get-ShpUsage -Summary
         $s.Calls        | Should -Be 3
         $s.PromptTokens | Should -Be 31
         $s.TotalTokens  | Should -Be 47
+        # ContextTokens aggregates as the maximum (occupancy does not add across
+        # calls), so it is 25 - not the sum (34) and not derived from PromptTokens.
+        $s.ContextTokens | Should -Be 25
         $s.ByModel.Count | Should -Be 2
-        ($s.ByModel | Where-Object { $_.Model -eq 'm1' }).Calls | Should -Be 2
+        ($s.ByModel | Where-Object { $_.Model -eq 'm1' }).Calls         | Should -Be 2
+        ($s.ByModel | Where-Object { $_.Model -eq 'm1' }).ContextTokens | Should -Be 25
     }
 }

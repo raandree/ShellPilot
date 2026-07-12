@@ -333,6 +333,122 @@ Describe 'Invoke-Shp' {
         }
     }
 
+    Context 'ContextTokens (peak context-window occupancy)' {
+        AfterEach {
+            InModuleScope $script:moduleName { $script:ShpChat = @() }
+        }
+
+        It 'Equals PromptTokens for a single-round-trip turn (no tool calls)' {
+            InModuleScope $script:moduleName {
+                $script:ShpChat = @()
+                Mock Get-ShpSessionToken { [pscustomobject]@{ token = 't'; expires_at = 0; endpoints = [pscustomobject]@{ api = 'https://api.example' } } }
+                Mock Invoke-CopilotTurn {
+                    [pscustomobject]@{
+                        Mode = 'chat'; Content = 'ok'; FinishReason = 'stop'; ToolCalls = @()
+                        AssistantMessage = [pscustomobject]@{ content = 'ok' }; Reasoning = ''
+                        PromptTokens = 42; CompletionTokens = 7; CachedTokens = 0; CacheWriteTokens = 0
+                        ModelName = $Model; CopilotUsage = $null; Raw = @{}; Response = [pscustomobject]@{ Headers = @{} }
+                    }
+                }
+
+                $r = Invoke-Shp -Prompt 'hi' -DisableBrowsing -DisableFileAccess -DisableTerminal -DisableUserPrompts -DisableTodoList
+                $r.Usage.PromptTokens  | Should -Be 42
+                $r.Usage.ContextTokens | Should -Be 42
+                $r.Usage.ContextTokens | Should -Be $r.Usage.PromptTokens
+            }
+        }
+
+        It 'Reports the peak (max) single request across tool-calling round-trips while PromptTokens stays the sum' {
+            InModuleScope $script:moduleName {
+                $script:ShpChat = @()
+                $script:turnCount = 0
+                Mock Get-ShpSessionToken { [pscustomobject]@{ token = 't'; expires_at = 0; endpoints = [pscustomobject]@{ api = 'https://api.example' } } }
+                Mock Invoke-RunCommandTool { '{"command":"echo hi","exitCode":0,"stdout":"hi","stderr":""}' }
+                Mock Invoke-CopilotTurn {
+                    $script:turnCount++
+                    # Per-round-trip prompt sizes: 100, 400, 900. The prompt grows
+                    # as history accumulates, so the last (900) is the peak.
+                    $promptTokens = @(100, 400, 900)[$script:turnCount - 1]
+                    if ($script:turnCount -lt 3) {
+                        [pscustomobject]@{
+                            Mode = 'chat'; Content = ''; FinishReason = 'tool_calls'
+                            ToolCalls = @([pscustomobject]@{ Id = "c$($script:turnCount)"; Name = 'run_command'; Arguments = '{"command":"echo hi"}' })
+                            AssistantMessage = [pscustomobject]@{ content = '' }; Reasoning = ''
+                            PromptTokens = $promptTokens; CompletionTokens = 1; CachedTokens = 0; CacheWriteTokens = 0
+                            ModelName = $Model; CopilotUsage = $null; Raw = @{}; Response = [pscustomobject]@{ Headers = @{} }
+                        }
+                    } else {
+                        [pscustomobject]@{
+                            Mode = 'chat'; Content = 'done'; FinishReason = 'stop'; ToolCalls = @()
+                            AssistantMessage = [pscustomobject]@{ content = 'done' }; Reasoning = ''
+                            PromptTokens = $promptTokens; CompletionTokens = 1; CachedTokens = 0; CacheWriteTokens = 0
+                            ModelName = $Model; CopilotUsage = $null; Raw = @{}; Response = [pscustomobject]@{ Headers = @{} }
+                        }
+                    }
+                }
+
+                $r = Invoke-Shp -Prompt 'do work' -DisableBrowsing -DisableFileAccess -DisableUserPrompts -DisableTodoList
+                $r.Iterations          | Should -Be 3
+                $r.Usage.PromptTokens  | Should -Be 1400
+                $r.Usage.ContextTokens | Should -Be 900
+            }
+        }
+
+        It 'Stays the max even when a later round-trip is smaller than an earlier one' {
+            InModuleScope $script:moduleName {
+                $script:ShpChat = @()
+                $script:turnCount = 0
+                Mock Get-ShpSessionToken { [pscustomobject]@{ token = 't'; expires_at = 0; endpoints = [pscustomobject]@{ api = 'https://api.example' } } }
+                Mock Invoke-RunCommandTool { '{"command":"echo hi","exitCode":0,"stdout":"hi","stderr":""}' }
+                Mock Invoke-CopilotTurn {
+                    $script:turnCount++
+                    # A deliberately non-monotonic sequence: 700 then 200. The peak
+                    # must be 700 (max), not 200 (last).
+                    $promptTokens = @(700, 200)[$script:turnCount - 1]
+                    if ($script:turnCount -lt 2) {
+                        [pscustomobject]@{
+                            Mode = 'chat'; Content = ''; FinishReason = 'tool_calls'
+                            ToolCalls = @([pscustomobject]@{ Id = 'c1'; Name = 'run_command'; Arguments = '{"command":"echo hi"}' })
+                            AssistantMessage = [pscustomobject]@{ content = '' }; Reasoning = ''
+                            PromptTokens = $promptTokens; CompletionTokens = 1; CachedTokens = 0; CacheWriteTokens = 0
+                            ModelName = $Model; CopilotUsage = $null; Raw = @{}; Response = [pscustomobject]@{ Headers = @{} }
+                        }
+                    } else {
+                        [pscustomobject]@{
+                            Mode = 'chat'; Content = 'done'; FinishReason = 'stop'; ToolCalls = @()
+                            AssistantMessage = [pscustomobject]@{ content = 'done' }; Reasoning = ''
+                            PromptTokens = $promptTokens; CompletionTokens = 1; CachedTokens = 0; CacheWriteTokens = 0
+                            ModelName = $Model; CopilotUsage = $null; Raw = @{}; Response = [pscustomobject]@{ Headers = @{} }
+                        }
+                    }
+                }
+
+                $r = Invoke-Shp -Prompt 'do work' -DisableBrowsing -DisableFileAccess -DisableUserPrompts -DisableTodoList
+                $r.Usage.PromptTokens  | Should -Be 900
+                $r.Usage.ContextTokens | Should -Be 700
+            }
+        }
+
+        It 'Records ContextTokens on the session usage log record' {
+            InModuleScope $script:moduleName {
+                $script:ShpChat = @()
+                $script:ShpUsageLog = [System.Collections.Generic.List[pscustomobject]]::new()
+                Mock Get-ShpSessionToken { [pscustomobject]@{ token = 't'; expires_at = 0; endpoints = [pscustomobject]@{ api = 'https://api.example' } } }
+                Mock Invoke-CopilotTurn {
+                    [pscustomobject]@{
+                        Mode = 'chat'; Content = 'ok'; FinishReason = 'stop'; ToolCalls = @()
+                        AssistantMessage = [pscustomobject]@{ content = 'ok' }; Reasoning = ''
+                        PromptTokens = 123; CompletionTokens = 4; CachedTokens = 0; CacheWriteTokens = 0
+                        ModelName = $Model; CopilotUsage = $null; Raw = @{}; Response = [pscustomobject]@{ Headers = @{} }
+                    }
+                }
+
+                $null = Invoke-Shp -Prompt 'hi' -DisableBrowsing -DisableFileAccess -DisableTerminal -DisableUserPrompts -DisableTodoList
+                $script:ShpUsageLog[0].ContextTokens | Should -Be 123
+            }
+        }
+    }
+
     Context 'run_command dispatch' {
         BeforeEach {
             InModuleScope $script:moduleName {
