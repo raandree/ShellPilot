@@ -157,6 +157,7 @@ jobs:
         env:
           GitHubToken: ${{ secrets.GitHubToken }}
           GalleryApiToken: ${{ secrets.GalleryApiToken }}
+          ModuleVersion: ${{ needs.build.outputs.nuGetVersion }}
           ReleaseBranch: ${{ env.defaultBranch }}
           MainGitBranch: ${{ env.defaultBranch }}
         run: ./build.ps1 -Tasks publish

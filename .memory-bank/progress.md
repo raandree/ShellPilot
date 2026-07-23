@@ -25,6 +25,57 @@ Chronological record of shipped changes and remaining work. Latest first.
 
 ## Log
 
+- 2026-07-23 - Moved the price table from `source/PriceTable.psd1` to
+  `source/data/PriceTable.psd1`; ModuleBuilder now copies the `data` directory,
+  and Prefix loads `data/PriceTable.psd1` from the built module. This leaves
+  only `ShellPilot.psd1` at the module root, removing the legacy PSResourceGet
+  first-`.psd1` ambiguity as defense in depth while retaining the manifest-aware
+  package task. Added a QA regression for exactly one root manifest. TDD red:
+  expected 1 root `.psd1`, found `PriceTable.psd1` and `ShellPilot.psd1`. Green:
+  257 QA tests passed (6 tasks, 0 errors) under PowerShell 7.6.3; static parse and
+  price-table import checks passed; focused pricing tests passed 6/6. A clean
+  isolated restore and `pack` passed under PowerShell 7.6.3 / .NET 10.0.9
+  (Sampler 0.120.0; 22 tasks, 0 errors), producing one root manifest, the nested
+  table, and `ShellPilot.0.0.1.nupkg`. Semantic comparison found 0 differences
+  across all 26 model rates. Changes remain uncommitted.
+- 2026-07-23 - Fixed the CI package failure without committing. Pinned Sampler
+  0.120.0; changed `pack` from legacy `package_module_nupkg` to manifest-aware
+  `package_psresource_nupkg`; changed `publish` to `publish_nupkg_to_gallery`,
+  which pushes the package artifact instead of repackaging a module directory;
+  and passed the build job's `nuGetVersion` output into deploy as
+  `ModuleVersion` so the stock publish task selects the correct `.nupkg`.
+  Updated `[Unreleased]`. Verified in an isolated worktree under PowerShell
+  7.6.3 / .NET 10.0.9: fresh restore selected Sampler 0.120.0, `pack` succeeded
+  (22 tasks, 0 errors) and produced the package; stock NuGet publish succeeded
+  against a temporary local source (1 task, 0 errors). Changes remain unstaged
+  on `main` as requested; no commit was created.
+- 2026-07-23 - Refined the package-failure root cause by comparing DeskPilot's
+  successful `v0.3.0` package job on the same day. Both projects restored
+  Sampler 0.120.0 and PSResourceGet 1.0.1 and invoked legacy
+  `package_module_nupkg`. DeskPilot succeeds because its module root has one
+  `.psd1`; ShellPilot's has `PriceTable.psd1` plus `ShellPilot.psd1`.
+  PSResourceGet 1.0.1 takes the first `.psd1` from an unordered directory scan;
+  local .NET enumeration confirmed `PriceTable.psd1` first. PowerShell rejects
+  that data file as a module manifest and then null-dereferences the absent
+  module during version-folder validation. Direct legacy packaging reproduced
+  DeskPilot success and ShellPilot failure under PowerShell 7.6.3; removing
+  ShellPilot's format declaration, empty dependency/DSC keys, export-list size,
+  or root module code did not help. This validates the manifest-file package
+  task as the root fix, independent of directory order.
+- 2026-07-23 - Investigated failed GitHub Actions package job 89253417355 in
+  run 30006446189. The failed `v0.3.0` tag and successful run 29203558688 use
+  the identical ShellPilot commit (`41991dd`), ruling out recent source changes.
+  The clean restore drifted from Sampler 0.119.1 (green, July 12) to 0.120.0
+  (red, July 23; published July 14) because `RequiredModules.psd1` specifies
+  `Sampler = 'latest'`; the runner image also changed. Failure is in the legacy
+  `package_module_nupkg` path: PowerShellGet compatibility `Publish-Module`
+  forwards to PSResourceGet 1.0.1, which throws a null reference while running
+  `Test-ModuleManifest`. Reproduced under PowerShell 7.6.3 / .NET 10.0.9:
+  direct manifest validation passes, compatibility directory-path publishing
+  fails identically, and direct `Publish-PSResource` with the manifest path
+  succeeds and creates the package. Sampler 0.120.0 provides the working
+  `package_psresource_nupkg` task. No production change; recommended follow-up
+  is migration to the native package/publish tasks plus pinned build versions.
 - 2026-07-12 - Resolved the `git pull` merge conflict on `main`. Local `main`
   (the gpt-5.6 pricing fix, d8f26cf) had diverged from origin/main, which had
   gained three commits: the Usage.ContextTokens feature (6922793) plus two

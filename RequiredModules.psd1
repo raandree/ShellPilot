@@ -19,7 +19,7 @@
     Configuration               = 'latest'
     Metadata                    = 'latest'
     ChangelogManagement         = 'latest'
-    Sampler                     = 'latest'
+    Sampler                     = '0.120.0'
     'Sampler.GitHubTasks'       = 'latest'
     'DscResource.DocGenerator'  = 'latest'
     # PlatyPS is used by DscResource.DocGenerator's Generate_Markdown_For_Public_Commands

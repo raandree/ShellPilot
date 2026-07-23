@@ -51,11 +51,12 @@ ShellPilot talks to the same HTTP services as the Copilot Chat extension.
 ## Dependencies
 
 - Runtime: none beyond PowerShell itself.
-- Data: PriceTable.psd1 (USD per 1M tokens) drives cost estimates and is
+- Data: data/PriceTable.psd1 (USD per 1M tokens) drives cost estimates and is
   editable without code changes.
 - Build and test tooling: Sampler build framework (ModuleBuilder, InvokeBuild,
   Pester 5, GitVersion, PSScriptAnalyzer), bootstrapped by build.ps1 into
-  output/RequiredModules. ModuleBuilder pulls in Configuration and Metadata.
+  output/RequiredModules. Sampler is pinned to 0.120.0; ModuleBuilder pulls in
+  Configuration and Metadata.
 
 ## Constraints and risks
 
@@ -66,10 +67,11 @@ ShellPilot talks to the same HTTP services as the Copilot Chat extension.
   arbitrary shell commands in a child PowerShell with the caller's full
   privileges. Both are on by default (opt out with -DisableFileAccess /
   -DisableTerminal); disable them for untrusted prompts.
-- Pricing in PriceTable.psd1 is illustrative and must be kept current.
+- Pricing in data/PriceTable.psd1 is illustrative and must be kept current.
 - The full local Pester run crashes with a .NET 10 native access violation
   (exit 0xC0000005) on the local runtime (PowerShell 7.6.1 / .NET 10.0.6). It is
   a runtime fault, not a ShellPilot defect, and is non-deterministic per test
   block but compounds to ~100% over a full run. Verify changes out-of-band
   (build-only task, isolated child-process Pester, standalone PSScriptAnalyzer,
-  AST parse); CI on ubuntu/.NET 8 runs the full suite and is unaffected.
+  AST parse); CI on Ubuntu runs the full suite. The package workflow is verified
+  separately under PowerShell 7.6.3 / .NET 10.0.9.

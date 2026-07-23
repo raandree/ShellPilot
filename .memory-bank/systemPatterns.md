@@ -15,7 +15,7 @@ source/
   Private/   9 helper functions (session token, tool back-ends, loaders)
   Prefix.ps1 module-scope $script: defaults + price-table load
   Suffix.ps1 Register-ArgumentCompleter for Invoke-Shp -Model
-  PriceTable.psd1 (copied into the built module via CopyPaths)
+  data/PriceTable.psd1 (copied into the built module via CopyPaths)
   ShellPilot.psd1 / ShellPilot.psm1 (empty; ModuleBuilder fills it)
 ```
 
@@ -139,7 +139,7 @@ prompt.
 
 ### Cost from a data file
 
-PriceTable.psd1 maps a model id to per-token rates; cost and credit figures
+data/PriceTable.psd1 maps a model id to per-token rates; cost and credit figures
 are computed from reported usage, with the price key resolved
 case-insensitively.
 
@@ -224,6 +224,30 @@ build.ps1 bootstraps dependencies into output/RequiredModules, then InvokeBuild
 runs the workflow from build.yaml: Clean, Build_Module_ModuleBuilder,
 Create_changelog_release_output, then Pester. GitVersion derives the module
 version from commits and branch (ai/* branches produce a -ai prerelease tag).
+
+### Reproducible build dependencies
+
+`RequiredModules.psd1` pins Sampler 0.120.0, the verified version providing the
+selected package and NuGet publish tasks. Other build dependencies remain
+floating, so same-commit CI regressions still require comparing resolved
+versions before attributing them to source changes.
+
+The `pack` workflow uses `package_psresource_nupkg`. It passes the built module
+manifest file to PSResourceGet; do not revert to `package_module_nupkg`, whose
+PowerShellGet compatibility path passes the module directory. ShellPilot used to
+ship both `ShellPilot.psd1` and `PriceTable.psd1` at the module root.
+PSResourceGet 1.0.1 takes the first root-level `.psd1` without matching the
+module name, so directory enumeration selected the price table and sent it to
+`Test-ModuleManifest`. The price table now lives under `data/`, and a QA
+regression requires exactly one root `.psd1`. DeskPilot's legacy package path
+happens to work because its module root also contains only its manifest; that
+does not make directory-based packaging safe.
+
+The `publish` workflow pushes the prebuilt package with
+`publish_nupkg_to_gallery`, avoiding a second directory validation. The deploy
+job must pass `needs.build.outputs.nuGetVersion` as `ModuleVersion`, because the
+stock task locates
+`$ProjectName.$ModuleVersion.nupkg` in the downloaded build artifact.
 
 ## Patterns adopted
 

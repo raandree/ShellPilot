@@ -262,8 +262,8 @@ Every cmdlet has full comment-based help: `Get-Help Invoke-Shp -Full`.
 - **Server-side state.** `-UseServerSideState` is not supported by the Copilot
   backend (it is stateless) and falls back automatically to client-side history.
 - **Streaming.** Live streaming is the default on the chat shape only.
-- **Pricing.** Cost figures come from an editable `PriceTable.psd1` and are
-  illustrative; keep it current.
+- **Pricing.** Cost figures come from the editable `data/PriceTable.psd1`
+  bundled with the module and are illustrative; keep it current.
 
 ## Build and test
 

@@ -4,7 +4,51 @@ Current working focus for ShellPilot. Overwrite this file as the focus shifts.
 
 ## Focus
 
-Most recent change: fixed `Invoke-Shp` not reporting `CostUSD`/`Credits` for the
+Fixed GitHub Actions run 30006446189's package failure, with changes deliberately
+left uncommitted per the user's request. Verified root cause: legacy
+`package_module_nupkg` passed the built module directory to PSResourceGet 1.0.1.
+Its directory scan accepts the first root-level `.psd1` without matching the
+module name. Before the fix, ShellPilot shipped both `PriceTable.psd1` and
+`ShellPilot.psd1` at the module root; .NET enumerated `PriceTable.psd1` first,
+so PSResourceGet asked
+`Test-ModuleManifest` to validate the price table. PowerShell rejected its model
+keys as invalid manifest members, then its version-folder validation dereferenced
+the null module and surfaced only a null reference. DeskPilot does not fail
+because its built module root contains only `DeskPilot.psd1`.
+
+`RequiredModules.psd1` now pins Sampler 0.120.0. The `pack` workflow uses the
+stock `package_psresource_nupkg` task, which passes the known manifest file to
+PSResourceGet instead of scanning the module directory. The `publish` workflow
+uses `publish_nupkg_to_gallery` to push the already-built package, avoiding
+directory validation during deployment too. The deploy job passes
+`needs.build.outputs.nuGetVersion` as `ModuleVersion`, so the stock task selects
+the exact package created by the build job. As defense in depth, the price table
+now lives at `source/data/PriceTable.psd1` and is built to
+`data/PriceTable.psd1`, leaving only `ShellPilot.psd1` at the module root.
+`CHANGELOG.md` documents the fix.
+
+Verified in an isolated temporary worktree under PowerShell 7.6.3 / .NET 10.0.9,
+the runtime that reproduced the failure: a fresh dependency restore selected
+Sampler 0.120.0 and `pack` completed 22 tasks with 0 errors, producing
+`ShellPilot.0.0.1.nupkg`. Then `publish_nupkg_to_gallery` completed 1 task with
+0 errors and pushed that package to a temporary local NuGet source. The first
+in-place validation attempt failed before Sampler because the persistent terminal
+held a generated PSResourceGet DLL open; the isolated worktree removed that test
+environment artifact. Current branch is `main`; the fix files are unstaged, while
+the prior investigation's three Memory Bank files remain staged.
+
+The data relocation was implemented test-first. A new QA regression failed on
+the old build with two root `.psd1` files, then passed after the move: 257 QA
+tests, 6 tasks, 0 errors under PowerShell 7.6.3. The focused pricing tests verify
+that the nested price table still drives cost estimates (6/6). A clean isolated
+restore and `pack` completed 22 tasks with 0 errors under PowerShell 7.6.3 /
+.NET 10.0.9, restored Sampler 0.120.0, built only `ShellPilot.psd1` at the module
+root, built `data/PriceTable.psd1`, and created `ShellPilot.0.0.1.nupkg`.
+All 26 model rates are semantically unchanged. Changes remain uncommitted.
+
+## Prior focus
+
+Fixed `Invoke-Shp` not reporting `CostUSD`/`Credits` for the
 `gpt-5.6` model family. The user hit it with `Invoke-Shp -Model gpt-5.6-luna
 -Prompt hello` (cost/credit fields empty). Root cause: cost is data-driven from
 `PriceTable.psd1` and the price-key lookup is an exact, case-insensitive match on

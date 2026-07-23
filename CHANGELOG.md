@@ -45,6 +45,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Packaging no longer fails on PowerShell 7.6 / .NET 10 with a
+  `Test-ModuleManifest` null reference. Legacy packaging passed the module
+  directory to PSResourceGet 1.0.1, whose first-`.psd1` scan could select
+  `PriceTable.psd1` instead of `ShellPilot.psd1`. The price table now ships as
+  `data/PriceTable.psd1`, leaving only the module manifest at the module root.
+  The build also pins Sampler 0.120.0, packages through manifest-aware
+  `package_psresource_nupkg`, and publishes the resulting `.nupkg` through
+  `publish_nupkg_to_gallery`.
 - `Invoke-Shp` now reports `CostUSD` and `Credits` for the `gpt-5.6` model
   family. The three variants (`gpt-5.6-luna`, `gpt-5.6-sol`, `gpt-5.6-terra`)
   were missing from the price table, so their cost and credit fields came back

@@ -36,6 +36,11 @@ BeforeAll {
 
     $script:moduleName = $ProjectName
 
+    $script:builtModuleBase = (
+        Get-Module -Name $script:moduleName -ListAvailable |
+            Select-Object -First 1
+    ).ModuleBase
+
     $sourcePath = (
         Get-ChildItem -Path $projectPath\*\*.psd1 |
             Where-Object -FilterScript {
@@ -66,6 +71,15 @@ Describe 'Changelog Management' -Tag 'Changelog' {
 }
 
 Describe 'General module control' -Tags 'FunctionalQuality' {
+    It 'Should contain only the module manifest at the module root' {
+        $rootDataFiles = @(
+            Get-ChildItem -LiteralPath $script:builtModuleBase -Filter '*.psd1' -File
+        )
+
+        $rootDataFiles | Should -HaveCount 1
+        $rootDataFiles[0].Name | Should -BeExactly "$($script:moduleName).psd1"
+    }
+
     It 'Should import without errors' {
         { Import-Module -Name $script:moduleName -Force -ErrorAction Stop } | Should -Not -Throw
 

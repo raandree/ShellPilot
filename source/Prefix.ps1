@@ -125,11 +125,11 @@ $script:ShpUserTools = [ordered]@{}
 # Session-scoped; reset by Clear-ShpChat.
 $script:ShpLastResponseId = $null
 
-# Usage-based pricing (USD per 1M tokens). Sourced from PriceTable.psd1 next to
-# this module so rates can be updated without touching code. If the file is
-# missing or malformed the module still loads with an empty table (cost stays
-# $null and the -Model completer falls back to fetched/empty ids).
-$script:PriceTablePath = Join-Path $PSScriptRoot 'PriceTable.psd1'
+# Usage-based pricing (USD per 1M tokens). Sourced from data/PriceTable.psd1 so
+# rates can be updated without touching code. If the file is missing or malformed
+# the module still loads with an empty table (cost stays $null and the -Model
+# completer falls back to fetched/empty ids).
+$script:PriceTablePath = Join-Path $PSScriptRoot 'data/PriceTable.psd1'
 try {
     $script:PriceTable = Import-PowerShellDataFile -LiteralPath $script:PriceTablePath -ErrorAction Stop
 } catch {

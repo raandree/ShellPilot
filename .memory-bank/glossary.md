@@ -17,7 +17,7 @@ propose a new row instead of inventing a synonym.
 | Skill | A folder containing a SKILL.md that supplies instructions on demand. | plugin, add-in, extension |
 | Progressive disclosure | Offering only a skill name and description, then loading its body when asked. | lazy loading |
 | Instruction file | A Markdown file whose body is injected into the system prompt. | rules file, config file |
-| Price table | PriceTable.psd1, mapping a model id to its per-token rates. | rate card, pricing config |
+| Price table | data/PriceTable.psd1, mapping a model id to its per-token rates. | rate card, pricing config |
 | Credits | The cost expressed in Copilot premium-request units (USD cost / 0.01). | points, tokens |
 | Reasoning effort | The model thinking-depth level (low..max) sent as reasoning_effort. | thinking level, effort budget |
 | Context window | A model's maximum input capacity (for example 1M tokens); a capability, not a per-request setting. | context size, token window |

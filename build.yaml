@@ -9,7 +9,7 @@
 BuiltModuleSubdirectory: module
 CopyPaths:
   - en-US
-  - PriceTable.psd1
+  - data
   - ShellPilot.Format.ps1xml
 #  - DSCResources
   # - Modules
@@ -59,7 +59,7 @@ BuildWorkflow:
   pack:
     - build
     - docs
-    - package_module_nupkg
+    - package_psresource_nupkg
 
   # Generate and package the GitHub Wiki content. Generate_Wiki_Content is an
   # orchestrator that builds per-command markdown (via PlatyPS), the external
@@ -93,7 +93,7 @@ BuildWorkflow:
   publish:
     - Publish_Release_To_GitHub # Runs first, if token is expired it will fail early
     - Publish_GitHub_Wiki_Content
-    - publish_module_to_gallery
+    - publish_nupkg_to_gallery
 
 ####################################################
 #       PESTER  Configuration                      #
