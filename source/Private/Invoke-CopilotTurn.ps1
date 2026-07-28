@@ -140,7 +140,7 @@ function Invoke-CopilotTurn {
         if ($MaxOutputTokens -gt 0) { $payload.max_output_tokens = $MaxOutputTokens }
         if ($Store) { $payload.store = $true }
         if (-not [string]::IsNullOrWhiteSpace($PreviousResponseId)) { $payload.previous_response_id = $PreviousResponseId }
-        $body = $payload | ConvertTo-Json -Depth 12
+        $body = ConvertTo-ShpStableJson -InputObject $payload -Depth 12
         # Route through the module's shared, pooled HttpClient (Invoke-ShpHttpRequest)
         # so every Turn iteration reuses one warm connection; keep the retry wrapper
         # so 429/5xx and network-outage handling are unchanged.
@@ -199,7 +199,7 @@ function Invoke-CopilotTurn {
     # non-streaming output cap, which is the point of offering it here.
     if ($Stream) {
         $payload.stream_options = @{ include_usage = $true }
-        $body = $payload | ConvertTo-Json -Depth 10
+        $body = ConvertTo-ShpStableJson -InputObject $payload -Depth 10
         $req = Invoke-ShpStreamRequest -Uri "$ApiBase/chat/completions" -Headers $Headers -Body $body
         try {
             $turn = Read-ShpChatStream -Reader $req.Reader -Echo:$Stream -EchoReasoning:$EchoReasoning
@@ -216,7 +216,7 @@ function Invoke-CopilotTurn {
         }
     }
 
-    $body = $payload | ConvertTo-Json -Depth 10
+    $body = ConvertTo-ShpStableJson -InputObject $payload -Depth 10
     # Route through the module's shared, pooled HttpClient (Invoke-ShpHttpRequest)
     # so every Turn iteration reuses one warm connection; keep the retry wrapper
     # so 429/5xx and network-outage handling are unchanged.

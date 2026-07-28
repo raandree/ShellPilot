@@ -866,3 +866,180 @@ Describe 'Invoke-Shp' {
         }
     }
 }
+
+Describe 'Invoke-Shp approval, budget and pricing tiers' {
+    BeforeEach {
+        InModuleScope $script:moduleName {
+            $script:ShpChat = @()
+            $script:turnCount = 0
+            Mock Get-ShpSessionToken { [pscustomobject]@{ token = 't'; expires_at = 0; endpoints = [pscustomobject]@{ api = 'https://api.example' } } }
+            Mock Invoke-RunCommandTool { '{"command":"git status","exitCode":0,"stdout":"clean","stderr":""}' }
+            Mock Invoke-WriteFileTool { '{"path":"x.txt","written":true}' }
+        }
+    }
+
+    AfterEach {
+        InModuleScope $script:moduleName { $script:ShpChat = @() }
+    }
+
+    Context 'ShouldProcess gating' {
+        BeforeEach {
+            InModuleScope $script:moduleName {
+                Mock Invoke-CopilotTurn {
+                    $script:turnCount++
+                    if ($script:turnCount -eq 1) {
+                        [pscustomobject]@{
+                            Mode = 'chat'; Content = ''; FinishReason = 'tool_calls'
+                            ToolCalls = @(
+                                [pscustomobject]@{ Id = 'c1'; Name = 'run_command'; Arguments = '{"command":"git status"}' }
+                                [pscustomobject]@{ Id = 'c2'; Name = 'write_file'; Arguments = '{"path":"x.txt","content":"hi"}' }
+                            )
+                            AssistantMessage = [pscustomobject]@{ content = '' }; Reasoning = ''
+                            PromptTokens = 1; CompletionTokens = 1; CachedTokens = 0; CacheWriteTokens = 0
+                            ModelName = $Model; CopilotUsage = $null; Raw = @{}; Response = [pscustomobject]@{ Headers = @{} }
+                        }
+                    } else {
+                        [pscustomobject]@{
+                            Mode = 'chat'; Content = 'done'; FinishReason = 'stop'; ToolCalls = @()
+                            AssistantMessage = [pscustomobject]@{ content = 'done' }; Reasoning = ''
+                            PromptTokens = 1; CompletionTokens = 1; CachedTokens = 0; CacheWriteTokens = 0
+                            ModelName = $Model; CopilotUsage = $null; Raw = @{}; Response = [pscustomobject]@{ Headers = @{} }
+                        }
+                    }
+                }
+            }
+        }
+
+        It 'Runs the state-changing tools by default' {
+            InModuleScope $script:moduleName {
+                $r = Invoke-Shp -Prompt 'go' -DisableBrowsing -DisableUserPrompts
+                Should -Invoke Invoke-RunCommandTool -Times 1 -Exactly
+                Should -Invoke Invoke-WriteFileTool  -Times 1 -Exactly
+                $r.CommandsRun | Should -Contain 'git status'
+            }
+        }
+
+        It 'Skips run_command and write_file under -WhatIf but still completes the turn' {
+            InModuleScope $script:moduleName {
+                $r = Invoke-Shp -Prompt 'go' -DisableBrowsing -DisableUserPrompts -WhatIf
+                Should -Invoke Invoke-RunCommandTool -Times 0 -Exactly
+                Should -Invoke Invoke-WriteFileTool  -Times 0 -Exactly
+                $r.Content      | Should -Be 'done'
+                $r.CommandsRun  | Should -BeNullOrEmpty
+                $r.FilesWritten | Should -BeNullOrEmpty
+            }
+        }
+
+        It 'Tells the model that a skipped tool was not approved' {
+            InModuleScope $script:moduleName {
+                $r = Invoke-Shp -Prompt 'go' -DisableBrowsing -DisableUserPrompts -WhatIf
+                ($r.ToolCalls | Where-Object Name -EQ 'run_command').ResultPreview | Should -Match 'skipped'
+            }
+        }
+    }
+
+    Context 'Budget guard' {
+        BeforeEach {
+            InModuleScope $script:moduleName {
+                # Every turn asks for another tool call, so only the budget can
+                # stop the loop.
+                Mock Invoke-CopilotTurn {
+                    [pscustomobject]@{
+                        Mode = 'chat'; Content = ''; FinishReason = 'tool_calls'
+                        ToolCalls = @([pscustomobject]@{ Id = 'c1'; Name = 'run_command'; Arguments = '{"command":"git status"}' })
+                        AssistantMessage = [pscustomobject]@{ content = '' }; Reasoning = ''
+                        PromptTokens = 1000000; CompletionTokens = 1000000; CachedTokens = 0; CacheWriteTokens = 0
+                        ModelName = 'claude-opus-5'; CopilotUsage = $null; Raw = @{}; Response = [pscustomobject]@{ Headers = @{} }
+                    }
+                }
+            }
+        }
+
+        It 'Stops the loop and flags the result once the cap is passed' {
+            InModuleScope $script:moduleName {
+                # One round-trip of claude-opus-5 costs 5.00 + 25.00 = 30 USD.
+                $r = Invoke-Shp -Prompt 'go' -Model 'claude-opus-5' -MaxBudgetUSD 1 -DisableBrowsing -DisableUserPrompts
+                $r.BudgetExceeded | Should -BeTrue
+                $r.Iterations     | Should -Be 1
+                $r.CostUSD        | Should -BeGreaterThan 1
+            }
+        }
+
+        It 'Runs to the iteration cap when no budget is given' {
+            InModuleScope $script:moduleName {
+                # Without a cap the only stop is MaxToolIterations, which throws.
+                { Invoke-Shp -Prompt 'go' -Model 'claude-opus-5' -MaxToolIterations 3 -DisableBrowsing -DisableUserPrompts } |
+                    Should -Throw '*MaxToolIterations*'
+            }
+        }
+    }
+
+    Context 'Long-context pricing across round-trips' {
+        It 'Prices each round-trip at its own tier instead of the summed prompt' {
+            InModuleScope $script:moduleName {
+                $script:turnCount = 0
+                # Two round-trips of 200000 prompt tokens each: 400000 in total,
+                # which is over gpt-5.5's 272000 threshold, but neither request
+                # is - so both must bill at the default tier.
+                Mock Invoke-CopilotTurn {
+                    $script:turnCount++
+                    if ($script:turnCount -eq 1) {
+                        [pscustomobject]@{
+                            Mode = 'chat'; Content = ''; FinishReason = 'tool_calls'
+                            ToolCalls = @([pscustomobject]@{ Id = 'c1'; Name = 'run_command'; Arguments = '{"command":"git status"}' })
+                            AssistantMessage = [pscustomobject]@{ content = '' }; Reasoning = ''
+                            PromptTokens = 200000; CompletionTokens = 0; CachedTokens = 0; CacheWriteTokens = 0
+                            ModelName = 'gpt-5.5'; CopilotUsage = $null; Raw = @{}; Response = [pscustomobject]@{ Headers = @{} }
+                        }
+                    } else {
+                        [pscustomobject]@{
+                            Mode = 'chat'; Content = 'done'; FinishReason = 'stop'; ToolCalls = @()
+                            AssistantMessage = [pscustomobject]@{ content = 'done' }; Reasoning = ''
+                            PromptTokens = 200000; CompletionTokens = 0; CachedTokens = 0; CacheWriteTokens = 0
+                            ModelName = 'gpt-5.5'; CopilotUsage = $null; Raw = @{}; Response = [pscustomobject]@{ Headers = @{} }
+                        }
+                    }
+                }
+                $r = Invoke-Shp -Prompt 'go' -Model 'gpt-5.5' -DisableBrowsing -DisableUserPrompts
+                $r.Usage.PromptTokens         | Should -Be 400000
+                $r.CostBreakdown.TiersUsed    | Should -Be @('Default')
+                # 400000 tokens at the 5.00 default rate, not the 10.00 long rate.
+                $r.CostBreakdown.InputCostUSD | Should -Be 2.0
+            }
+        }
+
+        It 'Uses the long-context rate for a single oversized request' {
+            InModuleScope $script:moduleName {
+                Mock Invoke-CopilotTurn {
+                    [pscustomobject]@{
+                        Mode = 'chat'; Content = 'done'; FinishReason = 'stop'; ToolCalls = @()
+                        AssistantMessage = [pscustomobject]@{ content = 'done' }; Reasoning = ''
+                        PromptTokens = 300000; CompletionTokens = 0; CachedTokens = 0; CacheWriteTokens = 0
+                        ModelName = 'gpt-5.5'; CopilotUsage = $null; Raw = @{}; Response = [pscustomobject]@{ Headers = @{} }
+                    }
+                }
+                $r = Invoke-Shp -Prompt 'go' -Model 'gpt-5.5' -DisableBrowsing -DisableUserPrompts
+                $r.CostBreakdown.Tier         | Should -Be 'LongContext'
+                # 300000 tokens at the 10.00 long-context rate.
+                $r.CostBreakdown.InputCostUSD | Should -Be 3.0
+            }
+        }
+    }
+
+    Context 'AppendSystemPrompt' {
+        It 'Records the appended text as an applied instruction' {
+            InModuleScope $script:moduleName {
+                Mock Invoke-CopilotTurn {
+                    [pscustomobject]@{
+                        Mode = 'chat'; Content = 'ok'; FinishReason = 'stop'; ToolCalls = @()
+                        AssistantMessage = [pscustomobject]@{ content = 'ok' }; Reasoning = ''
+                        PromptTokens = 1; CompletionTokens = 1; CachedTokens = 0; CacheWriteTokens = 0
+                        ModelName = $Model; CopilotUsage = $null; Raw = @{}; Response = [pscustomobject]@{ Headers = @{} }
+                    }
+                }
+                $r = Invoke-Shp -Prompt 'go' -AppendSystemPrompt 'Answer in one word.' -DisableBrowsing -DisableFileAccess -DisableTerminal -DisableUserPrompts
+                ($r.InstructionsApplied | Where-Object Kind -EQ 'AppendSystemPrompt') | Should -Not -BeNullOrEmpty
+            }
+        }
+    }
+}

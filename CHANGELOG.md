@@ -7,8 +7,63 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `Resolve-ShpError` explains the last error in the session and suggests a fix.
+  It takes an error record (`$Error[0]` by default, or from the pipeline), sends
+  the message, exception type, category, target, failing command line and script
+  stack trace to the model, and returns the usual `Invoke-Shp` result. Every
+  tool is disabled unless `-EnableTools` is passed, so diagnosing an error
+  cannot touch the machine.
+- `Invoke-Shp` supports `ShouldProcess`. `-WhatIf` dry-runs a whole agent turn -
+  the model still plans and calls tools, but `write_file`, `create_directory`,
+  `run_command` and user-registered tools are skipped and told they were not
+  approved - and `-Confirm` prompts before each of those calls. Default
+  behaviour is unchanged.
+- `Invoke-Shp -MaxBudgetUSD` stops the tool-calling loop once the turn's
+  estimated spend passes the cap, and the result carries a new `BudgetExceeded`
+  flag.
+- `Invoke-Shp -AppendSystemPrompt` adds inline system instructions in either
+  parameter set, so a file-driven system prompt can still be topped up for a
+  single call.
+- `Invoke-Shp -AllowPrivateNetwork` opts the `fetch_url` tool back in to
+  loopback, link-local and private addresses.
+- `Start-ShpChat` gained the `/models`, `/history`, `/retry` and `/usage`
+  commands. `/retry` drops the last exchange and resends the previous prompt.
+- The price table supports a long-context tier. An entry may carry a
+  `LongContext` block with a `Threshold` in input tokens plus its own rates, and
+  the cost breakdown now reports `Tier` and `TiersUsed`.
+
 ### Fixed
 
+- The `fetch_url` tool no longer reaches private networks. Every URL, including
+  each redirect target, is checked before the request: only `http` and `https`
+  are allowed, and host names must resolve to publicly routable addresses.
+  Loopback, link-local (including the `169.254.169.254` cloud metadata address),
+  RFC 1918, carrier-grade NAT, `0.0.0.0/8`, multicast and their IPv6 equivalents
+  are refused, as are IPv4-mapped forms and names that fail to resolve.
+  Redirects are followed manually, up to five hops, so a public URL can no
+  longer bounce the model into the host's own network.
+- Corrected the `gpt-5.6` rates, which shipped as placeholders. `gpt-5.6-luna`
+  was charged five times its real rate (now 1.00 / 0.10 / 6.00 USD per million
+  input / cached-input / output tokens) and `gpt-5.6-terra` twice
+  (now 2.50 / 0.25 / 15.00). `gpt-5.6-sol` was already correct.
+- Cost is now calculated per round-trip instead of on the turn totals. A model's
+  long-context rate is selected by a single request's input size, so a turn made
+  of several smaller round-trips is no longer at risk of being priced as one
+  oversized request, and a genuinely oversized request is no longer under-priced
+  at the default rate. Added the published thresholds and long-context rates for
+  `gpt-5.4`, `gpt-5.5`, `gpt-5.6-luna`, `gpt-5.6-sol`, `gpt-5.6-terra` and
+  `gemini-3.1-pro`.
+- Added the missing price-table entries for models the service advertises:
+  `gemini-3-flash-preview`, `gemini-3.1-pro-preview`, `gemini-3.6-flash` and
+  `mai-code-1-flash-picker`, which all reported empty cost and credit fields.
+  Also added published rates for `claude-fable-5`, `claude-opus-4.8-fast` and
+  `kimi-k2.7-code`.
+- Request bodies are now serialised with a stable key order. PowerShell
+  hashtables have no defined enumeration order and .NET randomises string
+  hashing per process, so the same payload could serialise differently between
+  runs and defeat backend prompt caching.
 - `Invoke-Shp` and `Get-ShpCostEstimate` now report `CostUSD` and `Credits` for
   `claude-opus-5` and `claude-sonnet-5`. Neither model had an entry in
   `data/PriceTable.psd1`, and the price lookup matches the model id exactly, so

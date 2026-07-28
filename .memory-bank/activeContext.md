@@ -4,6 +4,77 @@ Current working focus for ShellPilot. Overwrite this file as the focus shifts.
 
 ## Focus
 
+Implemented the tractable findings of the 2026-07-28 web gap analysis. Changes
+are deliberately UNCOMMITTED per the user's request, and they sit on top of the
+prior turn's equally uncommitted `claude-opus-5` / `claude-sonnet-5` pricing
+edits.
+
+Shipped this turn:
+
+1. Pricing correctness. `gpt-5.6-luna` was priced 5x and `gpt-5.6-terra` 2x too
+   high (the 2026-07-12 entries were explicit placeholders); both now carry the
+   published rates. `data/PriceTable.psd1` gained an optional `LongContext`
+   block (`Threshold` plus its own rates) for `gpt-5.4`, `gpt-5.5`,
+   `gpt-5.6-luna`, `gpt-5.6-sol`, `gpt-5.6-terra` and `gemini-3.1-pro`, and new
+   keys for every advertised-but-unpriced model plus `claude-fable-5`,
+   `claude-opus-4.8-fast` and `kimi-k2.7-code`.
+1. Cost is now measured PER ROUND-TRIP, not on turn totals. The tier is chosen
+   by a single request's input size, so five 100K round-trips stay Default
+   rather than being read as one 500K long-context request. New private
+   `Resolve-ShpModelRate` and `Measure-ShpTurnCost`; `CostBreakdown` gained
+   `Tier` and `TiersUsed`; `Get-ShpCostEstimate` gained `Tier`.
+1. SSRF guard on `fetch_url`. New private `Test-ShpUrlSafe` and
+   `Get-ShpBlockedAddressReason`; scheme allow-list, DNS-resolved address
+   checks (loopback, link-local incl. 169.254.169.254, RFC 1918, CGNAT,
+   0.0.0.0/8, multicast, IPv6 equivalents, IPv4-mapped), fail-closed on
+   unresolvable hosts, and manual redirect following (max 5 hops) so each hop is
+   re-checked. `-AllowPrivateNetwork` opts back in.
+1. `Invoke-Shp` supports `ShouldProcess`. `-WhatIf` dry-runs a whole turn and
+   `-Confirm` prompts per call for `write_file`, `create_directory`,
+   `run_command` and user tools; skipped calls tell the model they were not
+   approved. ConfirmImpact left at the default so unattended behaviour is
+   unchanged.
+1. `-MaxBudgetUSD` with a `BudgetExceeded` result flag, `-AppendSystemPrompt`
+   (works in both parameter sets), and `Resolve-ShpError` (new public cmdlet,
+   21 -> 22 exports; all tools off unless `-EnableTools`).
+1. Stable request serialisation. New private `ConvertTo-ShpStableJson` /
+   `ConvertTo-ShpOrderedGraph` sort object keys by ordinal before
+   `ConvertTo-Json`, because .NET randomises string hashing per process and an
+   unstable key order silently destroys backend prompt-cache hits.
+1. `Start-ShpChat` gained `/models`, `/history`, `/retry` and `/usage`.
+
+Two bugs were found and fixed during verification, both worth remembering:
+returning `@(...)` from a recursive function unrolls a one-element array, which
+turned `"required": ["a"]` into `"required": "a"` and made the service answer
+400 - fixed with the `, @(...)` idiom; and binding a `List[object]` to an
+`[object[]]` parameter throws "Argument types do not match", so the call sites
+pass `.ToArray()`.
+
+Verified: build green (7 tasks / 0 errors), full isolated suite 604/604 (unit +
+QA, including PSSA per function and the help-quality gate), and live calls
+confirmed `gpt-5.6-luna` at Rates=1/6 Tier=Default via `/responses` and
+`claude-opus-4.7` at 5/25 via `/chat/completions`, plus live SSRF blocks for the
+metadata address, loopback and a `file://` URL with `https://example.com` still
+fetching normally.
+
+Deliberately NOT built, each needing its own design cycle: MCP client (moved
+from TBD to Planned in the feature map - no established PowerShell MCP *client*
+exists, so it would be a first; target revision 2025-11-25), session persistence
+and resume, a hooks engine, subagents, the headless JSONL/stdin surface, and the
+`-AsJob` job model (which needs a spike on whether thread-job runspaces can
+share `$script:ShpSessionTokenCache` / `$script:ShpHttpClient`).
+
+## Prior focus - web gap analysis (2026-07-28)
+
+Ran a web gap analysis of ShellPilot against the current Copilot platform, the
+agent-harness state of the art, and the PowerShell AI module landscape. Findings
+above were the actionable subset. Reference points worth keeping: GitHub bills
+per token in AI credits (1 credit = 0.01 USD) with Default and Long context
+tiers; premium requests are legacy; MCP's current spec revision is 2025-11-25
+(2026-07-28 is draft); and Microsoft archived PowerShell/AIShell in January 2026.
+
+## Prior focus - claude-opus-5 / claude-sonnet-5 pricing (uncommitted)
+
 Fixed `Invoke-Shp` reporting no `CostUSD`/`Credits` for `claude-opus-5` and
 `claude-sonnet-5`, with changes deliberately left uncommitted per the user's
 request. Same class of defect as the earlier gpt-5.6 case: cost is data-driven
@@ -39,9 +110,10 @@ Residual finding, deliberately NOT fixed (out of scope): the live endpoint list
 also advertises `gemini-3-flash-preview`, `gemini-3.1-pro-preview`,
 `gemini-3.6-flash` and `mai-code-1-flash-picker`, none of which match a
 price-table key (the table holds `gemini-3-flash`, `gemini-3.1-pro` and
-`gemini-3.5-flash`), so those models remain unpriced.
+`gemini-3.5-flash`), so those models remain unpriced. Published rates for two of
+them were located in the following turn - see Focus.
 
-## Prior focus
+## Earlier focus
 
 Fixed GitHub Actions run 30006446189's package failure, with changes deliberately
 left uncommitted per the user's request. Verified root cause: legacy

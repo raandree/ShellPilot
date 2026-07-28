@@ -20,10 +20,70 @@ Chronological record of shipped changes and remaining work. Latest first.
 - Publish to the PowerShell Gallery (open decision #7).
 - Streaming-path retry: route Invoke-ShpStreamRequest through Invoke-ShpWithRetry
   so the 429/5xx and 30s network-outage guarantees also cover streamed replies.
-- Optional path-scoping / allow-listing for the unsandboxed tools (run_command,
-  the file tools, user tools).
+- Path-scoping / allow-listing for the unsandboxed tools. ShouldProcess now
+  gates them interactively, but there is still no persisted allow/deny rule set
+  (the Copilot CLI's Kind(argument) model is the reference).
+- MCP client (stdio + streamable HTTP) so the module can consume the wider tool
+  ecosystem. Target spec revision 2025-11-25. Would be the first PowerShell MCP
+  client.
+- Session persistence and resume; hooks engine; subagents; headless scripting
+  surface (stdin, JSONL events, env-var config, exit codes).
+- `-AsJob` job model. Needs a spike first on whether thread-job runspaces can
+  share `$script:ShpSessionTokenCache` / `$script:ShpHttpClient`.
 
 ## Log
+
+- 2026-07-28 - Implemented the actionable subset of the same day's gap analysis.
+  Pricing: corrected `gpt-5.6-luna` (was 5x too high) and `gpt-5.6-terra` (2x);
+  added an optional `LongContext` tier (Threshold plus its own rates) to the
+  price table for the six tiered models; added keys for every
+  advertised-but-unpriced model plus `claude-fable-5`, `claude-opus-4.8-fast`
+  and `kimi-k2.7-code`. Cost is now measured per round-trip via the new private
+  `Resolve-ShpModelRate` and `Measure-ShpTurnCost`, because the tier is chosen
+  by one request's input size, not the turn total; `CostBreakdown` gained `Tier`
+  and `TiersUsed` and `Get-ShpCostEstimate` gained `Tier`. Security: new private
+  `Test-ShpUrlSafe` / `Get-ShpBlockedAddressReason` give `fetch_url` a scheme
+  allow-list and a resolved-address check (loopback, link-local incl.
+  169.254.169.254, RFC 1918, CGNAT, 0.0.0.0/8, multicast, IPv6 equivalents,
+  IPv4-mapped), fail closed on unresolvable hosts, and follow redirects manually
+  so every hop is re-checked; `-AllowPrivateNetwork` opts back in. Control:
+  `Invoke-Shp` now supports ShouldProcess, so `-WhatIf` dry-runs a turn and
+  `-Confirm` prompts per `write_file` / `create_directory` / `run_command` /
+  user-tool call, with skipped calls reported back to the model; added
+  `-MaxBudgetUSD` with a `BudgetExceeded` flag and `-AppendSystemPrompt`. New
+  public `Resolve-ShpError` explains the last error (22 exports). Caching: new
+  private `ConvertTo-ShpStableJson` / `ConvertTo-ShpOrderedGraph` sort object
+  keys before serialisation, since .NET randomises string hashing per process
+  and an unstable prefix defeats backend prompt caching. `Start-ShpChat` gained
+  `/models`, `/history`, `/retry`, `/usage`. Two defects found during
+  verification: `return @(...)` unrolled one-element arrays (turning
+  `"required":["a"]` into `"required":"a"`, a live 400) - fixed with `, @(...)`;
+  and `List[object]` will not bind to an `[object[]]` parameter, so call sites
+  pass `.ToArray()`. Verified: build 7 tasks / 0 errors, full isolated suite
+  604/604 (unit + QA incl. PSSA and help quality), and live calls confirming
+  luna at 1/6 Default via /responses, claude-opus-4.7 at 5/25 via
+  /chat/completions, and live SSRF blocks with normal browsing unaffected.
+  Left uncommitted per the user's request. Not built (own design cycle needed):
+  MCP client, session persistence, hooks, subagents, headless event stream, job
+  model.
+- 2026-07-28 - Web gap analysis against the current Copilot platform, agent
+  harness state of the art, and the PowerShell AI module landscape. No code
+  changed. Found three verified pricing defects: the 2026-07-12 gpt-5.6 rates
+  were placeholders and the real published rates are lower (luna 5x, terra 2x
+  too high; sol correct); `data/PriceTable.psd1` models a single rate per model
+  while GitHub now publishes a Default and a Long context tier with an
+  input-token threshold (>272K for gpt-5.4/5.5/5.6-sol/5.6-terra, >200K for
+  gpt-5.6-luna and gemini-3.1-pro), so long turns are under-costed by about
+  half; and rates are now published for gemini-3.6-flash, MAI-Code-1-Flash,
+  Kimi K2.7 Code, Claude Fable 5 and Claude Opus 4.8 fast mode, which the table
+  lacks. Confirmed no change needed to the four rate classes, the 1 credit =
+  0.01 USD conversion, or the Sonnet 5 promo end date. Confirmed by grep that
+  Invoke-Shp has no SupportsShouldProcess, the source has no Write-Progress and
+  no Start-ThreadJob, and Invoke-FetchUrlTool follows redirects with no SSRF
+  guard. Research also established that no published PowerShell module appears
+  to act as an MCP *client* (the Gallery holds a dozen MCP *servers*), so an MCP
+  client would be a first for the ecosystem, and that Microsoft archived
+  PowerShell/AIShell in January 2026.
 
 - 2026-07-28 - Fixed missing `CostUSD`/`Credits` for `claude-opus-5` and
   `claude-sonnet-5`. Both ids are advertised by the Copilot endpoints but had no

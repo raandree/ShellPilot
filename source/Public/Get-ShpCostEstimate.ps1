@@ -27,8 +27,9 @@ function Get-ShpCostEstimate {
     .OUTPUTS
         System.Management.Automation.PSCustomObject
 
-        An object with Model, EstimatedInputTokens, EstimatedInputCostUSD and
-        EstimatedInputCredits.
+        An object with Model, EstimatedInputTokens, EstimatedInputCostUSD,
+        EstimatedInputCredits and Tier ('Default' or 'LongContext'; null when
+        the model has no price-table entry).
 
     .LINK
         ConvertTo-ShpTokenCount
@@ -55,8 +56,13 @@ function Get-ShpCostEstimate {
 
     $costUSD = $null
     $credits = $null
+    $tier = $null
     if ($pricing) {
-        $costUSD = [Math]::Round(($tokens * $pricing.Input) / 1e6, 6)
+        # A model with a long-context tier bills the higher rate once a single
+        # request's input exceeds the published threshold.
+        $rate = Resolve-ShpModelRate -Pricing $pricing -InputTokens $tokens
+        $tier = $rate.Tier
+        $costUSD = [Math]::Round(($tokens * $rate.Input) / 1e6, 6)
         $credits = [Math]::Round($costUSD / 0.01, 4)
     }
 
@@ -66,5 +72,6 @@ function Get-ShpCostEstimate {
         EstimatedInputTokens  = $tokens
         EstimatedInputCostUSD = $costUSD
         EstimatedInputCredits = $credits
+        Tier                  = $tier
     }
 }

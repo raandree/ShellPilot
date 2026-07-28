@@ -50,6 +50,12 @@ function Invoke-Shp {
         e.g. an *.agent.md or *.instructions.md. Belongs to the 'PromptFromFile'
         parameter set and is mutually exclusive with -SystemPrompt.
 
+    .PARAMETER AppendSystemPrompt
+        Extra system instructions (literal text) added after -SystemPrompt or
+        -SystemPromptPath. Unlike -SystemPrompt this belongs to no parameter
+        set, so a file-driven system prompt can still be topped up with a line
+        of inline guidance for a single call.
+
     .PARAMETER InstructionPath
         One or more paths to Markdown instruction, agent, or skill files
         (*.instructions.md, *.agent.md, SKILL.md, or any *.md). The body of
@@ -89,6 +95,14 @@ function Invoke-Shp {
         Turn off web browsing. By default the fetch_url tool is exposed to the
         model so it can retrieve web content; this switch disables it.
 
+    .PARAMETER AllowPrivateNetwork
+        Let the fetch_url tool reach loopback, link-local and private (RFC 1918)
+        addresses. Blocked by default, because any untrusted page or file the
+        model has read could otherwise steer it into fetching cloud metadata
+        (169.254.169.254), a loopback admin port, or an intranet host. Turn this
+        on only when you are deliberately pointing the model at a trusted
+        internal service.
+
     .PARAMETER DisableFileAccess
         Turn off local file access. By default the read_file, list_directory,
         write_file and create_directory tools are exposed to the model so it can
@@ -118,6 +132,14 @@ function Invoke-Shp {
         cost and time. The separate empty-tool-call circuit breaker still stops
         a model that signals a tool call without emitting one, independent of
         this cap.
+
+    .PARAMETER MaxBudgetUSD
+        Stop the tool-calling loop once this turn's estimated spend exceeds the
+        given amount in USD. Checked after each round-trip, so the round-trip
+        that crosses the cap is still billed - it is a ceiling on continuing,
+        not a hard spend limit. Requires the model to have a price-table entry;
+        with no entry no cost can be computed and the cap cannot apply. Omit it
+        to run without a budget.
 
     .PARAMETER ReasoningEffort
         Reasoning (thinking) effort for the model, mirroring the effort control
@@ -407,7 +429,7 @@ function Invoke-Shp {
     .LINK
         Get-ShpUsage
     #>
-    [CmdletBinding(DefaultParameterSetName = 'InlinePrompt')]
+    [CmdletBinding(DefaultParameterSetName = 'InlinePrompt', SupportsShouldProcess)]
     [System.Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingWriteHost', '', Justification = 'The -ShowThinking switch deliberately streams a colour, host-only trace of iterations and tool calls; this is documented behaviour that must not enter the pipeline.')]
     [System.Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseProcessBlockForPipelineCommand', '', Justification = 'Invoke-Shp is a single-shot cmdlet; -History binds one prior result by property name for the $a | Invoke-Shp ergonomic and does not aggregate a pipeline, so a process block is unnecessary.')]
     [OutputType([pscustomobject])]
@@ -421,6 +443,9 @@ function Invoke-Shp {
 
         [Parameter(ParameterSetName = 'InlinePrompt')]
         [string]$SystemPrompt,
+
+        [ValidateNotNullOrEmpty()]
+        [string]$AppendSystemPrompt,
 
         [Parameter(ParameterSetName = 'PromptFromFile')]
         [ValidateNotNullOrEmpty()]
@@ -436,6 +461,8 @@ function Invoke-Shp {
 
         [switch]$DisableBrowsing,
 
+        [switch]$AllowPrivateNetwork,
+
         [switch]$DisableFileAccess,
 
         [switch]$DisableTerminal,
@@ -448,6 +475,9 @@ function Invoke-Shp {
 
         [ValidateRange(1, [int]::MaxValue)]
         [int]$MaxToolIterations = 25,
+
+        [ValidateRange(0.0, [double]::MaxValue)]
+        [double]$MaxBudgetUSD,
 
         [ValidateSet('minimal', 'low', 'medium', 'high', 'xhigh', 'max')]
         [string]$ReasoningEffort,
@@ -769,6 +799,12 @@ function Invoke-Shp {
         $null = $extraInstructions.Add($SystemPrompt.Trim())
         $null = $instructionsApplied.Add([pscustomobject]@{ Kind='SystemPrompt'; Source='(inline)'; Chars=$SystemPrompt.Trim().Length })
     }
+    # Unlike -SystemPrompt, this is available in both parameter sets, so a file-
+    # driven prompt can still be topped up with one line of inline guidance.
+    if ($PSBoundParameters.ContainsKey('AppendSystemPrompt') -and -not [string]::IsNullOrWhiteSpace($AppendSystemPrompt)) {
+        $null = $extraInstructions.Add($AppendSystemPrompt.Trim())
+        $null = $instructionsApplied.Add([pscustomobject]@{ Kind='AppendSystemPrompt'; Source='(inline)'; Chars=$AppendSystemPrompt.Trim().Length })
+    }
     foreach ($path in $SystemPromptPath) {
         $body = Get-ShpInstructionContent -Path $path
         if (-not [string]::IsNullOrWhiteSpace($body)) {
@@ -825,6 +861,13 @@ function Invoke-Shp {
 
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
     $totalPrompt=0; $totalCompletion=0; $totalCached=0; $totalCacheWrite=0; $peakPromptTokens=0
+    # Per-round-trip token counts. Cost is priced per request, not on the turn
+    # totals, because a model's long-context tier is decided by ONE request's
+    # input size - five 100K round-trips are five Default-tier requests, not one
+    # 500K long-context request.
+    $roundTrips = New-Object System.Collections.Generic.List[object]
+    # Resolved inside the loop so the budget guard can price the turn so far.
+    $priceKey = $null; $pricing = $null; $budgetStopped = $false
     $iteration=0; $toolCallsExecuted=@(); $turn=$null
     $skillsUsed = New-Object System.Collections.Generic.List[string]
     $instructionsLoaded = New-Object System.Collections.Generic.List[string]
@@ -946,6 +989,30 @@ function Invoke-Shp {
         $totalCompletion += $turn.CompletionTokens
         $totalCached += $turn.CachedTokens
         $totalCacheWrite += $turn.CacheWriteTokens
+        $null = $roundTrips.Add([pscustomobject]@{
+            PromptTokens     = [int]$turn.PromptTokens
+            CompletionTokens = [int]$turn.CompletionTokens
+            CachedTokens     = [int]$turn.CachedTokens
+            CacheWriteTokens = [int]$turn.CacheWriteTokens
+        })
+
+        # The server-reported model wins over the requested one; both are tried
+        # because some models return an empty name.
+        $priceKey = ($turn.ModelName, $Model | Where-Object { $_ } | ForEach-Object { $_.ToLower() } |
+            Where-Object { $script:PriceTable.ContainsKey($_) } | Select-Object -First 1)
+        $pricing = if ($priceKey) { $script:PriceTable[$priceKey] } else { $null }
+
+        # Budget guard: stop before the next round-trip once the turn's spend so
+        # far exceeds the cap. The round-trip that crossed it is already billed,
+        # so the cap is a ceiling on continuation, not a hard spend limit.
+        if ($PSBoundParameters.ContainsKey('MaxBudgetUSD') -and $pricing) {
+            $spent = (Measure-ShpTurnCost -Pricing $pricing -RoundTrip $roundTrips.ToArray()).TotalCostUSD
+            if ($spent -gt $MaxBudgetUSD) {
+                Write-Warning ("Stopping: this turn has spent {0:N6} USD, over the -MaxBudgetUSD cap of {1:N6}." -f $spent, $MaxBudgetUSD)
+                $budgetStopped = $true
+                break
+            }
+        }
 
         # Server-side state: carry this turn's response id into the next turn so
         # the loop (and the next call) can continue by reference.
@@ -989,7 +1056,7 @@ function Invoke-Shp {
                 try {
                     $fargs = $tc.Arguments | ConvertFrom-Json
                     switch ($tc.Name) {
-                        'fetch_url' { $toolResult = Invoke-FetchUrlTool -Url ([string]$fargs.url) }
+                        'fetch_url' { $toolResult = Invoke-FetchUrlTool -Url ([string]$fargs.url) -AllowPrivateNetwork:$AllowPrivateNetwork }
                         'read_file' {
                             # path-only stays a bounded first window; offset/limit
                             # (1-based) let the model page through a large file.
@@ -1001,13 +1068,27 @@ function Invoke-Shp {
                         }
                         'list_directory' { $toolResult = Invoke-ListDirectoryTool -Path $fargs.path }
                         'write_file' {
-                            $toolResult = Invoke-WriteFileTool -Path $fargs.path -Content ([string]$fargs.content) -Append:([bool]$fargs.append)
-                            if (-not $filesWritten.Contains($fargs.path)) { $null = $filesWritten.Add($fargs.path) }
+                            if ($PSCmdlet.ShouldProcess([string]$fargs.path, 'write_file')) {
+                                $toolResult = Invoke-WriteFileTool -Path $fargs.path -Content ([string]$fargs.content) -Append:([bool]$fargs.append)
+                                if (-not $filesWritten.Contains($fargs.path)) { $null = $filesWritten.Add($fargs.path) }
+                            } else {
+                                $toolResult = @{ skipped = 'The user did not approve this write_file call.' } | ConvertTo-Json -Compress
+                            }
                         }
-                        'create_directory' { $toolResult = New-DirectoryTool -Path $fargs.path }
+                        'create_directory' {
+                            if ($PSCmdlet.ShouldProcess([string]$fargs.path, 'create_directory')) {
+                                $toolResult = New-DirectoryTool -Path $fargs.path
+                            } else {
+                                $toolResult = @{ skipped = 'The user did not approve this create_directory call.' } | ConvertTo-Json -Compress
+                            }
+                        }
                         'run_command' {
-                            $toolResult = Invoke-RunCommandTool -Command ([string]$fargs.command) -WorkingDirectory ([string]$fargs.workingDirectory)
-                            if (-not $commandsRun.Contains([string]$fargs.command)) { $null = $commandsRun.Add([string]$fargs.command) }
+                            if ($PSCmdlet.ShouldProcess([string]$fargs.command, 'run_command')) {
+                                $toolResult = Invoke-RunCommandTool -Command ([string]$fargs.command) -WorkingDirectory ([string]$fargs.workingDirectory)
+                                if (-not $commandsRun.Contains([string]$fargs.command)) { $null = $commandsRun.Add([string]$fargs.command) }
+                            } else {
+                                $toolResult = @{ skipped = 'The user did not approve this run_command call.' } | ConvertTo-Json -Compress
+                            }
                         }
                         'ask_user' {
                             $toolResult = Read-ShpUserInput -Question ([string]$fargs.question)
@@ -1049,13 +1130,17 @@ function Invoke-Shp {
                             # the caller's privileges - registration is the
                             # opt-in. Unknown names keep the default error.
                             if ($userToolCommands.ContainsKey($tc.Name)) {
-                                $splat = @{}
-                                if ($fargs) {
-                                    foreach ($prop in $fargs.PSObject.Properties) { $splat[$prop.Name] = $prop.Value }
+                                if ($PSCmdlet.ShouldProcess(('{0} {1}' -f $userToolCommands[$tc.Name], $tc.Arguments), 'user tool')) {
+                                    $splat = @{}
+                                    if ($fargs) {
+                                        foreach ($prop in $fargs.PSObject.Properties) { $splat[$prop.Name] = $prop.Value }
+                                    }
+                                    $output = (& $userToolCommands[$tc.Name] @splat 2>&1 | Out-String).Trim()
+                                    $toolResult = @{ output = $output } | ConvertTo-Json -Compress
+                                    if (-not $userToolsCalled.Contains($tc.Name)) { $null = $userToolsCalled.Add($tc.Name) }
+                                } else {
+                                    $toolResult = @{ skipped = ("The user did not approve calling '{0}'." -f $tc.Name) } | ConvertTo-Json -Compress
                                 }
-                                $output = (& $userToolCommands[$tc.Name] @splat 2>&1 | Out-String).Trim()
-                                $toolResult = @{ output = $output } | ConvertTo-Json -Compress
-                                if (-not $userToolsCalled.Contains($tc.Name)) { $null = $userToolsCalled.Add($tc.Name) }
                             }
                         }
                     }
@@ -1110,18 +1195,16 @@ function Invoke-Shp {
     $freshInputTokens = [Math]::Max(0, $totalPrompt - $totalCached - $totalCacheWrite)
     $costUSD=$null; $credits=$null; $breakdown=$null
     if ($pricing) {
-        $cInput  = ($freshInputTokens * $pricing.Input)       / 1e6
-        $cCached = ($totalCached      * $pricing.CachedInput) / 1e6
-        $cWrite  = if ($pricing.CacheWrite) { ($totalCacheWrite * $pricing.CacheWrite) / 1e6 } else { 0 }
-        $cOutput = ($totalCompletion  * $pricing.Output)      / 1e6
-        $costUSD = [Math]::Round($cInput + $cCached + $cWrite + $cOutput, 6)
+        $measured = Measure-ShpTurnCost -Pricing $pricing -RoundTrip $roundTrips.ToArray()
+        $costUSD = $measured.TotalCostUSD
         $credits = [Math]::Round($costUSD / 0.01, 4)
         $breakdown = [pscustomobject]@{
             InputTokens=$freshInputTokens; CachedInputTokens=$totalCached
             CacheWriteTokens=$totalCacheWrite; OutputTokens=$totalCompletion
-            InputCostUSD=[Math]::Round($cInput,6); CachedInputCostUSD=[Math]::Round($cCached,6)
-            CacheWriteCostUSD=[Math]::Round($cWrite,6); OutputCostUSD=[Math]::Round($cOutput,6)
+            InputCostUSD=$measured.InputCostUSD; CachedInputCostUSD=$measured.CachedInputCostUSD
+            CacheWriteCostUSD=$measured.CacheWriteCostUSD; OutputCostUSD=$measured.OutputCostUSD
             Rates=$pricing; PriceTableKey=$priceKey
+            Tier=$measured.Tier; TiersUsed=$measured.TiersUsed
         }
     }
 
@@ -1180,6 +1263,7 @@ function Invoke-Shp {
         Reasoning=($reasoningLog -join "`n`n")
         Usage = [pscustomobject]@{ PromptTokens=$totalPrompt; CompletionTokens=$totalCompletion; TotalTokens=$totalPrompt+$totalCompletion; ContextTokens=$peakPromptTokens }
         Credits=$credits; CostUSD=$costUSD; CostBreakdown=$breakdown
+        BudgetExceeded=[bool]$budgetStopped
         Iterations=$iteration; ToolCalls=$toolCallsExecuted
         ReasoningEffort=$(if ([string]::IsNullOrWhiteSpace($ReasoningEffort)) { $null } else { $ReasoningEffort })
         MaxOutputTokens=$(if ($MaxOutputTokens -gt 0) { $MaxOutputTokens } else { $null })

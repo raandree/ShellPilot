@@ -21,12 +21,15 @@ proof of concept, what is partial, and what is still to be decided.
 | Model picker | Get-ShpModel, -Model with completer | Done |
 | Model picker default (sticky) | Select-ShpModel, Get-ShpDefault | Done |
 | Ask / chat | Invoke-Shp | Done |
+| Explain the last error | Resolve-ShpError | Done |
 | Multi-turn / continue a chat | Invoke-Shp (continues by default) / -History, Get-ShpChat, Clear-ShpChat | Done |
 | Agent mode (tools) | Invoke-Shp tool-calling loop | Done |
 | Web browsing | fetch_url tool | Done |
 | Read / list files | read_file, list_directory tools | Done |
 | Create / edit files | write_file, create_directory tools | Done |
 | Run a command | run_command tool (-DisableTerminal) | Done |
+| Approve / dry-run a tool call | Invoke-Shp -WhatIf / -Confirm (ShouldProcess) | Partial |
+| Spend cap | Invoke-Shp -MaxBudgetUSD, result BudgetExceeded | Done |
 | Ask the user | ask_user tool (-DisableUserPrompts) | Done |
 | User-defined tools | Register-ShpTool, Get-ShpTool, Unregister-ShpTool | Done |
 | Custom instructions | -InstructionPath, -SystemPromptPath | Done |
@@ -40,7 +43,7 @@ proof of concept, what is partial, and what is still to be decided.
 | Reasoning / thinking trace | -ShowThinking (streamed reasoning_text), Reasoning property | Done |
 | Streaming output | default on the chat shape; -DisableStreaming opts out | Done |
 | Interactive session / history | Start-ShpChat | Done |
-| Slash commands | Start-ShpChat (/model, /clear, /exit, /help) | Partial |
+| Slash commands | Start-ShpChat (/model, /models, /clear, /history, /retry, /usage, /exit, /help) | Partial |
 | Structured output | -ResponseFormat / -JsonSchema to ContentObject | Done |
 | Vision (image input) | Invoke-Shp -Image | Done |
 | Embeddings and similarity | Request-ShpEmbedding, Get-ShpCosineSimilarity | Done |
@@ -51,12 +54,24 @@ proof of concept, what is partial, and what is still to be decided.
 | Inline completions | none | Out |
 | Chat participants (@) | none | TBD |
 | Context variables (#) | parameters and instruction files | TBD |
-| MCP server tools | none | TBD |
+| MCP server tools | none | Planned |
 | Prompt files | none | TBD |
+| Session persistence / resume | none | TBD |
+| Hooks (PreToolUse / PostToolUse) | none | TBD |
+| Subagents | none | TBD |
+| Headless JSONL event stream | none | TBD |
+| Job model (-AsJob) | none | TBD |
 
 Each implemented capability above has a numbered spec under this folder
 (002-013); see [the specs index](README.md). The remaining TBD items depend on
 the open decisions.
+
+> A 2026-07-28 web gap analysis moved **MCP server tools** from TBD to Planned:
+> the Gallery carries a dozen PowerShell MCP *servers* but no established MCP
+> *client*, and ShellPilot already has the two prerequisites (a tool-calling
+> loop and a tool-registration layer). Target protocol revision 2025-11-25.
+> The same analysis added session persistence, hooks, subagents, the headless
+> event stream and the job model as the next tier of gaps.
 
 ## See also
 
