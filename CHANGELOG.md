@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `Invoke-Shp` and `Get-ShpCostEstimate` now report `CostUSD` and `Credits` for
+  `claude-opus-5` and `claude-sonnet-5`. Neither model had an entry in
+  `data/PriceTable.psd1`, and the price lookup matches the model id exactly, so
+  every call using them returned empty cost, credit and cost-breakdown fields.
+  The rates are the published ones: Opus 5 at 5.00 / 0.50 / 6.25 / 25.00 USD per
+  million input / cached-input / cache-write / output tokens, and Sonnet 5 at
+  its introductory 2.00 / 0.20 / 2.50 / 10.00 (the standard
+  3.00 / 0.30 / 3.75 / 15.00 takes effect on 2026-09-01).
+
 ## [0.3.1] - 2026-07-23
 
 ### Added

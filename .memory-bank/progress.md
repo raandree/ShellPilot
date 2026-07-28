@@ -25,6 +25,17 @@ Chronological record of shipped changes and remaining work. Latest first.
 
 ## Log
 
+- 2026-07-28 - Fixed missing `CostUSD`/`Credits` for `claude-opus-5` and
+  `claude-sonnet-5`. Both ids are advertised by the Copilot endpoints but had no
+  key in `data/PriceTable.psd1`, and the price lookup is an exact match, so cost,
+  credits and the cost breakdown stayed null. Added both keys with Anthropic's
+  published rates (Opus 5: 5.00 / 0.50 / 6.25 / 25.00; Sonnet 5 introductory:
+  2.00 / 0.20 / 2.50 / 10.00, standard 3.00 / 0.30 / 3.75 / 15.00 from
+  2026-09-01) plus a data-driven regression test. Test-first: red 2/8, then green
+  8/8; QA 257/0; PSSA clean; live calls confirm the resolved price key. Left
+  uncommitted per the user's request. Still unpriced (out of scope):
+  `gemini-3-flash-preview`, `gemini-3.1-pro-preview`, `gemini-3.6-flash`,
+  `mai-code-1-flash-picker`.
 - 2026-07-23 - Moved the price table from `source/PriceTable.psd1` to
   `source/data/PriceTable.psd1`; ModuleBuilder now copies the `data` directory,
   and Prefix loads `data/PriceTable.psd1` from the built module. This leaves

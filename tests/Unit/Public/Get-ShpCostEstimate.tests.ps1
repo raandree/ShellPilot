@@ -43,4 +43,13 @@ Describe 'Get-ShpCostEstimate' {
         $r.EstimatedInputCostUSD | Should -BeGreaterThan 0
         $r.EstimatedInputCredits | Should -BeGreaterThan 0
     }
+
+    It 'Prices the Claude 5 generation (<Model>) from the shipped price table' -ForEach @(
+        @{ Model = 'claude-opus-5' }
+        @{ Model = 'claude-sonnet-5' }
+    ) {
+        $r = Get-ShpCostEstimate -Text 'hello' -Model $Model
+        $r.EstimatedInputCostUSD | Should -BeGreaterThan 0
+        $r.EstimatedInputCredits | Should -BeGreaterThan 0
+    }
 }

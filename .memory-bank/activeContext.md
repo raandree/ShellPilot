@@ -4,6 +4,45 @@ Current working focus for ShellPilot. Overwrite this file as the focus shifts.
 
 ## Focus
 
+Fixed `Invoke-Shp` reporting no `CostUSD`/`Credits` for `claude-opus-5` and
+`claude-sonnet-5`, with changes deliberately left uncommitted per the user's
+request. Same class of defect as the earlier gpt-5.6 case: cost is data-driven
+from `data/PriceTable.psd1`, and the price-key lookup is an exact,
+case-insensitive match on the server-reported model name then the requested
+model, so a model absent from the table silently yields a null cost, credits and
+breakdown. Confirmed live that the Copilot endpoints advertise exactly
+`claude-opus-5` and `claude-sonnet-5` (`Get-ShpModel -Endpoint All`) and that
+neither key existed in the table. Unlike the gpt-5.6 fix, these rates are NOT
+illustrative - they are Anthropic's published rates: Opus 5 at
+5.00 / 0.50 / 6.25 / 25.00 USD per 1M input / cached-input / cache-write /
+output tokens (identical to Opus 4.8), and Sonnet 5 at its introductory
+2.00 / 0.20 / 2.50 / 10.00, which rises to 3.00 / 0.30 / 3.75 / 15.00 on
+2026-09-01 (recorded in a comment next to the entry).
+
+Implemented test-first: two new `-ForEach` cases in
+`Get-ShpCostEstimate.tests.ps1` failed against the shipped table ("Expected the
+actual value to be greater than 0, but got $null"), then passed after the data
+edit. Verified out-of-band per repo protocol (the full local suite crashes on
+the .NET 10 access violation): build green (7 tasks / 0 errors), isolated
+child-process Pester 8/8 green, QA suite 257/0 green, PSSA clean on both changed
+files, and two live calls now report cost and credits with
+`PriceTableKey=claude-opus-5` and `claude-sonnet-5`. The Sonnet 5 breakdown was
+checked by hand against the rates (84 fresh input + 1245 cached + 4 output =
+$0.000457 / 0.0457 credits). Note that the service returns an empty model name
+for both models, so it is the requested id that resolves the price key.
+
+The Memory Bank base was also repaired: `index.md`, `productContext.md` and
+`promptHistory.md` were missing and were created by the memory-bank initializer
+(every existing file preserved).
+
+Residual finding, deliberately NOT fixed (out of scope): the live endpoint list
+also advertises `gemini-3-flash-preview`, `gemini-3.1-pro-preview`,
+`gemini-3.6-flash` and `mai-code-1-flash-picker`, none of which match a
+price-table key (the table holds `gemini-3-flash`, `gemini-3.1-pro` and
+`gemini-3.5-flash`), so those models remain unpriced.
+
+## Prior focus
+
 Fixed GitHub Actions run 30006446189's package failure, with changes deliberately
 left uncommitted per the user's request. Verified root cause: legacy
 `package_module_nupkg` passed the built module directory to PSResourceGet 1.0.1.
@@ -46,7 +85,7 @@ restore and `pack` completed 22 tasks with 0 errors under PowerShell 7.6.3 /
 root, built `data/PriceTable.psd1`, and created `ShellPilot.0.0.1.nupkg`.
 All 26 model rates are semantically unchanged. Changes remain uncommitted.
 
-## Prior focus
+## Preceding changes
 
 Fixed `Invoke-Shp` not reporting `CostUSD`/`Credits` for the
 `gpt-5.6` model family. The user hit it with `Invoke-Shp -Model gpt-5.6-luna

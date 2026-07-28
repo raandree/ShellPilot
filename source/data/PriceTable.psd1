@@ -18,9 +18,13 @@
     'claude-opus-4.6'   = @{ Input = 5.00; CachedInput = 0.50;  CacheWrite = 6.25;  Output = 25.00 }
     'claude-opus-4.7'   = @{ Input = 5.00; CachedInput = 0.50;  CacheWrite = 6.25;  Output = 25.00 }
     'claude-opus-4.8'   = @{ Input = 5.00; CachedInput = 0.50;  CacheWrite = 6.25;  Output = 25.00 }
+    'claude-opus-5'     = @{ Input = 5.00; CachedInput = 0.50;  CacheWrite = 6.25;  Output = 25.00 }
     'claude-sonnet-4'   = @{ Input = 3.00; CachedInput = 0.30;  CacheWrite = 3.75;  Output = 15.00 }
     'claude-sonnet-4.5' = @{ Input = 3.00; CachedInput = 0.30;  CacheWrite = 3.75;  Output = 15.00 }
     'claude-sonnet-4.6' = @{ Input = 3.00; CachedInput = 0.30;  CacheWrite = 3.75;  Output = 15.00 }
+    # Sonnet 5 introductory pricing ends 2026-08-31; standard rates from
+    # 2026-09-01 are Input 3.00 / CachedInput 0.30 / CacheWrite 3.75 / Output 15.00.
+    'claude-sonnet-5'   = @{ Input = 2.00; CachedInput = 0.20;  CacheWrite = 2.50;  Output = 10.00 }
     'claude-haiku-4.5'  = @{ Input = 1.00; CachedInput = 0.10;  CacheWrite = 1.25;  Output = 5.00  }
     'gemini-2.5-pro'    = @{ Input = 1.25; CachedInput = 0.125; CacheWrite = $null; Output = 10.00 }
     'gemini-3.1-pro'    = @{ Input = 2.00; CachedInput = 0.20;  CacheWrite = $null; Output = 12.00 }
