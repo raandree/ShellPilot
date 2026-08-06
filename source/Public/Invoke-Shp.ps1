@@ -401,7 +401,9 @@ function Invoke-Shp {
     .OUTPUTS
         System.Management.Automation.PSCustomObject
 
-        The response with Content, Usage, CostUSD, Credits, ToolCalls, timing,
+        The response with Content, Usage, CostUSD, Credits, whether a rate was
+        found at all and under which key (Priced / PriceTableKey), ToolCalls,
+        timing,
         the customisation files that shaped the system prompt
         (InstructionsApplied), the skills offered and the subset the model
         actually loaded (SkillsAvailable / SkillsUsed), the instructions offered
@@ -998,9 +1000,9 @@ function Invoke-Shp {
 
         # The server-reported model wins over the requested one; both are tried
         # because some models return an empty name.
-        $priceKey = ($turn.ModelName, $Model | Where-Object { $_ } | ForEach-Object { $_.ToLower() } |
-            Where-Object { $script:PriceTable.ContainsKey($_) } | Select-Object -First 1)
-        $pricing = if ($priceKey) { $script:PriceTable[$priceKey] } else { $null }
+        $price = Resolve-ShpPriceEntry -ModelName $turn.ModelName, $Model
+        $priceKey = $price.Key
+        $pricing = $price.Pricing
 
         # Budget guard: stop before the next round-trip once the turn's spend so
         # far exceeds the cap. The round-trip that crossed it is already billed,
@@ -1188,9 +1190,9 @@ function Invoke-Shp {
     $rawHeaders = @{}
     foreach ($key in $turn.Response.Headers.Keys) { $rawHeaders[$key] = ($turn.Response.Headers[$key] -join ', ') }
 
-    $priceKey = ($turn.ModelName, $Model | Where-Object { $_ } | ForEach-Object { $_.ToLower() } |
-        Where-Object { $script:PriceTable.ContainsKey($_) } | Select-Object -First 1)
-    $pricing = if ($priceKey) { $script:PriceTable[$priceKey] } else { $null }
+    $price = Resolve-ShpPriceEntry -ModelName $turn.ModelName, $Model
+    $priceKey = $price.Key
+    $pricing = $price.Pricing
 
     $freshInputTokens = [Math]::Max(0, $totalPrompt - $totalCached - $totalCacheWrite)
     $costUSD=$null; $credits=$null; $breakdown=$null
@@ -1263,6 +1265,7 @@ function Invoke-Shp {
         Reasoning=($reasoningLog -join "`n`n")
         Usage = [pscustomobject]@{ PromptTokens=$totalPrompt; CompletionTokens=$totalCompletion; TotalTokens=$totalPrompt+$totalCompletion; ContextTokens=$peakPromptTokens }
         Credits=$credits; CostUSD=$costUSD; CostBreakdown=$breakdown
+        Priced=$price.Priced; PriceTableKey=$priceKey
         BudgetExceeded=[bool]$budgetStopped
         Iterations=$iteration; ToolCalls=$toolCallsExecuted
         ReasoningEffort=$(if ([string]::IsNullOrWhiteSpace($ReasoningEffort)) { $null } else { $ReasoningEffort })
@@ -1301,6 +1304,8 @@ function Invoke-Shp {
         ContextTokens    = $peakPromptTokens
         CostUSD          = $costUSD
         Credits          = $credits
+        Priced           = $price.Priced
+        PriceTableKey    = $priceKey
         Iterations       = $iteration
         ToolCalls        = @($toolCallsExecuted).Count
         FinishReason     = $turn.FinishReason

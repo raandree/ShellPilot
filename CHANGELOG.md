@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `Invoke-Shp` and `Get-ShpCostEstimate` results carry `Priced` and
+  `PriceTableKey`, so a call the price table cannot cost is no longer
+  indistinguishable from a free one. `PriceTableKey` stays populated even when
+  nothing matched, naming the key that was looked up and missed, and the first
+  call for an unpriced model warns once per session rather than once per tool
+  iteration. `CostUSD` and `Credits` are unchanged and still `null` - never `0` -
+  when no rate is found. `Priced` is also recorded on each `Get-ShpUsage` entry.
 - `Resolve-ShpError` explains the last error in the session and suggests a fix.
   It takes an error record (`$Error[0]` by default, or from the pipeline), sends
   the message, exception type, category, target, failing command line and script
@@ -36,6 +43,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Corrected the GPT-5.6 rates against the published GitHub Copilot billing
+  table. `gpt-5.6-luna` was charged 5x its real rate (now 0.20/0.02/0.25/1.20
+  per 1M tokens) and `gpt-5.6-terra` 25% over (now 2.00/0.20/2.50/12.00); all
+  three GPT-5.6 models bill a cache write that the table previously recorded as
+  `$null`, so cache-write tokens were costed as free.
+- Added the missing `grok-4.5` rate, so xAI calls are no longer unpriced.
 - The `fetch_url` tool no longer reaches private networks. Every URL, including
   each redirect target, is checked before the request: only `http` and `https`
   are allowed, and host names must resolve to publicly routable addresses.

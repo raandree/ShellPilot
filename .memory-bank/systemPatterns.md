@@ -143,6 +143,22 @@ data/PriceTable.psd1 maps a model id to per-token rates; cost and credit figures
 are computed from reported usage, with the price key resolved
 case-insensitively.
 
+The lookup is exact, so a model absent from the table yields no rate - and a
+null cost is otherwise indistinguishable from a free call, which is how one
+session burned over a million tokens reported as $0.00. Resolve-ShpPriceEntry is
+the single lookup for all three call sites (the Invoke-Shp loop, the Invoke-Shp
+result, and Get-ShpCostEstimate). It returns Priced plus a Key that stays
+populated with the attempted key when nothing matched, and warns once per
+unknown model per session via $script:ShpUnpricedModelWarned - once per
+round-trip would be noise, because a Turn is a loop. CostUSD and Credits stay
+null rather than collapsing to 0, so existing callers are unaffected.
+
+Rates are verified against the published GitHub Copilot billing table, which is
+the billing authority here (1 AI credit = 0.01 USD); a vendor's own price page
+is a cross-check, not the source. A wrong rate is worse than a missing one - it
+produces confidently wrong money - so an unverifiable rate is left out and the
+model simply reports Priced false.
+
 ### HTTP retry and connection options
 
 Every non-streaming HTTP call (chat, responses, /models, the token exchange,

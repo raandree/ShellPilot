@@ -4,12 +4,76 @@ Current working focus for ShellPilot. Overwrite this file as the focus shifts.
 
 ## Focus
 
-Implemented the tractable findings of the 2026-07-28 web gap analysis. Changes
-are deliberately UNCOMMITTED per the user's request, and they sit on top of the
-prior turn's equally uncommitted `claude-opus-5` / `claude-sonnet-5` pricing
-edits.
+Made an unpriced call observable, and re-verified the price table against the
+live GitHub Copilot billing doc. Changes are deliberately UNCOMMITTED per the
+user's request; the working tree was clean at `efd5e61` before this turn.
+
+Trigger: a live DeskPilot session on ShellPilot 0.3.1 recorded 1,087,054 tokens
+across 3 turns as $0.00 on `claude-opus-5`. The exact-key price lookup found no
+entry, so `CostUSD`, `Credits` and `CostBreakdown` were all null with no signal -
+an unpriced call was indistinguishable from a free one.
 
 Shipped this turn:
+
+1. Observability. `Invoke-Shp` and `Get-ShpCostEstimate` results, and each
+   `Get-ShpUsage` record, gained `Priced` (bool) and `PriceTableKey`.
+   `PriceTableKey` stays populated even when nothing matched, naming the key that
+   was looked up and missed. `CostUSD` / `Credits` are untouched and still null,
+   never 0, so existing callers are unaffected. `Priced` was added to the
+   `ShellPilot.Result` list view and the `ShellPilot.CostEstimate` table view.
+1. New private `Resolve-ShpPriceEntry` is now the single price lookup for all
+   three call sites (the `Invoke-Shp` tool loop, the `Invoke-Shp` result, and
+   `Get-ShpCostEstimate`). It tries candidates in order (server-reported model
+   name first, then the requested id), and warns ONCE per unknown model per
+   session via the new `$script:ShpUnpricedModelWarned` HashSet - a Turn is a
+   loop, so a per-round-trip warning would be noise the caller learns to ignore.
+1. Pricing corrections, all verified 2026-08-06 against the GitHub Copilot
+   models-and-pricing doc: `gpt-5.6-luna` was charged 5x its published rate
+   (now 0.20/0.02/0.25/1.20) and `gpt-5.6-terra` 25% over (now
+   2.00/0.20/2.50/12.00); all three GPT-5.6 models bill a cache write that the
+   table recorded as `$null`, so cache-write tokens were costed as free. Added
+   the missing `grok-4.5` (xAI, 2.00/0.50/-/6.00, long-context >200K
+   4.00/1.00/-/12.00; note its cached input is 0.25x input, not the 0.1x every
+   other vendor uses).
+
+`claude-opus-5` needed NO data change - it was already correct at
+5.00/0.50/6.25/25.00, added on 2026-07-30 (`41446d2`). This turn independently
+verified it against BOTH the GitHub billing doc and Anthropic's own pricing page.
+It equals the Opus 4.5-4.8 rate because Anthropic prices the entire Opus line
+identically, not because anyone copied it. Worth remembering: the earlier turn's
+claim that it was a guess-free published rate held up.
+
+Live model audit (`Get-ShpModel -Endpoint All`, 38 ids; the individual endpoint
+returned 421 Misdirected Request, so this covers default + enterprise only).
+17 advertised ids have no price-table entry, and NONE of them should get one:
+they are legacy chat models (`gpt-3.5-turbo*`, `gpt-4`, `gpt-4-0613`,
+`gpt-4-0125-preview`, `gpt-4-o-preview`, `gpt-4o*`, `gpt-4o-mini*`), the dated
+alias `gpt-4.1-2025-04-14`, three embedding models (`text-embedding-3-small`,
+`text-embedding-3-small-inference`, `text-embedding-ada-002`) and the internal
+`trajectory-compaction`. None appear in the published billing table at all, so
+any rate would be invented - they now warn and report `Priced` false instead.
+
+One test had to change beyond the rate assertions, and the reason matters:
+`Get-ShpCostEstimate` rounds to 6 decimals, so at luna's real $0.20/1M rate a
+two-token prompt costs $0.0000004 and rounds to exactly 0. The old test asserted
+`> 0` on the text 'hello' and only passed because the rate was 5x too high. It
+now prices a 2000-word prompt. The 6-decimal floor itself is UNCHANGED and worth
+watching: a very cheap call can still report 0.00 while `Priced` is true.
+
+Verified: full build green (9 tasks, 0 errors, 0 warnings), full local suite
+622 tests / 0 failures - note the .NET 10 access violation did NOT reproduce this
+run - plus a live smoke test on the built module confirming `Priced=True` /
+`PriceTableKey=claude-opus-5` for a known model, and `Priced=False` with the
+attempted key, a null cost and exactly ONE warning across three calls for an
+unknown one.
+
+## Prior focus - 2026-07-28 web gap analysis
+
+SUPERSEDED IN PART: item 1's claim that luna and terra "now carry the published
+rates" did not hold. The 2026-08-06 re-verification found luna still 5x over and
+terra 25% over, with the GPT-5.6 cache write missing entirely. Either that turn
+misread the billing table or GitHub repriced the line; treat rate claims in this
+file as needing re-verification against the doc, not as evidence.
 
 1. Pricing correctness. `gpt-5.6-luna` was priced 5x and `gpt-5.6-terra` 2x too
    high (the 2026-07-12 entries were explicit placeholders); both now carry the

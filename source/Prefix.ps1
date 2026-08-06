@@ -136,3 +136,9 @@ try {
     Write-Warning ("Could not load price table '{0}': {1}. Cost estimates disabled." -f $script:PriceTablePath, $_.Exception.Message)
     $script:PriceTable = @{}
 }
+
+# Models already reported as having no price-table entry. An unpriced call is
+# otherwise indistinguishable from a free one, so Resolve-ShpPriceEntry warns -
+# but a Turn is a loop, so it warns once per model per session rather than once
+# per round-trip. Session-scoped; not persisted to disk.
+$script:ShpUnpricedModelWarned = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)

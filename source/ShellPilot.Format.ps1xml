@@ -35,6 +35,7 @@
               <ListItem><Label>TotalTokens</Label><ScriptBlock>$_.Usage.TotalTokens</ScriptBlock></ListItem>
               <ListItem><PropertyName>CostUSD</PropertyName></ListItem>
               <ListItem><PropertyName>Credits</PropertyName></ListItem>
+              <ListItem><PropertyName>Priced</PropertyName></ListItem>
               <ListItem><PropertyName>DurationMs</PropertyName></ListItem>
               <ListItem><PropertyName>Content</PropertyName></ListItem>
             </ListItems>
@@ -286,6 +287,7 @@
           <TableColumnHeader><Label>EstimatedInputTokens</Label><Alignment>Right</Alignment></TableColumnHeader>
           <TableColumnHeader><Label>EstimatedInputCostUSD</Label><Alignment>Right</Alignment></TableColumnHeader>
           <TableColumnHeader><Label>EstimatedInputCredits</Label><Alignment>Right</Alignment></TableColumnHeader>
+          <TableColumnHeader><Label>Priced</Label></TableColumnHeader>
         </TableHeaders>
         <TableRowEntries>
           <TableRowEntry>
@@ -294,6 +296,7 @@
               <TableColumnItem><PropertyName>EstimatedInputTokens</PropertyName></TableColumnItem>
               <TableColumnItem><PropertyName>EstimatedInputCostUSD</PropertyName></TableColumnItem>
               <TableColumnItem><PropertyName>EstimatedInputCredits</PropertyName></TableColumnItem>
+              <TableColumnItem><PropertyName>Priced</PropertyName></TableColumnItem>
             </TableColumnItems>
           </TableRowEntry>
         </TableRowEntries>

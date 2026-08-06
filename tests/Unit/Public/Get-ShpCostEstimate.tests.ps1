@@ -39,7 +39,11 @@ Describe 'Get-ShpCostEstimate' {
         @{ Model = 'gpt-5.6-sol' }
         @{ Model = 'gpt-5.6-terra' }
     ) {
-        $r = Get-ShpCostEstimate -Text 'hello' -Model $Model
+        # Long enough to clear the 6-decimal rounding floor: at luna's real
+        # $0.20/1M rate a two-token prompt costs $0.0000004 and rounds to 0,
+        # which would read as unpriced rather than as very cheap.
+        $r = Get-ShpCostEstimate -Text ('word ' * 2000) -Model $Model
+        $r.Priced                | Should -BeTrue
         $r.EstimatedInputCostUSD | Should -BeGreaterThan 0
         $r.EstimatedInputCredits | Should -BeGreaterThan 0
     }
@@ -64,21 +68,57 @@ Describe 'Get-ShpCostEstimate' {
         $r.EstimatedInputCredits | Should -BeGreaterThan 0
     }
 
-    It 'Carries the published GitHub default-tier input rate for <Model>' -ForEach @(
-        @{ Model = 'gpt-5.6-luna';     ExpectedInput = 1.00; ExpectedCached = 0.10; ExpectedOutput = 6.00  }
-        @{ Model = 'gpt-5.6-sol';      ExpectedInput = 5.00; ExpectedCached = 0.50; ExpectedOutput = 30.00 }
-        @{ Model = 'gpt-5.6-terra';    ExpectedInput = 2.50; ExpectedCached = 0.25; ExpectedOutput = 15.00 }
-        @{ Model = 'gemini-3.6-flash'; ExpectedInput = 1.50; ExpectedCached = 0.15; ExpectedOutput = 7.50  }
+    It 'Carries the published GitHub default-tier rate for <Model>' -ForEach @(
+        @{ Model = 'gpt-5.6-luna';     ExpectedInput = 0.20; ExpectedCached = 0.02; ExpectedWrite = 0.25;  ExpectedOutput = 1.20  }
+        @{ Model = 'gpt-5.6-sol';      ExpectedInput = 5.00; ExpectedCached = 0.50; ExpectedWrite = 6.25;  ExpectedOutput = 30.00 }
+        @{ Model = 'gpt-5.6-terra';    ExpectedInput = 2.00; ExpectedCached = 0.20; ExpectedWrite = 2.50;  ExpectedOutput = 12.00 }
+        @{ Model = 'claude-opus-5';    ExpectedInput = 5.00; ExpectedCached = 0.50; ExpectedWrite = 6.25;  ExpectedOutput = 25.00 }
+        @{ Model = 'grok-4.5';         ExpectedInput = 2.00; ExpectedCached = 0.50; ExpectedWrite = $null; ExpectedOutput = 6.00  }
+        @{ Model = 'gemini-3.6-flash'; ExpectedInput = 1.50; ExpectedCached = 0.15; ExpectedWrite = $null; ExpectedOutput = 7.50  }
     ) {
-        # Guards the 2026-07-28 correction: these rates were placeholders that
-        # over-charged luna 5x and terra 2x.
+        # Guards the 2026-08-06 verification against the GitHub Copilot billing
+        # doc: the GPT-5.6 family bills a cache write that the table omitted, and
+        # luna was over-charged 5x and terra 25% against the published rates.
         InModuleScope $script:moduleName -Parameters @{
-            Key = $Model; In = $ExpectedInput; Cached = $ExpectedCached; Out = $ExpectedOutput
+            Key = $Model; In = $ExpectedInput; Cached = $ExpectedCached; Write = $ExpectedWrite; Out = $ExpectedOutput
         } {
-            param($Key, $In, $Cached, $Out)
+            param($Key, $In, $Cached, $Write, $Out)
             $script:PriceTable[$Key].Input       | Should -Be $In
             $script:PriceTable[$Key].CachedInput | Should -Be $Cached
+            $script:PriceTable[$Key].CacheWrite  | Should -Be $Write
             $script:PriceTable[$Key].Output      | Should -Be $Out
+        }
+    }
+
+    It 'Reports Priced with the resolved key for a model in the price table' {
+        $r = Get-ShpCostEstimate -Text 'hello' -Model 'Claude-Opus-5'
+        $r.Priced                | Should -BeTrue
+        $r.PriceTableKey         | Should -Be 'claude-opus-5'
+        $r.EstimatedInputCostUSD | Should -BeGreaterThan 0
+    }
+
+    It 'Reports the attempted key and a null cost for a model with no rate' {
+        $r = Get-ShpCostEstimate -Text 'hello' -Model 'no-such-model' -WarningAction SilentlyContinue
+        $r.Priced                | Should -BeFalse
+        $r.PriceTableKey         | Should -Be 'no-such-model'
+        # A missing rate must stay null, never collapse to a free-looking 0.
+        $r.EstimatedInputCostUSD | Should -BeNullOrEmpty
+        $r.EstimatedInputCredits | Should -BeNullOrEmpty
+    }
+
+    It 'Warns once per unknown model however many times it is priced' {
+        InModuleScope $script:moduleName { $script:ShpUnpricedModelWarned.Clear() }
+        try {
+            $warnings = @(
+                for ($i = 0; $i -lt 5; $i++) {
+                    Get-ShpCostEstimate -Text 'hello' -Model 'unpriced-model' 3>&1 |
+                        Where-Object { $_ -is [System.Management.Automation.WarningRecord] }
+                }
+            )
+            $warnings.Count      | Should -Be 1
+            [string]$warnings[0] | Should -BeLike '*unpriced-model*'
+        } finally {
+            InModuleScope $script:moduleName { $script:ShpUnpricedModelWarned.Clear() }
         }
     }
 

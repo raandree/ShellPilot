@@ -33,6 +33,24 @@ Chronological record of shipped changes and remaining work. Latest first.
 
 ## Log
 
+- 2026-08-06 - Made an unpriced call observable and re-verified the price table
+  against the live GitHub Copilot billing doc. `Invoke-Shp` and
+  `Get-ShpCostEstimate` results (and each `Get-ShpUsage` record) now carry
+  `Priced` plus `PriceTableKey`, which stays populated with the key that was
+  looked up and missed, so a model with no rate no longer reads as a free call.
+  New private `Resolve-ShpPriceEntry` centralises the lookup for all three call
+  sites and warns once per unknown model per session (a Turn is a loop, so a
+  per-round-trip warning would be ignorable noise). `CostUSD` / `Credits` are
+  untouched and still null, never 0. Pricing corrections from the same
+  verification: `gpt-5.6-luna` was charged 5x its published rate and
+  `gpt-5.6-terra` 25% over, and all three GPT-5.6 models bill a cache write the
+  table recorded as `$null`; added the missing `grok-4.5` (xAI). `claude-opus-5`
+  was confirmed correct at 5.00/0.50/6.25/25.00 against both the GitHub billing
+  doc and Anthropic's own pricing page - it equals the Opus 4.x rate because
+  Anthropic prices the whole Opus line identically, not because it was copied.
+  Full build green: 9 tasks, 0 errors, 622 tests, 0 failures. Left uncommitted
+  per the user's request.
+
 - 2026-07-28 - Implemented the actionable subset of the same day's gap analysis.
   Pricing: corrected `gpt-5.6-luna` (was 5x too high) and `gpt-5.6-terra` (2x);
   added an optional `LongContext` tier (Threshold plus its own rates) to the

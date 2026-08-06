@@ -1,5 +1,5 @@
 @{
-    # Usage-based pricing. USD per 1M tokens. Verified 2026-07-28 against
+    # Usage-based pricing. USD per 1M tokens. Verified 2026-08-06 against
     # https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing
     # Edit this file to add or update model rates - no module code changes needed.
     #
@@ -30,17 +30,19 @@
         Input = 5.00; CachedInput = 0.50; CacheWrite = $null; Output = 30.00
         LongContext = @{ Threshold = 272000; Input = 10.00; CachedInput = 1.00; CacheWrite = $null; Output = 45.00 }
     }
+    # The GPT-5.6 family is the only OpenAI line that bills a separate cache
+    # write; earlier OpenAI models have none.
     'gpt-5.6-luna' = @{
-        Input = 1.00; CachedInput = 0.10; CacheWrite = $null; Output = 6.00
-        LongContext = @{ Threshold = 200000; Input = 2.00; CachedInput = 0.20; CacheWrite = $null; Output = 9.00 }
+        Input = 0.20; CachedInput = 0.02; CacheWrite = 0.25; Output = 1.20
+        LongContext = @{ Threshold = 200000; Input = 0.40; CachedInput = 0.04; CacheWrite = 0.50; Output = 1.80 }
     }
     'gpt-5.6-sol' = @{
-        Input = 5.00; CachedInput = 0.50; CacheWrite = $null; Output = 30.00
-        LongContext = @{ Threshold = 272000; Input = 10.00; CachedInput = 1.00; CacheWrite = $null; Output = 45.00 }
+        Input = 5.00; CachedInput = 0.50; CacheWrite = 6.25; Output = 30.00
+        LongContext = @{ Threshold = 272000; Input = 10.00; CachedInput = 1.00; CacheWrite = 12.50; Output = 45.00 }
     }
     'gpt-5.6-terra' = @{
-        Input = 2.50; CachedInput = 0.25; CacheWrite = $null; Output = 15.00
-        LongContext = @{ Threshold = 272000; Input = 5.00; CachedInput = 0.50; CacheWrite = $null; Output = 22.50 }
+        Input = 2.00; CachedInput = 0.20; CacheWrite = 2.50; Output = 12.00
+        LongContext = @{ Threshold = 272000; Input = 4.00; CachedInput = 0.40; CacheWrite = 5.00; Output = 18.00 }
     }
 
     # --- Anthropic (these models bill a separate cache-write rate) ------------
@@ -80,6 +82,13 @@
     # --- Microsoft ------------------------------------------------------------
     'mai-code-1-flash'        = @{ Input = 0.75; CachedInput = 0.075; CacheWrite = $null; Output = 4.50 }
     'mai-code-1-flash-picker' = @{ Input = 0.75; CachedInput = 0.075; CacheWrite = $null; Output = 4.50 }
+
+    # --- xAI ------------------------------------------------------------------
+    # Cached input is 0.25x input here, not the 0.1x the other vendors use.
+    'grok-4.5' = @{
+        Input = 2.00; CachedInput = 0.50; CacheWrite = $null; Output = 6.00
+        LongContext = @{ Threshold = 200000; Input = 4.00; CachedInput = 1.00; CacheWrite = $null; Output = 12.00 }
+    }
 
     # --- Moonshot AI ----------------------------------------------------------
     # Published rates; id slugged to this table's convention (not yet advertised).

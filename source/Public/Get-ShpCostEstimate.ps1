@@ -10,7 +10,9 @@ function Get-ShpCostEstimate {
         made. Only the input (prompt) side is estimated; the completion size is
         unknown until the model replies, so the real cost reported by Invoke-Shp
         will be higher. The price-table key is resolved case-insensitively; when
-        the model has no entry the token count is still returned with null cost.
+        the model has no entry the token count is still returned with null cost,
+        Priced is false, and PriceTableKey names the key that was looked up and
+        missed - so an unpriced model is never mistaken for a free one.
 
     .PARAMETER Text
         The prompt text to estimate. Mandatory.
@@ -28,8 +30,8 @@ function Get-ShpCostEstimate {
         System.Management.Automation.PSCustomObject
 
         An object with Model, EstimatedInputTokens, EstimatedInputCostUSD,
-        EstimatedInputCredits and Tier ('Default' or 'LongContext'; null when
-        the model has no price-table entry).
+        EstimatedInputCredits, Tier ('Default' or 'LongContext'; null when
+        the model has no price-table entry), Priced and PriceTableKey.
 
     .LINK
         ConvertTo-ShpTokenCount
@@ -51,8 +53,8 @@ function Get-ShpCostEstimate {
 
     $tokens = ConvertTo-ShpTokenCount -Text $Text
 
-    $priceKey = $Model.ToLower()
-    $pricing = if ($script:PriceTable.ContainsKey($priceKey)) { $script:PriceTable[$priceKey] } else { $null }
+    $price = Resolve-ShpPriceEntry -ModelName $Model
+    $pricing = $price.Pricing
 
     $costUSD = $null
     $credits = $null
@@ -73,5 +75,7 @@ function Get-ShpCostEstimate {
         EstimatedInputCostUSD = $costUSD
         EstimatedInputCredits = $credits
         Tier                  = $tier
+        Priced                = $price.Priced
+        PriceTableKey         = $price.Key
     }
 }
