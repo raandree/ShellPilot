@@ -9,6 +9,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `Invoke-ShpBatch` runs many independent prompts concurrently and returns one
+  `ShellPilot.BatchResult` per input, carrying the answer, that item's usage and
+  cost, and - when the call failed - the error. `-ThrottleLimit` bounds how many
+  calls are in flight (default 4, deliberately conservative), and prompts can be
+  piped in as plain strings or as objects with `Prompt` and an optional `Id`.
+  Three guarantees are the point of it. Every item is stateless: a batch never
+  reads or writes the session conversation, so it cannot reproduce the
+  accumulation that makes a serial loop of `Invoke-Shp` calls grow until the
+  model refuses it with `model_max_prompt_tokens_exceeded`. Failures are
+  isolated: one failed call never aborts the batch and nothing is written to the
+  error stream, because an error raised from a worker obeys the caller's
+  `$ErrorActionPreference` and would destroy every result under `Stop`; check
+  `Success` and `Error` on the results, and a single summary warning names how
+  many did not complete. And identity is carried: results arrive in completion
+  order, so every one has `Index`, `Id` and the original `InputObject`.
+  `-MaxBatchBudgetUSD` caps the whole run as a gate on dispatch - calls already
+  in flight are never cancelled. Streaming, `ask_user` and progress events are
+  off for every item, for reasons the help gives. The model, sampling
+  parameters, `-ResponseFormat` / `-JsonSchema`, `-SkillPath`,
+  `-InstructionRoot`, the isolation switches and the connection options are all
+  forwarded, and per-item usage is merged into `Get-ShpUsage`.
+  See [specs/015-batch-execution.md](specs/015-batch-execution.md).
+
 - `Invoke-Shp -MaxContextWindowTokens` and `Set-ShpContext
   -MaxContextWindowTokens` set the token budget above which a turn elides its
   oldest tool results, with the usual precedence of explicit parameter, then
@@ -67,6 +90,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The price table supports a long-context tier. An entry may carry a
   `LongContext` block with a `Threshold` in input tokens plus its own rates, and
   the cost breakdown now reports `Tier` and `TiersUsed`.
+
+### Changed
+
+- The HTTP retry backoff is now jittered: half the exponential delay plus a
+  random amount up to the other half. A purely deterministic backoff
+  synchronises under concurrency - several `Invoke-ShpBatch` workers refused by
+  the same 429 would sleep identical durations and re-fire together, recreating
+  the burst that caused the refusal. A `RetryDelaySec` of `0` still yields
+  exactly `0`, so no existing call path changes.
 
 ### Fixed
 

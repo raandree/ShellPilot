@@ -95,6 +95,43 @@
       </TableControl>
     </View>
 
+    <!-- Invoke-ShpBatch (one record per batch item). Results arrive in
+         completion order, so Index leads: it is the input position and the
+         column to sort on when input order matters. -->
+    <View>
+      <Name>ShellPilot.BatchResult</Name>
+      <ViewSelectedBy>
+        <TypeName>ShellPilot.BatchResult</TypeName>
+      </ViewSelectedBy>
+      <TableControl>
+        <AutoSize />
+        <TableHeaders>
+          <TableColumnHeader><Label>Index</Label><Alignment>Right</Alignment></TableColumnHeader>
+          <TableColumnHeader><Label>Id</Label></TableColumnHeader>
+          <TableColumnHeader><Label>OK</Label></TableColumnHeader>
+          <TableColumnHeader><Label>Model</Label></TableColumnHeader>
+          <TableColumnHeader><Label>CostUSD</Label><Alignment>Right</Alignment></TableColumnHeader>
+          <TableColumnHeader><Label>ms</Label><Alignment>Right</Alignment></TableColumnHeader>
+          <TableColumnHeader><Label>Content</Label></TableColumnHeader>
+        </TableHeaders>
+        <TableRowEntries>
+          <TableRowEntry>
+            <TableColumnItems>
+              <TableColumnItem><PropertyName>Index</PropertyName></TableColumnItem>
+              <TableColumnItem><PropertyName>Id</PropertyName></TableColumnItem>
+              <TableColumnItem><PropertyName>Success</PropertyName></TableColumnItem>
+              <TableColumnItem><PropertyName>Model</PropertyName></TableColumnItem>
+              <TableColumnItem><PropertyName>CostUSD</PropertyName></TableColumnItem>
+              <TableColumnItem><PropertyName>DurationMs</PropertyName></TableColumnItem>
+              <TableColumnItem>
+                <ScriptBlock>$text = if ($_.Success) { $_.Content } else { $_.Error }; if ([string]::IsNullOrWhiteSpace($text)) { '' } else { $t = ($text -replace '\s+', ' ').Trim(); if ($t.Length -gt 60) { $t.Substring(0, 57) + '...' } else { $t } }</ScriptBlock>
+              </TableColumnItem>
+            </TableColumnItems>
+          </TableRowEntry>
+        </TableRowEntries>
+      </TableControl>
+    </View>
+
     <!-- Get-ShpUsage (per-call records) -->
     <View>
       <Name>ShellPilot.UsageRecord</Name>

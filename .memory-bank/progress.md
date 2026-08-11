@@ -4,12 +4,13 @@ Chronological record of shipped changes and remaining work. Latest first.
 
 ## Current state
 
-- ShellPilot is a Sampler-built PowerShell module (cmdlet prefix Shp) with 21
+- ShellPilot is a Sampler-built PowerShell module (cmdlet prefix Shp) with 23
   public cmdlets, Pester 5 tests, QA gates (TestQuality, helpQuality),
   GitVersion, and a GitHub Actions CI. main builds at 0.2.0-preview0001.
-- All 12 migration specs (002-013) are implemented; the backend-dependent ones
-  are live-verified. Server-side state (011) is implemented but the Copilot
-  proxy does not support it, so it falls back to client-side history.
+- All 13 migration specs (002-014) are implemented, plus 015 (batch execution);
+  the backend-dependent ones are live-verified. Server-side state (011) is
+  implemented but the Copilot proxy does not support it, so it falls back to
+  client-side history.
 - The full Pester run crashes locally on a .NET 10 native access violation
   (see techContext); changes are verified out-of-band and the full suite runs
   on CI.
@@ -52,8 +53,49 @@ Chronological record of shipped changes and remaining work. Latest first.
   surface (stdin, JSONL events, env-var config, exit codes).
 - `-AsJob` job model. Needs a spike first on whether thread-job runspaces can
   share `$script:ShpSessionTokenCache` / `$script:ShpHttpClient`.
+  ANSWERED 2026-08-11 by the Invoke-ShpBatch probes: they CANNOT. Each runspace
+  gets its own module instance, so both caches are per-runspace. The cost is
+  bounded rather than per call, because ForEach-Object -Parallel pools and
+  reuses runspaces - a batch pays at most ThrottleLimit token exchanges. What
+  remains open is only whether an `-AsJob` surface is wanted at all now that
+  `Invoke-ShpBatch` covers the concurrent case.
 
 ## Log
+
+- 2026-08-11 - Added `Invoke-ShpBatch`: many independent prompts run
+  concurrently under `-ThrottleLimit` (default 4), one `ShellPilot.BatchResult`
+  per input. Prompt 4's open A-vs-B question was answered A (new cmdlet) rather
+  than B (pipeline binding on `Invoke-Shp -Prompt`) because `Invoke-Shp` has no
+  `process` block and carries a PSSA suppression saying it is single-shot,
+  because the pipeline slot is already held by `-History` and a
+  `ShellPilot.Result` carries both `History` and `Prompt` so B would silently
+  re-send the previous prompt, and because A leaves `Invoke-Shp` with a zero
+  diff. B's ergonomic was kept: the batch cmdlet takes pipeline input itself.
+  Nine runspace behaviours were measured against the built module before any
+  code was written, and four of them changed the design: runspaces are pooled
+  and REUSED (ids repeated `11,12,11,12,11,12`, and a `$script:` counter climbed
+  `1,2,3` in each), so every item is dispatched `-History @()` or a batch would
+  reproduce the session accumulation defect at `1/ThrottleLimit` the rate; a
+  worker's `Write-Error` obeys the CALLER's `$ErrorActionPreference` and lost
+  ALL 4 of 4 results under `Stop` while a worker `throw` lost 1 of 4, so
+  failures are reported as data only plus one summary warning and never on the
+  error stream; `-ErrorAction` is rejected on the parallel parameter set; and
+  objects cross the boundary unserialized, which is how the shared budget
+  accumulator works. The batch budget is a gate on dispatch, never a kill
+  switch - in-flight calls always finish, because abandoning a billable POST
+  whose cost is then never learned is worse. Streaming, `ask_user` and progress
+  events are forced off, with the output-cap consequence stated in the help.
+  `Invoke-ShpWithRetry` gained equal jitter, since a deterministic backoff makes
+  concurrent workers re-fire together; `RetryDelaySec 0` still yields exactly 0,
+  which is why every existing retry test was unaffected. Test-first: 43 red on
+  `CommandNotFoundException`, then green. Live smoke on the built module proved
+  what unit tests cannot - 4 prompts at `-ThrottleLimit 2` in 3.2s, completion
+  order `1, 0, 2, 3`, a batch item that did not know the codeword planted in the
+  session chat, that chat unchanged afterwards, usage 1 -> 5, and an
+  unknown-model batch under `$ErrorActionPreference = 'Stop'` returning all 3
+  failed results with `TargetObject.StatusCode = 400` still reachable. Spec
+  `015-batch-execution.md`. Final: 762/762 tests (from 679), 81.69% coverage,
+  16 tasks / 0 errors / 0 warnings.
 
 - 2026-08-11 - Rejected a public `Invoke-Shp -RetryOn` after verifying prompt
   3's decision gate: no observed transient failure sits outside the built-in

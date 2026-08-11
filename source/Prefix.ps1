@@ -135,6 +135,13 @@ $script:ShpUserTools = [ordered]@{}
 # Session-scoped; reset by Clear-ShpChat.
 $script:ShpLastResponseId = $null
 
+# Set once per runspace by Invoke-ShpBatchItem after it has replayed the
+# caller's session context and registered tools into that worker. Invoke-ShpBatch
+# runs items in a POOLED set of runspaces that are reused between items, so the
+# setup must happen on the first item a runspace handles and be skipped on every
+# later one. Always $false in the caller's own session, which never runs items.
+$script:ShpBatchWorkerReady = $false
+
 # Usage-based pricing (USD per 1M tokens). Sourced from data/PriceTable.psd1 so
 # rates can be updated without touching code. If the file is missing or malformed
 # the module still loads with an empty table (cost stays $null and the -Model

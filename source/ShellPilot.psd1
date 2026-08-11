@@ -80,6 +80,7 @@ FunctionsToExport = @(
     'Get-ShpUsage'
     'Clear-ShpUsage'
     'Invoke-Shp'
+    'Invoke-ShpBatch'
     'Resolve-ShpError'
     'Set-ShpContext'
     'Get-ShpContext'

@@ -49,6 +49,9 @@ flowchart TD
 - Get-ShpUsage - reads the per-session usage log (or -Summary aggregate).
 - Clear-ShpUsage - resets the per-session usage log.
 - Invoke-Shp - one prompt, optional tool-calling loop, rich object result.
+- Invoke-ShpBatch - many independent prompts, run concurrently under a
+  -ThrottleLimit, one ShellPilot.BatchResult per input; stateless per item and
+  failure-isolated by contract.
 - Set-ShpContext / Get-ShpContext / Clear-ShpContext - session connection
   options (timeout, retry, opt-in alternative backend).
 - Register-ShpTool / Get-ShpTool / Unregister-ShpTool - expose any command to
@@ -278,6 +281,48 @@ The API-shape fallbacks in Invoke-Shp still match substrings rather than the
 structured code, deliberately: the store rejection's code is unsupported_value,
 so branching on the code would break the very fallback it looks like it would
 tighten.
+
+### Concurrency lives outside Invoke-Shp, never inside it
+
+Invoke-ShpBatch runs independent prompts in a pooled set of parallel runspaces.
+Invoke-Shp itself is untouched and stays single-shot and stateful; the batch
+cmdlet owns no session conversation, so it can promise things Invoke-Shp cannot.
+The runspace facts below were measured against the built module, not assumed,
+because each of them fails silently.
+
+- Runspaces are POOLED AND REUSED, so module $script: state accumulates inside a
+  worker exactly as it does in a serial loop. Every item is therefore dispatched
+  -History @() and is stateless by contract, and the worker clears its own usage
+  log before the call so exactly that item's record travels home.
+- A worker inherits NOTHING - not loaded modules, not session-local functions -
+  so the module is imported by full path (from the running module's own
+  ModuleBase, so a worker cannot pick up another installed version) and the
+  private per-item function is reached with & $module { }. The session context
+  and the registered tool NAMES are replayed once per runspace; a tool backed by
+  a function that exists only in the caller's session cannot be re-registered
+  and is warned about, not fatal.
+- Objects are NOT serialized across the boundary, so state travels on the
+  pipeline item by reference - including the ConcurrentBag the batch budget
+  accumulates in. $using: is deliberately unused, because it resolves in the
+  scope that calls ForEach-Object, not the scope that built the script block.
+- A worker MUST catch everything. A worker Write-Error obeys the CALLER's
+  $ErrorActionPreference and destroyed all 4 of 4 results under Stop; a worker
+  throw lost 1 of 4. Failure isolation cannot be contingent on a preference
+  variable, so a failed item is reported only as data (Success / Error /
+  ErrorRecord) plus one summary warning, and never on the error stream.
+- The session-token cache and the pooled HttpClient CANNOT be shared across
+  runspaces - each gets its own module instance - but the cost is bounded to
+  ThrottleLimit exchanges per batch rather than one per item, because runspaces
+  are pooled.
+
+A batch budget is a gate on dispatch, never a kill switch: in-flight calls run
+to completion, because abandoning a billable POST whose cost is then never
+learned is worse than letting it finish. Same "ceiling on continuing, not a hard
+spend limit" semantic as Invoke-Shp -MaxBudgetUSD.
+
+Retry backoff carries equal jitter for the same reason concurrency exists here:
+a deterministic delay makes N workers refused by one shared 429 re-fire
+together. RetryDelaySec 0 still yields exactly 0, so no serial path moved.
 
 ### User-defined tools
 

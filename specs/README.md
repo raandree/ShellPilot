@@ -13,7 +13,7 @@ Design and scope documents for ShellPilot. Start with the overview, then the
 open decisions. The numbered specs that follow each describe a single pattern,
 its design, and its source hook points.
 
-> **Status:** every numbered pattern below (002-014) is **implemented**. Each
+> **Status:** every numbered pattern below (002-015) is **implemented**. Each
 > spec's own `## Status` section records the current state, including any
 > backend caveat (for example server-side state, which the Copilot proxy does
 > not support and which falls back to client-side history). The tiers below
@@ -36,6 +36,7 @@ its design, and its source hook points.
 - [Interactive chat session](006-interactive-chat-session.md)
 - [Network-outage tolerance](013-network-outage-tolerance.md)
 - [Sampling parameters (temperature, top-p, seed)](014-sampling-parameters.md)
+- [Batched, throttled prompt execution](015-batch-execution.md)
 
 ### Tier 2
 

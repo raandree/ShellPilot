@@ -4,51 +4,84 @@ Current working focus for ShellPilot. Overwrite this file as the focus shifts.
 
 ## Focus
 
-Prompt 3 was executed against the live repository, and its own decision gate
-rejected the proposed public `-RetryOn`: there is still no observed transient
-failure outside the built-in 429/5xx and no-response network-outage classes. The
-54-call sweep remains decisive: all 108 failed attempts were permanent
-`model_max_prompt_tokens_exceeded` 400s, and zero identical retries succeeded.
-The private predicate remains available for internal tests; it is not exposed
-as an attractive nuisance on non-idempotent, billable POST requests.
+Shipped `Invoke-ShpBatch`, prompt 4's ask: run many independent prompts
+concurrently and get one result object per input. Baseline before the turn was
+a clean worktree at `78db130` on `main`, two commits ahead of `origin/main`,
+679/679 tests green and 81.49% coverage. Final state: 762/762 tests, 81.69%
+coverage, build 16 tasks / 0 errors / 0 warnings. Committed on `main` at the
+user's explicit request; NOT pushed.
 
-The case that survived the prompt was reproduced before code. The live baseline
-was a clean worktree at `cee41c9` on `main`, one commit ahead of `origin/main`,
-with 675/675 tests green - newer than the external README's `b35d404` baseline.
-An actual `Invoke-ShpStreamRequest` 400 carried
-`TargetObject.StatusCode = 400`, but `Invoke-ShpWithRetry` ignored that member,
-saw only `HttpRequestException`, and made two attempts under a 30-second network
-outage budget. The red regression test failed exactly as expected: `Expected 1,
-but got 2`.
+The A-vs-B decision the prompt left open was answered A (a new cmdlet) rather
+than B (pipeline binding on `Invoke-Shp -Prompt`), on four grounds that are
+facts about this repository rather than preference:
 
-Current uncommitted work is on `ai/streaming-retry-classification`:
+1. `Invoke-Shp` has no `process` block and carries a standing PSSA suppression
+   for `PSUseProcessBlockForPipelineCommand` saying it is single-shot.
+1. The pipeline slot is already taken by a COLLIDING member. `-History` is
+   `ValueFromPipelineByPropertyName` (spec 009) and a `ShellPilot.Result`
+   carries BOTH `History` and `Prompt`, so adding by-property-name binding to
+   `-Prompt` would silently re-send the previous prompt, and a bare
+   `ValueFromPipeline` would bind the whole result object into `[string]`.
+1. B invites the very bug the batch exists to prevent - a caller writing
+   `$prompts | Invoke-Shp` would expect the documented session continuation,
+   which cannot hold under concurrency.
+1. Blast radius: A changes nothing in `Invoke-Shp`. Its diff is zero.
 
-1. `Invoke-ShpWithRetry` reads an HTTP status from the exception response first,
-   then from the structured error target, before considering exception types.
-   A streamed 400 now fails after one attempt; streamed 429/5xx responses remain
-   count-bounded; a true no-response `HttpRequestException` still uses the
-   network-outage budget.
-1. `Invoke-CopilotTurn` routes the streaming sender through the existing wrapper
-   with `MaxRetryCount`, `RetryDelaySec`, and `NetworkOutageToleranceSec`.
-   `TimeoutSec` is unchanged because the streaming sender has no per-request
-   timeout contract.
-1. Public `RetryOn` and `RetryOnStatus` parameters were deliberately not added.
+B's ergonomic was kept anyway: `Invoke-ShpBatch` takes pipeline input itself.
 
-Verification complete: classifier test red (`12/13`, expected), then green
-(`13/13`); routing test red (`28/29`, expected zero wrapper invocations), then
-green (`29/29`). Independent review found one Major body-read failure path; its
-guard failed red (`Expected 1, but got 2`) and passed green with status and
-disposal assertions. Review closeout passed 21/21 and scoped re-review approved
-with no open Major or Blocker. Final build: 9 tasks, 0 errors, 0 warnings,
-679/679 tests, 81.49% coverage. The user subsequently requested that this
-validated change be committed locally.
+The runspace semantics were PROBED against the built module, not reasoned about,
+because every failure mode here is silent. Nine measured findings, all in
+`specs/015-batch-execution.md`. The four that changed the design:
 
-One premise check exposed a separate existing gap: `Invoke-Shp` resolves its
-Session context retry controls only after `Get-ShpSessionToken`, while the token
-exchange, `/models`, and embeddings call `Invoke-ShpWithRetry` with built-in
-defaults. That propagation issue was recorded, not bundled into this change.
+- Worker runspaces are POOLED AND REUSED. With `-ThrottleLimit 2` over 6 items
+  the runspace ids repeated `11,12,11,12,11,12` and a module `$script:` counter
+  climbed `1,2,3` in each. So module state accumulates inside a worker exactly
+  as it does in a serial loop - every item must be dispatched `-History @()`.
+- A worker's `Write-Error` obeys the CALLER's `$ErrorActionPreference`. Under
+  `Stop` it destroyed ALL 4 results; a worker `throw` lost 1 of 4. A worker that
+  catches its own error emitted 4 of 4. Failure isolation therefore cannot be
+  reported through the error stream at all - it would be contingent on a
+  preference variable. Failures are data only, plus ONE summary warning.
+- `-ErrorAction` is not accepted on the parallel parameter set, so the obvious
+  implementation is unavailable anyway.
+- Objects are NOT serialized across the boundary, so a shared `ConcurrentBag`
+  on the work item really is shared - that is how the batch budget accumulates.
 
-## Superseded focus (2026-08-11)
+Decisions worth carrying forward:
+
+- **Batch budget is a dispatch gate, not a kill switch.** Checked before each
+  item; in-flight calls are never cancelled, because abandoning a billable POST
+  whose cost you then never learn is worse than letting it finish. Same
+  "ceiling on continuing" semantic `Invoke-Shp -MaxBudgetUSD` already documents.
+- **Streaming, `ask_user` and progress events are forced off.** Streaming echoes
+  deltas with `Write-Host` (`Read-ShpChatStream -Echo:$Stream`), so N workers
+  would interleave N token streams; `ask_user` blocks on `Read-Host` with no
+  console; progress events would arrive out of order. Stated cost: some models
+  cap non-streamed output below their streamed maximum.
+- **Retry backoff is now jittered** (equal jitter). The old delay was purely
+  deterministic, so concurrent workers refused by one 429 would re-fire
+  together. `RetryDelaySec 0` still yields exactly 0, which is why all existing
+  retry tests were unaffected - every one of them passes `-RetryDelaySec 0`.
+- **User tools are replayed by NAME** into each worker. A tool backed by a
+  session-local function cannot be - measured: `NOT VISIBLE` in a worker - and
+  is reported once as a warning rather than failing the batch.
+
+Live smoke test on the built module, and it proved the parts unit tests cannot:
+4 prompts at `-ThrottleLimit 2` finished in 3.2s, completion order was
+`1, 0, 2, 3` (so identity really is needed and survived), a batch item asked
+"what is the codeword?" while ZEPHYR sat in the session chat and answered it did
+not know, the session chat was still 2 entries afterwards, usage went 1 -> 5,
+and an unknown-model batch under `$ErrorActionPreference = 'Stop'` returned all
+3 failed results with `TargetObject.StatusCode = 400` and
+`ErrorCode = model_not_supported` still reachable.
+
+One pre-existing open item is now ANSWERED by measurement rather than by the
+spike `progress.md` asked for: thread/parallel runspaces CANNOT share
+`$script:ShpSessionTokenCache` or `$script:ShpHttpClient`, because each runspace
+gets its own module instance. The cost is bounded - at most `ThrottleLimit`
+token exchanges per batch, not one per item - because runspaces are pooled.
+
+## Superseded focus (2026-08-11) - streaming retry classification
 
 Finished the error-body work: the failed response is now handed to the caller as
 DATA, not only as text, and the streaming sender's message is bounded. Changes

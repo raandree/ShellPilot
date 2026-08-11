@@ -172,6 +172,12 @@ function Invoke-ShpWithRetry {
 
             $attempt++
             $delay = $RetryDelaySec * [Math]::Pow(2, $attempt - 1)
+            # Equal jitter. Concurrent callers (Invoke-ShpBatch) refused by the
+            # same shared 429 would otherwise sleep identical durations and
+            # re-fire together, recreating the burst that caused the refusal.
+            # Half the backoff is kept so it still backs off; RetryDelaySec 0
+            # still yields exactly 0.
+            if ($delay -gt 0) { $delay = ($delay / 2) + (Get-Random -Minimum 0.0 -Maximum ($delay / 2)) }
             if ($isConnectionLevel) {
                 Write-Verbose ("ShellPilot network outage; retry {0} after {1}s (tolerating up to {2}s)." -f $attempt, $delay, $NetworkOutageToleranceSec)
             } else {

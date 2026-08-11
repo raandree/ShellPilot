@@ -98,6 +98,59 @@ Describe 'Invoke-ShpWithRetry' {
         }
     }
 
+    # Invoke-ShpBatch runs several callers concurrently, so a purely
+    # deterministic backoff synchronises: every worker refused by the same 429
+    # would sleep an identical duration and re-fire together, recreating the
+    # burst that caused the refusal.
+    Context 'Backoff jitter' {
+        It 'Keeps a zero retry delay at exactly zero' {
+            InModuleScope $script:moduleName {
+                Mock Start-Sleep { }
+
+                $script:retryCalls = 0
+                { Invoke-ShpWithRetry -ScriptBlock { $script:retryCalls++; throw 'transient' } -MaxRetryCount 2 -RetryDelaySec 0 -RetryOn { $true } } | Should -Throw
+
+                $script:retryCalls | Should -Be 3
+                Should -Invoke Start-Sleep -Times 0 -Exactly
+            }
+        }
+
+        It 'Keeps each jittered delay between half and all of the exponential backoff' {
+            InModuleScope $script:moduleName {
+                $script:sleptFor = @()
+                Mock Start-Sleep { $script:sleptFor += $Seconds }
+
+                $script:retryCalls = 0
+                { Invoke-ShpWithRetry -ScriptBlock { $script:retryCalls++; throw 'transient' } -MaxRetryCount 3 -RetryDelaySec 4 -RetryOn { $true } } | Should -Throw
+
+                @($script:sleptFor).Count | Should -Be 3
+                # Attempt n backs off 4 * 2^(n-1): 4, 8, 16.
+                $script:sleptFor[0] | Should -BeGreaterOrEqual 2; $script:sleptFor[0] | Should -BeLessOrEqual 4
+                $script:sleptFor[1] | Should -BeGreaterOrEqual 4; $script:sleptFor[1] | Should -BeLessOrEqual 8
+                $script:sleptFor[2] | Should -BeGreaterOrEqual 8; $script:sleptFor[2] | Should -BeLessOrEqual 16
+            }
+        }
+
+        It 'Does not produce the same delay on every run' {
+            InModuleScope $script:moduleName {
+                Mock Start-Sleep { $script:sleptFor += $Seconds }
+
+                $observed = foreach ($run in 1..12) {
+                    $script:sleptFor = @()
+                    $script:retryCalls = 0
+                    try {
+                        Invoke-ShpWithRetry -ScriptBlock { $script:retryCalls++; throw 'transient' } -MaxRetryCount 1 -RetryDelaySec 8 -RetryOn { $true }
+                    } catch {
+                        # expected - the point is the delay, not the outcome
+                    }
+                    $script:sleptFor[0]
+                }
+
+                (@($observed) | Sort-Object -Unique).Count | Should -BeGreaterThan 1
+            }
+        }
+    }
+
     Context 'Network-outage tolerance' {
         It 'Retries a connection-level failure and succeeds within the budget' {
             InModuleScope $script:moduleName {
