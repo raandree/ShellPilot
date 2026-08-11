@@ -53,6 +53,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A failed non-streaming request now reports what the service objected to. The
+  buffered sender read the error response body and then discarded it, so a
+  rejected request surfaced only as
+  `Response status code does not indicate success: 400 (Bad Request).` The
+  service's own explanation is now quoted after the status line as
+  `Response body: ...`, capped at 2000 characters with the usual
+  `...[truncated, original N chars]` marker. The exception type and the response
+  it carries are unchanged, so the 429/5xx retry and the network-outage budget
+  still classify a failure exactly as before. This also revives the API-shape
+  fallbacks in `Invoke-Shp`, which match the error text for `store`,
+  `unsupported_api_for_model`, `invalid_request_body` and `reasoning` /
+  `summary`: they were unreachable whenever the reply was buffered, so for
+  example `Invoke-Shp -Model gpt-5.5 -DisableStreaming` failed on a bare 400
+  instead of falling back to `/responses` the way the streaming path already did.
+- `Invoke-Shp` now changes the API shape at most once per turn. Both shape
+  fallbacks rewind the iteration counter before retrying, so `-MaxToolIterations`
+  never bounded them, and a service that refused `/chat/completions` and
+  `/responses` with the same code could bounce a turn between the two
+  indefinitely - one billable request per hop. The first switch is still made;
+  the second refusal now surfaces as an error.
 - Corrected the GPT-5.6 rates against the published GitHub Copilot billing
   table. `gpt-5.6-luna` was charged 5x its real rate (now 0.20/0.02/0.25/1.20
   per 1M tokens) and `gpt-5.6-terra` 25% over (now 2.00/0.20/2.50/12.00); all

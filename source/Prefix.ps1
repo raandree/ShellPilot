@@ -91,6 +91,14 @@ $script:DefaultRetryDelaySec = 2
 # or for the session (Set-ShpContext -NetworkOutageToleranceSec); 0 disables it.
 $script:DefaultNetworkOutageToleranceSec = 30
 
+# Cap (characters) on how much of a failed response's body is quoted into the
+# error Invoke-ShpHttpRequest raises. A service error is a short JSON object -
+# the ones this module has to react to are around 130 characters - but a 5xx from
+# an intermediate proxy can be a whole HTML page, and an exception message that
+# large is its own problem. Anything longer is cut here and marked with the
+# module's usual "...[truncated, original N chars]" marker.
+$script:MaxHttpErrorBodyChars = 2000
+
 # Conservative fallback budget (estimated tokens) for the accumulated chat
 # messages of a single Turn, used by the context-window guard in Invoke-Shp
 # (Compress-ShpChatContext). A Turn is a loop and every tool result rides along

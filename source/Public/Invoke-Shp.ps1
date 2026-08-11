@@ -176,10 +176,9 @@ function Invoke-Shp {
         /responses ("Unsupported parameter: 'temperature' is not supported with
         this model"). ShellPilot never drops the field to make such a call
         succeed - the request fails instead - because a silently dropped
-        -Temperature 0 would promise a determinism you did not get. Note that
-        the HTTP layer currently reports a rejection as a bare 400 without the
-        service's explanatory body, so the call is safe but the reason is not
-        yet spelled out. The models API advertises no capability flag for
+        -Temperature 0 would promise a determinism you did not get. The failure
+        quotes the service's own explanation, so the rejected field is named in
+        the error. The models API advertises no capability flag for
         sampling, so support is validated by the service per model, exactly
         like -ReasoningEffort.
 
@@ -992,6 +991,13 @@ function Invoke-Shp {
     # "store is not supported"); we then fall back to client-side history.
     $serverSideActive = [bool]$UseServerSideState
 
+    # The chat <-> responses fallbacks below decrement $iteration before
+    # continuing, so MaxToolIterations cannot bound them. A service that refuses
+    # both shapes with the same code would otherwise ping-pong the turn forever,
+    # one billable request per hop; allow the shape to change once and let the
+    # second refusal surface.
+    $apiShapeSwitched = $false
+
     # Static optional parameters shared by every turn in the loop.
     $structuredParams = @{}
     if (-not [string]::IsNullOrWhiteSpace($ResponseFormat)) { $structuredParams.ResponseFormat = $ResponseFormat }
@@ -1037,10 +1043,10 @@ function Invoke-Shp {
             # The model does not support /responses at all - fall back to chat
             # (this also covers -ShowThinking forcing responses on a chat-only
             # model such as claude-opus-4.8).
-            if ($mode -eq 'responses' -and $errText -and ($errText -match 'unsupported_api_for_model' -or $errText -match 'does not support Responses')) {
+            if ($mode -eq 'responses' -and -not $apiShapeSwitched -and $errText -and ($errText -match 'unsupported_api_for_model' -or $errText -match 'does not support Responses')) {
                 Write-Verbose "Model '$Model' does not support /responses - switching to /chat/completions."
                 if ($ShowThinking) { Write-Host '(model has no /responses API; reasoning summary unavailable, continuing on /chat)' -ForegroundColor DarkGray }
-                $mode='chat'; $requestReasoning=$false; $iteration--; continue
+                $apiShapeSwitched = $true; $mode='chat'; $requestReasoning=$false; $iteration--; continue
             }
             # The model accepts /responses but rejected the reasoning-summary
             # request specifically - retry the same turn without it.
@@ -1049,9 +1055,9 @@ function Invoke-Shp {
                 if ($ShowThinking) { Write-Host '(model does not support a reasoning summary; continuing without it)' -ForegroundColor DarkGray }
                 $requestReasoning = $false; $iteration--; continue
             }
-            if ($mode -eq 'chat' -and $iteration -eq 1 -and $errText -and ($errText -match 'unsupported_api_for_model' -or $errText -match 'invalid_request_body')) {
+            if ($mode -eq 'chat' -and $iteration -eq 1 -and -not $apiShapeSwitched -and $errText -and ($errText -match 'unsupported_api_for_model' -or $errText -match 'invalid_request_body')) {
                 Write-Verbose "Model '$Model' rejected on /chat/completions - switching to /responses."
-                $mode='responses'; $iteration--; continue
+                $apiShapeSwitched = $true; $mode='responses'; $iteration--; continue
             }
             throw
         }

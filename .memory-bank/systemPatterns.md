@@ -222,8 +222,14 @@ API, result object, or the streaming/tool-loop behaviour:
   non-streaming sender (Invoke-ShpHttpRequest) bounds itself with a
   CancellationTokenSource. The shared client is never disposed per request;
   Invoke-ShpStreamRequest disposes only the response and reader. Non-success
-  throws HttpResponseException so the Invoke-ShpWithRetry classification is
-  unchanged.
+  throws HttpResponseException carrying the live response, so the
+  Invoke-ShpWithRetry classification is unchanged, and quotes the service's
+  error body after the status line ("Response body: ...", capped at
+  $script:MaxHttpErrorBodyChars with the usual truncation marker) - without it
+  the API-shape fallbacks in Invoke-Shp, which match the error text, were dead
+  code on the buffered path. Invoke-ShpStreamRequest keeps its own message shape
+  (it throws HttpRequestException, which carries no response, so its URI and
+  status only exist in the text).
 
 ### User-defined tools
 

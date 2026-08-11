@@ -82,22 +82,30 @@ proxy; `claude-opus-4.7` accepted `temperature: 2` on the chat shape.
   when the parameter was omitted, so a harness can record the sampling settings
   of a run alongside its usage and cost.
 
-### Known limitation (pre-existing, not introduced here)
+### Resolved: the rejection reason now reaches the caller
 
-`Invoke-ShpHttpRequest` throws `HttpResponseException` with only
-`Response status code does not indicate success: 400 (Bad Request).` - it reads
-the response body but discards it on the failure path. A model that rejects
-`temperature` therefore fails the call (which is the important guarantee) but
-does not yet tell the caller which field was refused.
+This spec originally shipped with a known limitation. `Invoke-ShpHttpRequest`
+threw `HttpResponseException` with only
+`Response status code does not indicate success: 400 (Bad Request).` - it read
+the response body but discarded it on the failure path - so a model that
+rejected `temperature` failed the call (the important guarantee) without saying
+which field was refused.
 
-The same gap kills the API-shape fallbacks in `Invoke-Shp`, which match
+The same gap killed the API-shape fallbacks in `Invoke-Shp`, which match
 `$errText` against `store`, `unsupported_api_for_model`, `invalid_request_body`
-and `reasoning` / `summary` - text that never arrives. It is confined to the
-buffered path: `Invoke-ShpStreamRequest` already includes the error body, so
-`Invoke-Shp -Model gpt-5.5` succeeds via the fallback on the default streaming
-path and fails with a bare 400 under `-DisableStreaming`. That reproduces on
-v0.4.0 with no sampling parameter involved, so it predates this change and is
-deliberately left for a separate fix rather than bundled into it.
+and `reasoning` / `summary` - text that never arrived. It was confined to the
+buffered path: `Invoke-ShpStreamRequest` already included the error body, so
+`Invoke-Shp -Model gpt-5.5` succeeded via the fallback on the default streaming
+path and failed with a bare 400 under `-DisableStreaming`.
+
+Fixed separately rather than bundled into this change: the buffered sender now
+quotes the service's explanation after the status line as `Response body: ...`,
+bounded by `$script:MaxHttpErrorBodyChars` (2000) with the module's
+`...[truncated, original N chars]` marker. It still raises
+`HttpResponseException` carrying the live response, so the `Invoke-ShpWithRetry`
+429/5xx and network-outage classification is unchanged. A rejected sampling
+field is therefore now named in the error, for example
+`Unsupported parameter: 'temperature' is not supported with this model.`
 
 ### Per-call only, not session state
 

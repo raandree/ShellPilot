@@ -3,6 +3,24 @@ BeforeAll {
 
     Remove-Module -Name $script:moduleName -Force -ErrorAction SilentlyContinue
     Import-Module -Name $script:moduleName -Force -ErrorAction Stop
+
+    # Stand-in for the module's shared HttpClient, so the classifier can be
+    # exercised against the error Invoke-ShpHttpRequest really raises rather
+    # than against a hand-built exception. See Invoke-ShpHttpRequest.Tests.ps1.
+    function New-ShpFakeHttpClient {
+        param(
+            [Parameter(Mandatory)]
+            [scriptblock]$Responder
+        )
+
+        $client = [pscustomobject]@{ CallCount = 0; Responder = $Responder }
+        $client | Add-Member -MemberType ScriptMethod -Name SendAsync -Value {
+            param($request, $cancelToken)
+            $this.CallCount++
+            [System.Threading.Tasks.Task]::FromResult((& $this.Responder $request))
+        }
+        $client
+    }
 }
 
 AfterAll {
@@ -120,6 +138,56 @@ Describe 'Invoke-ShpWithRetry' {
                 } | Should -Throw
                 $script:connCalls | Should -Be 1
             }
+        }
+    }
+
+    Context 'Classification of a real Invoke-ShpHttpRequest failure' {
+        AfterEach {
+            InModuleScope $script:moduleName { $script:ShpHttpClient = $null }
+        }
+
+        It 'Still retries a 429 raised by Invoke-ShpHttpRequest now that its message carries the response body' {
+            $responder = {
+                param($request)
+                $response = [System.Net.Http.HttpResponseMessage]::new([System.Net.HttpStatusCode]::TooManyRequests)
+                $response.Content = [System.Net.Http.StringContent]::new('{"error":{"message":"rate limited, retry later"}}', [System.Text.Encoding]::UTF8, 'application/json')
+                $response
+            }
+            $client = New-ShpFakeHttpClient -Responder $responder
+
+            InModuleScope $script:moduleName -Parameters @{ Client = $client } {
+                param($Client)
+                $script:ShpHttpClient = $Client
+                $options = @{ Method = 'Post'; Uri = 'https://api.example/chat/completions'; Body = '{}' }
+                {
+                    Invoke-ShpWithRetry -MaxRetryCount 2 -RetryDelaySec 0 -ArgumentList $options -ScriptBlock { param($p) Invoke-ShpHttpRequest @p }
+                } | Should -Throw
+            }
+
+            # One initial attempt plus MaxRetryCount retries: the status-code
+            # classification survived the message change.
+            $client.CallCount | Should -Be 3
+        }
+
+        It 'Still refuses to retry a 400 raised by Invoke-ShpHttpRequest' {
+            $responder = {
+                param($request)
+                $response = [System.Net.Http.HttpResponseMessage]::new([System.Net.HttpStatusCode]::BadRequest)
+                $response.Content = [System.Net.Http.StringContent]::new('{"error":{"code":"unsupported_api_for_model"}}', [System.Text.Encoding]::UTF8, 'application/json')
+                $response
+            }
+            $client = New-ShpFakeHttpClient -Responder $responder
+
+            InModuleScope $script:moduleName -Parameters @{ Client = $client } {
+                param($Client)
+                $script:ShpHttpClient = $Client
+                $options = @{ Method = 'Post'; Uri = 'https://api.example/chat/completions'; Body = '{}' }
+                {
+                    Invoke-ShpWithRetry -MaxRetryCount 2 -RetryDelaySec 0 -ArgumentList $options -ScriptBlock { param($p) Invoke-ShpHttpRequest @p }
+                } | Should -Throw
+            }
+
+            $client.CallCount | Should -Be 1
         }
     }
 }

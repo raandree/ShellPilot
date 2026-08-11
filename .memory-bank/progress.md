@@ -16,19 +16,6 @@ Chronological record of shipped changes and remaining work. Latest first.
 
 ## What is left
 
-- Surface the HTTP error response body. `Invoke-ShpHttpRequest` reads the body
-  of a failed response and then discards it, throwing `HttpResponseException`
-  with only `Response status code does not indicate success: 400 (Bad Request).`
-  That hides which request field the service refused, and it kills all four
-  API-shape fallbacks in `Invoke-Shp`, which match `$errText` against `store`,
-  `unsupported_api_for_model`, `invalid_request_body` and `reasoning` /
-  `summary` - text that never arrives. Confined to the BUFFERED path:
-  `Invoke-ShpStreamRequest` already includes the body, so `Invoke-Shp -Model
-  gpt-5.5` succeeds via the fallback on the default streaming path but dies on a
-  bare 400 with `-DisableStreaming`. Fix by matching the streaming sender, while
-  still throwing `HttpResponseException` carrying the live response so the
-  `Invoke-ShpWithRetry` 429/5xx classification keeps working. Pre-existing
-  (reproduced on v0.4.0).
 - Encrypted token storage (open decision #5) before a stable release.
 - Publish to the PowerShell Gallery (open decision #7).
 - Streaming-path retry: route Invoke-ShpStreamRequest through Invoke-ShpWithRetry
@@ -45,6 +32,46 @@ Chronological record of shipped changes and remaining work. Latest first.
   share `$script:ShpSessionTokenCache` / `$script:ShpHttpClient`.
 
 ## Log
+
+- 2026-08-11 - Surfaced the HTTP error response body in `Invoke-ShpHttpRequest`.
+  The buffered sender read the body of a failed response and then discarded it,
+  raising `HttpResponseException` with only `Response status code does not
+  indicate success: 400 (Bad Request).` The service's explanation is now quoted
+  after the status line as `Response body: ...`, bounded by the new
+  `$script:MaxHttpErrorBodyChars` (2000) with the module's existing
+  `...[truncated, original N chars]` marker; an empty body leaves the message
+  byte-identical to before. Deliberately NOT converged with
+  `Invoke-ShpStreamRequest`'s message: that one throws `HttpRequestException`,
+  which carries no response, so its URI and status only exist in the text; the
+  buffered exception keeps the live `HttpResponseMessage`, so the standard
+  .NET/`Invoke-WebRequest` status sentence plus the body is the honest shape.
+  The bigger win is the second-order one: the four API-shape fallbacks in
+  `Invoke-Shp` match `$errText` for `store`, `unsupported_api_for_model`,
+  `invalid_request_body` and `reasoning` / `summary`, and none of those strings
+  could appear in the old message - so on the buffered path every fallback was
+  dead code. Reproduced live before the change on the installed v0.4.0: `-Model
+  gpt-5.5` succeeds via `/responses` when streaming and died on a bare 400 with
+  `-DisableStreaming`; the real body is `{"error":{"message":"model
+  \"gpt-5.5\" is not accessible via the /chat/completions
+  endpoint","code":"unsupported_api_for_model"}}`. Credential leakage checked
+  rather than assumed: a malformed and a signature-forged bearer token both
+  return a short body (`bad request: Authorization header is badly formatted`,
+  `IDE authentication failed: bad request: invalid token: cannot decode HMAC`)
+  with no echo of the token, a planted canary, or the API key. Retry safety
+  verified rather than assumed: the type and the carried response are unchanged
+  and `Invoke-ShpWithRetry.Tests.ps1` now drives the real sender through the
+  classifier (a 429 retries 3x, a 400 does not retry). Test-first: 3 red
+  (buffered body in the message, oversized-body truncation, buffered chat ->
+  responses fallback), then 80/80 green on the three affected files.
+  `Invoke-ShpHttpRequest` still has exactly two call sites, both in
+  `Invoke-CopilotTurn`. One hazard had to be closed in the same change: both
+  API-shape fallbacks do `$iteration--` before `continue`, so
+  `MaxToolIterations` never bounded them, and once the buffered leg could
+  finally see `unsupported_api_for_model` a service refusing BOTH shapes with
+  that code bounced the turn between `/chat/completions` and `/responses`
+  forever (proved at 12 of 12 hops with a capped fake transport). Guarded with a
+  single `$apiShapeSwitched` flag: the shape may change once per turn and the
+  second refusal surfaces. Uncommitted per the user's request.
 
 - 2026-08-11 - Added sampling control to `Invoke-Shp`: `-Temperature`
   (`ValidateRange 0..2`), `-TopP` (`0..1`) and `-Seed` (`[int]`), forwarded

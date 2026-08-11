@@ -18,6 +18,11 @@ function Invoke-ShpHttpRequest {
         HttpResponseException type Invoke-WebRequest raises (carrying the
         response), so the Invoke-ShpWithRetry classifier keeps retrying a 429/5xx
         by count and a connection-level failure within the network-outage budget.
+        The service's own explanation is quoted into that error after the status
+        line as "Response body: ...", capped at $script:MaxHttpErrorBodyChars
+        characters with the module's usual truncation marker, so the caller (and
+        the API-shape fallbacks in Invoke-Shp, which match the error text) can
+        see which field was refused instead of only "400 (Bad Request)".
 
     .PARAMETER Uri
         The absolute request URI (for example https://api.example/chat/completions).
@@ -94,13 +99,26 @@ function Invoke-ShpHttpRequest {
         foreach ($h in $response.Content.Headers) { $headerTable[[string]$h.Key] = @($h.Value) }
 
         if (-not $response.IsSuccessStatusCode) {
+            # Quote the service's own explanation into the message. Without it a
+            # rejected request is only "400 (Bad Request)", which tells neither
+            # the caller nor Resolve-ShpError which field was refused, and leaves
+            # the API-shape fallbacks in Invoke-Shp (which match the error text
+            # for store / unsupported_api_for_model / invalid_request_body /
+            # reasoning) with nothing to match - the streaming sender already
+            # includes it, which is why only the buffered path went blind.
+            $message = 'Response status code does not indicate success: {0} ({1}).' -f $statusCode, $response.ReasonPhrase
+            $detail = if ($null -eq $content) { '' } else { $content.Trim() }
+            if ($detail.Length -gt $script:MaxHttpErrorBodyChars) {
+                $originalLen = $detail.Length
+                $detail = $detail.Substring(0, $script:MaxHttpErrorBodyChars) + " ...[truncated, original $originalLen chars]"
+            }
+            if ($detail) { $message = '{0} Response body: {1}' -f $message, $detail }
+
             # Throw the type Invoke-WebRequest raises, carrying the live response,
             # so Invoke-ShpWithRetry reads $_.Exception.Response.StatusCode and
             # keeps its 429/5xx classification. Do not dispose the response here -
             # the classifier reads its StatusCode after the throw.
-            throw [Microsoft.PowerShell.Commands.HttpResponseException]::new(
-                ('Response status code does not indicate success: {0} ({1}).' -f $statusCode, $response.ReasonPhrase),
-                $response)
+            throw [Microsoft.PowerShell.Commands.HttpResponseException]::new($message, $response)
         }
 
         $result = [pscustomobject]@{

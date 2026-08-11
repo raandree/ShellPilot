@@ -4,9 +4,87 @@ Current working focus for ShellPilot. Overwrite this file as the focus shifts.
 
 ## Focus
 
+Surfaced the HTTP error response body in `Invoke-ShpHttpRequest`, the buffered
+sender. Changes are deliberately UNCOMMITTED per the user's request.
+
+Trigger: the defect recorded (and left unfixed) by the preceding sampling turn.
+The sender read the body of a failed response and then threw it away, raising
+`HttpResponseException` with only `Response status code does not indicate
+success: 400 (Bad Request).`
+
+Two failures, and the second one is the expensive one. The caller could not tell
+what the service objected to - `Resolve-ShpError` sends
+`$ErrorRecord.Exception.Message` to the model and had nothing to explain. And it
+silently disabled all four API-shape fallbacks in `Invoke-Shp`, which build
+`$errText` from the exception message and match it for `store`,
+`unsupported_api_for_model`, `invalid_request_body` and `reasoning` / `summary`.
+None of those strings can appear in the old message, so on the buffered path
+every fallback was dead code.
+
+Shipped this turn:
+
+1. The service's explanation is quoted after the status line as
+   `Response body: ...`. An empty body leaves the message byte-identical to
+   before, so nothing new appears where there is nothing to say.
+1. Bounded by the new `$script:MaxHttpErrorBodyChars` (2000) with the module's
+   existing `...[truncated, original N chars]` marker - a 5xx from an
+   intermediate proxy can be a whole HTML page.
+1. The exception type and the live `HttpResponseMessage` it carries are
+   unchanged, so `Invoke-ShpWithRetry` still classifies by
+   `$_.Exception.Response.StatusCode`.
+
+Deliberately NOT converged with `Invoke-ShpStreamRequest`'s message shape.
+That sender throws `HttpRequestException`, which carries no response, so its
+URI and status exist only in the text (`Copilot streaming request to '<uri>'
+failed with status 400: <body>`). The buffered exception keeps the response, so
+the URI and status stay recoverable programmatically and the standard
+`Invoke-WebRequest` status sentence plus the body is the honest shape. Two
+slightly different messages, each true to its own exception type, beat a forced
+abstraction.
+
+Verified by probe rather than assumption:
+
+- The real refusal body is `{"error":{"message":"model \"gpt-5.5\" is not
+  accessible via the /chat/completions endpoint","code":
+  "unsupported_api_for_model"}}` - 130 characters, and it does contain the
+  string the fallback matches.
+- No credential echo. A malformed bearer token returns `bad request:
+  Authorization header is badly formatted` and a signature-forged one returns
+  `IDE authentication failed: bad request: invalid token: cannot decode HMAC`.
+  Neither echoes the token, a planted canary, or the API key.
+- Retry classification still works: `Invoke-ShpWithRetry.Tests.ps1` now drives
+  the real sender through the classifier (429 retries three times, 400 does not
+  retry).
+
+Behaviour that flips for a user: `Invoke-Shp -Model gpt-5.5 -DisableStreaming`
+goes from failing on a bare 400 to succeeding via `/responses` - the intended
+fix. Also newly reachable on the buffered path, and worth knowing: the fallback
+patterns are loose substring matches against the whole service body, so an error
+mentioning `store` while `-UseServerSideState` is active, or `reasoning` /
+`summary` while `-ShowThinking` forced the responses shape, now triggers the
+retry it always intended to. That looseness is pre-existing and already live on
+the streaming path; it was left alone rather than tightened inside a fix.
+
+One hazard the fix made reachable HAD to be closed with it. Both API-shape
+fallbacks do `$iteration--` before `continue`, so `MaxToolIterations` never
+bounded them; once the buffered path could see `unsupported_api_for_model`, a
+service refusing BOTH shapes with that code bounced the turn between
+`/chat/completions` and `/responses` forever, one billable request per hop.
+Proved with a capped fake transport: 12 of 12 hops,
+`/chat/completions -> /responses -> ...`. Closed with a single
+`$apiShapeSwitched` flag guarding both branches - the shape may change once per
+turn, and the second refusal surfaces. Pre-existing in design, but unreachable
+before this change (the buffered leg never matched), so it is fixed here rather
+than filed.
+
+`Invoke-ShpHttpRequest` still has exactly two call sites, both in
+`Invoke-CopilotTurn` (the buffered chat turn and every responses turn), which
+bounds the blast radius. Nothing in the repository asserts the old message text.
+
+## Preceding change (2026-08-11)
+
 Added sampling control (`-Temperature`, `-TopP`, `-Seed`) to `Invoke-Shp` so the
-module can back an evaluation harness. Changes are deliberately UNCOMMITTED per
-the user's request.
+module can back an evaluation harness. Committed as `c89f14a`.
 
 Trigger: ShellPilot is being used as the inference backend for an agent-skill
 eval that measures a trigger rate over N repetitions. With sampling left at the
@@ -52,26 +130,9 @@ sampling is the wrong category for it; `Select-ShpModel` is the right category
 but a hidden session-wide temperature undermines the reproducibility the feature
 exists to provide. Additive later if a concrete need appears.
 
-Found but NOT fixed (pre-existing, reported to the user instead of bundled):
-`Invoke-ShpHttpRequest` reads the error response body and then discards it,
-throwing `HttpResponseException` with only
-`Response status code does not indicate success: 400 (Bad Request).` That makes
-a rejected sampling field fail without saying which field, and it also kills the
-API-shape fallbacks in `Invoke-Shp`, which match `$errText` for `store`,
-`unsupported_api_for_model`, `invalid_request_body`, `reasoning` / `summary` -
-text that never arrives.
-
-The defect is confined to the BUFFERED path. `Invoke-ShpStreamRequest` already
-includes the error body in its message, so on the default streaming path the
-fallbacks fire correctly - the fix is to bring the buffered sender in line with
-the streaming one, not to invent a convention. Same model, one switch apart:
-`Invoke-Shp -Model gpt-5.5 -Prompt '...'` succeeds with `ApiMode=responses`,
-while the same call with `-DisableStreaming` dies on a bare 400. Reproduced on
-v0.4.0 with no sampling parameter involved, confirming it predates this change.
-`Invoke-ShpHttpRequest` is called only from `Invoke-CopilotTurn` (buffered chat
-turn plus every responses turn), which bounds the blast radius. A paste-ready
-prompt for the fix is at
-`C:\Users\install\Desktop\ShellPilot-Prompt-2-surface-http-error-body.md`.
+Found but NOT fixed in that turn (pre-existing, reported to the user instead of
+bundled): `Invoke-ShpHttpRequest` read the error response body and then
+discarded it. That has since been fixed - see the Focus section above.
 
 ## Superseded focus (2026-08-06)
 

@@ -3,6 +3,25 @@ BeforeAll {
 
     Remove-Module -Name $script:moduleName -Force -ErrorAction SilentlyContinue
     Import-Module -Name $script:moduleName -Force -ErrorAction Stop
+
+    # Stand-in for the module's shared HttpClient, used where a test has to run
+    # the real buffered sender (Invoke-ShpHttpRequest) instead of mocking it -
+    # the API-shape fallbacks key off the error message that sender produces.
+    # See Invoke-ShpHttpRequest.Tests.ps1.
+    function New-ShpFakeHttpClient {
+        param(
+            [Parameter(Mandatory)]
+            [scriptblock]$Responder
+        )
+
+        $client = [pscustomobject]@{ CallCount = 0; Responder = $Responder }
+        $client | Add-Member -MemberType ScriptMethod -Name SendAsync -Value {
+            param($request, $cancelToken)
+            $this.CallCount++
+            [System.Threading.Tasks.Task]::FromResult((& $this.Responder $request))
+        }
+        $client
+    }
 }
 
 AfterAll {
@@ -133,6 +152,93 @@ Describe 'Invoke-Shp' {
                 $unset.TopP        | Should -BeNullOrEmpty
                 $unset.Seed        | Should -BeNullOrEmpty
             }
+        }
+    }
+
+    Context 'Buffered API-shape fallback' {
+        AfterEach {
+            InModuleScope $script:moduleName {
+                $script:ShpHttpClient = $null
+                $script:ShpChat = @()
+            }
+        }
+
+        It 'Falls back from /chat/completions to /responses when a buffered turn is refused with unsupported_api_for_model' {
+            # The real buffered sender runs here on purpose: the fallback matches
+            # the error text, so mocking Invoke-ShpHttpRequest would test the
+            # match and not the message that has to carry the service's reason.
+            $responsesPayload = @{
+                id     = 'resp_1'
+                model  = 'gpt-5.5'
+                status = 'completed'
+                output = @(@{ type = 'message'; content = @(@{ type = 'output_text'; text = 'OK' }) })
+                usage  = @{ input_tokens = 3; output_tokens = 1 }
+            } | ConvertTo-Json -Depth 8
+            $chatRefusal = '{"error":{"message":"model \"gpt-5.5\" is not accessible via the /chat/completions endpoint","code":"unsupported_api_for_model"}}'
+
+            $responder = {
+                param($request)
+
+                $refused = $request.RequestUri.AbsolutePath -eq '/chat/completions'
+                $status = if ($refused) { [System.Net.HttpStatusCode]::BadRequest } else { [System.Net.HttpStatusCode]::OK }
+                $payload = if ($refused) { $chatRefusal } else { $responsesPayload }
+
+                $response = [System.Net.Http.HttpResponseMessage]::new($status)
+                $response.Content = [System.Net.Http.StringContent]::new($payload, [System.Text.Encoding]::UTF8, 'application/json')
+                $response
+            }.GetNewClosure()
+            $client = New-ShpFakeHttpClient -Responder $responder
+
+            $result = InModuleScope $script:moduleName -Parameters @{ Client = $client } {
+                param($Client)
+
+                $script:ShpChat = @()
+                $script:ShpHttpClient = $Client
+                Mock Get-ShpSessionToken { [pscustomobject]@{ token = 't'; expires_at = 0; endpoints = [pscustomobject]@{ api = 'https://api.example' } } }
+
+                Invoke-Shp -Model gpt-5.5 -Prompt 'Reply with exactly: OK' -DisableStreaming -DisableBrowsing -DisableFileAccess -DisableTerminal -DisableUserPrompts -DisableTodoList
+            }
+
+            $result.ApiMode | Should -Be 'responses'
+            $result.Content | Should -Be 'OK'
+            $client.CallCount | Should -Be 2
+        }
+
+        It 'Switches the API shape at most once, so a service that refuses both shapes cannot ping-pong the turn' {
+            # Each shape fallback decrements the iteration counter before
+            # continuing, so MaxToolIterations cannot bound them. The responder
+            # gives up after eight requests only so a regression fails this test
+            # instead of hanging it - a correct turn stops after two.
+            $state = @{ Calls = 0 }
+            $responder = {
+                param($request)
+
+                $state.Calls++
+                $body = if ($state.Calls -ge 8) {
+                    '{"error":{"message":"probe cap reached","code":"probe_stop"}}'
+                } else {
+                    '{"error":{"message":"not accessible via this endpoint","code":"unsupported_api_for_model"}}'
+                }
+
+                $response = [System.Net.Http.HttpResponseMessage]::new([System.Net.HttpStatusCode]::BadRequest)
+                $response.Content = [System.Net.Http.StringContent]::new($body, [System.Text.Encoding]::UTF8, 'application/json')
+                $response
+            }.GetNewClosure()
+            $client = New-ShpFakeHttpClient -Responder $responder
+
+            InModuleScope $script:moduleName -Parameters @{ Client = $client } {
+                param($Client)
+
+                $script:ShpChat = @()
+                $script:ShpHttpClient = $Client
+                Mock Get-ShpSessionToken { [pscustomobject]@{ token = 't'; expires_at = 0; endpoints = [pscustomobject]@{ api = 'https://api.example' } } }
+
+                {
+                    Invoke-Shp -Model probe-model -Prompt 'hi' -DisableStreaming -DisableBrowsing -DisableFileAccess -DisableTerminal -DisableUserPrompts -DisableTodoList -MaxRetryCount 0 -NetworkOutageToleranceSec 0
+                } | Should -Throw
+            }
+
+            $client.CallCount | Should -Be 2
         }
     }
 
