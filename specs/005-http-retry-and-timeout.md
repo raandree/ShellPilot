@@ -6,9 +6,12 @@ so a transient failure does not abort an unattended run.
 ## Status
 
 - Priority: Tier 1 - recommend now.
-- State: Implemented. A private Invoke-ShpWithRetry wraps the HTTP calls; tune
-  it with Invoke-Shp -TimeoutSec / -MaxRetryCount or the session context
-  (Set-ShpContext). Streaming requests are not yet retried.
+- State: Implemented. A private Invoke-ShpWithRetry wraps buffered and streamed
+  HTTP calls; tune status retries with Invoke-Shp -MaxRetryCount or the session
+  context (Set-ShpContext). Invoke-Shp -TimeoutSec remains a buffered-request
+  control because the streaming sender has no per-request timeout parameter. A
+  streamed failure carries its HTTP status on the structured error target, so
+  a 4xx still fails fast while 429/5xx use the count-bounded retry policy.
 
 ## Problem
 
@@ -35,8 +38,12 @@ Hook points: the HTTP calls in
 
 ## Verification
 
-None - additive. Behaviour is observable by forcing a 429 in a unit test with a
-mocked HTTP layer.
+Unit-tested with mocked buffered and streamed HTTP layers. A 429 from either
+sender is retried up to MaxRetryCount, as is a streamed 503, while a 400 is
+attempted once. If reading a streaming error body fails after the status arrives,
+the status remains classifiable and the response and request are disposed. The
+streamed-turn test also asserts that MaxRetryCount, RetryDelaySec and
+NetworkOutageToleranceSec reach Invoke-ShpWithRetry.
 
 ## See also
 

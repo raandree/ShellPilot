@@ -4,6 +4,52 @@ Current working focus for ShellPilot. Overwrite this file as the focus shifts.
 
 ## Focus
 
+Prompt 3 was executed against the live repository, and its own decision gate
+rejected the proposed public `-RetryOn`: there is still no observed transient
+failure outside the built-in 429/5xx and no-response network-outage classes. The
+54-call sweep remains decisive: all 108 failed attempts were permanent
+`model_max_prompt_tokens_exceeded` 400s, and zero identical retries succeeded.
+The private predicate remains available for internal tests; it is not exposed
+as an attractive nuisance on non-idempotent, billable POST requests.
+
+The case that survived the prompt was reproduced before code. The live baseline
+was a clean worktree at `cee41c9` on `main`, one commit ahead of `origin/main`,
+with 675/675 tests green - newer than the external README's `b35d404` baseline.
+An actual `Invoke-ShpStreamRequest` 400 carried
+`TargetObject.StatusCode = 400`, but `Invoke-ShpWithRetry` ignored that member,
+saw only `HttpRequestException`, and made two attempts under a 30-second network
+outage budget. The red regression test failed exactly as expected: `Expected 1,
+but got 2`.
+
+Current uncommitted work is on `ai/streaming-retry-classification`:
+
+1. `Invoke-ShpWithRetry` reads an HTTP status from the exception response first,
+   then from the structured error target, before considering exception types.
+   A streamed 400 now fails after one attempt; streamed 429/5xx responses remain
+   count-bounded; a true no-response `HttpRequestException` still uses the
+   network-outage budget.
+1. `Invoke-CopilotTurn` routes the streaming sender through the existing wrapper
+   with `MaxRetryCount`, `RetryDelaySec`, and `NetworkOutageToleranceSec`.
+   `TimeoutSec` is unchanged because the streaming sender has no per-request
+   timeout contract.
+1. Public `RetryOn` and `RetryOnStatus` parameters were deliberately not added.
+
+Verification complete: classifier test red (`12/13`, expected), then green
+(`13/13`); routing test red (`28/29`, expected zero wrapper invocations), then
+green (`29/29`). Independent review found one Major body-read failure path; its
+guard failed red (`Expected 1, but got 2`) and passed green with status and
+disposal assertions. Review closeout passed 21/21 and scoped re-review approved
+with no open Major or Blocker. Final build: 9 tasks, 0 errors, 0 warnings,
+679/679 tests, 81.49% coverage. The user subsequently requested that this
+validated change be committed locally.
+
+One premise check exposed a separate existing gap: `Invoke-Shp` resolves its
+Session context retry controls only after `Get-ShpSessionToken`, while the token
+exchange, `/models`, and embeddings call `Invoke-ShpWithRetry` with built-in
+defaults. That propagation issue was recorded, not bundled into this change.
+
+## Superseded focus (2026-08-11)
+
 Finished the error-body work: the failed response is now handed to the caller as
 DATA, not only as text, and the streaming sender's message is bounded. Changes
 are deliberately UNCOMMITTED per the user's request. Baseline before the turn was

@@ -18,22 +18,11 @@ Chronological record of shipped changes and remaining work. Latest first.
 
 - Encrypted token storage (open decision #5) before a stable release.
 - Publish to the PowerShell Gallery (open decision #7).
-- Structured error access on the streaming path. `ErrorDetails` /
-  `TargetObject` reach only the buffered sender, so they cover
-  `Invoke-Shp -DisableStreaming`, `/responses`, `/models`, the token exchange
-  and embeddings - but NOT a streamed reply, which is the `Invoke-Shp` default.
-  `Invoke-ShpStreamRequest` still uses a plain `throw`, so a caller on the
-  default path is back to regexing the message. Ties into the streaming-path
-  retry item above: `Invoke-ShpWithRetry` classifies a bare
-  `HttpRequestException` as a connection-level outage, so routing the streaming
-  sender through it today would make a 400 retry for the full 30s budget.
-- Streaming-path retry: route Invoke-ShpStreamRequest through Invoke-ShpWithRetry
-  so the 429/5xx and 30s network-outage guarantees also cover streamed replies.
-  Note the classification hazard: Invoke-ShpWithRetry reads a bare
-  HttpRequestException as a connection-level outage, and Invoke-ShpStreamRequest
-  throws that type for ANY non-success status, so routing it through the wrapper
-  unchanged would retry a 400 for the full 30s budget. The status is now on
-  TargetObject, which is the hook that fix needs.
+- Session context propagation is incomplete outside the turn sender.
+  `Invoke-Shp` resolves retry controls only after `Get-ShpSessionToken`, while
+  the token exchange, `/models`, and embeddings invoke `Invoke-ShpWithRetry`
+  with built-in defaults. Decide whether those cmdlets need public connection
+  parameters or should consume Session context directly before changing them.
 - Conversation-history overflow is still unrecoverable. Compress-ShpChatContext
   elides TOOL RESULTS only, so a turn whose bulk is user/assistant history
   cannot be trimmed and the call simply fails. Invoke-Shp now warns and names
@@ -65,6 +54,25 @@ Chronological record of shipped changes and remaining work. Latest first.
   share `$script:ShpSessionTokenCache` / `$script:ShpHttpClient`.
 
 ## Log
+
+- 2026-08-11 - Rejected a public `Invoke-Shp -RetryOn` after verifying prompt
+  3's decision gate: no observed transient failure sits outside the built-in
+  429/5xx and no-response network-outage classes, and the motivating sweep's
+  108 permanent 400 retries had zero successes. The surviving defect was real:
+  a streamed 400 carried `TargetObject.StatusCode = 400`, but the wrapper ignored
+  it, saw `HttpRequestException`, and made two attempts under the outage budget.
+  `Invoke-ShpWithRetry` now reads structured status before exception type, and
+  `Invoke-CopilotTurn` routes streaming through the wrapper with retry count,
+  delay, and outage controls. A 400 fails once; 429/503 are count-bounded; a
+  no-status transport failure remains time-bounded. Independent review found
+  one Major edge: error-body reading could throw after headers arrived, lose the
+  known status, leak request/response resources, and replay the billable POST.
+  The sender now captures status first, disposes both resources in a nested
+  finally, and preserves the body-read failure as the status-bearing exception's
+  inner exception. Red evidence: `Expected 1, but got 2` for both the original
+  classifier defect and the review edge; focused closeout 21/21. Scoped
+  re-review approved. Final build: 9 tasks, 0 errors, 0 warnings, 679/679 tests,
+  81.49% coverage. Committed locally after the user's follow-up request.
 
 - 2026-08-11 - Closed the streaming-path gap and the two defects the sweep
   exposed. A live smoke test on the finished error-body work showed the

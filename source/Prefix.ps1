@@ -85,11 +85,12 @@ $script:DefaultMaxRetryCount = 3
 $script:DefaultRetryDelaySec = 2
 
 # Built-in wall-clock budget (seconds) for riding out a connection-level network
-# outage - a dropped connection that returns no HTTP response at all. Every
-# non-streaming HTTP call (via Invoke-ShpWithRetry) retries such a failure until
-# this many seconds have elapsed since the first one, so every cmdlet tolerates a
-# brief outage by default. Override per call (Invoke-Shp -NetworkOutageToleranceSec)
-# or for the session (Set-ShpContext -NetworkOutageToleranceSec); 0 disables it.
+# outage - a dropped connection that returns no HTTP response at all. Every HTTP
+# call routed through Invoke-ShpWithRetry, including a streamed chat request,
+# retries such a failure until this many seconds have elapsed since the first
+# one, so every cmdlet tolerates a brief outage by default. Override per call
+# (Invoke-Shp -NetworkOutageToleranceSec) or for the session
+# (Set-ShpContext -NetworkOutageToleranceSec); 0 disables it.
 $script:DefaultNetworkOutageToleranceSec = 30
 
 # Cap (characters) on how much of a failed response's body is quoted into the

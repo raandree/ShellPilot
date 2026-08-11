@@ -128,9 +128,10 @@ function Invoke-ShpWithRetry {
             $errorRecord = $_
 
             # Classify the failure. A -RetryOn predicate overrides everything and
-            # is count-bounded. Otherwise a present HTTP response is a status-code
-            # failure (retry 429/5xx by count); no response is a candidate
-            # connection-level failure (retry by wall-clock outage budget).
+            # is count-bounded. Otherwise a status carried by the exception or
+            # structured target is a response failure (retry 429/5xx by count);
+            # no status is a candidate connection-level failure (retry by the
+            # wall-clock outage budget).
             $isConnectionLevel = $false
             if ($RetryOn) {
                 $retryable = [bool](& $RetryOn $errorRecord)
@@ -139,6 +140,12 @@ function Invoke-ShpWithRetry {
                 $exn = $errorRecord.Exception
                 if ($exn -and $exn.PSObject.Properties.Match('Response').Count -gt 0 -and $exn.Response) {
                     try { $status = [int]$exn.Response.StatusCode } catch { $status = $null }
+                }
+                $target = $errorRecord.TargetObject
+                if ($null -eq $status -and $null -ne $target -and
+                    $target.PSObject.Properties.Match('StatusCode').Count -gt 0 -and
+                    $null -ne $target.StatusCode) {
+                    try { $status = [int]$target.StatusCode } catch { $status = $null }
                 }
                 if ($null -ne $status) {
                     $retryable = ($status -eq 429) -or ($status -ge 500 -and $status -le 599)

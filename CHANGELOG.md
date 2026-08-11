@@ -70,6 +70,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Streamed `Invoke-Shp` requests now use the same retry wrapper as buffered
+  requests. HTTP 429/5xx responses are bounded by `MaxRetryCount`, and a true
+  no-response transport failure uses `NetworkOutageToleranceSec`. The classifier
+  reads the streaming sender's structured `StatusCode` before its bare
+  `HttpRequestException` type, so a permanent 400 fails after one attempt instead
+  of burning the network-outage budget. If reading an error body itself fails,
+  the known status is preserved and both response and request are still disposed.
 - `Invoke-Shp -History @()` now genuinely starts from nothing. `-History` is
   documented as stateless, but an empty array is falsy and the check tested
   truthiness, so an explicitly empty history silently fell through to seeding
@@ -99,11 +106,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   by the stable `ShpHttpRequestFailed,Invoke-ShpHttpRequest` error id instead of
   by an error id that repeated the whole message. Because `ErrorDetails.Message`
   replaces the record's display text, it is capped like the exception message;
-  `TargetObject.Body` keeps the body whole. This covers every non-streaming
-  call - `Invoke-Shp -DisableStreaming`, every `/responses` turn, `/models`, the
-  token exchange and embeddings. A streamed reply, which is the `Invoke-Shp`
-  default, still fails with a plain `HttpRequestException` and no structured
-  members.
+  `TargetObject.Body` keeps the body whole. This covers every buffered call -
+  `Invoke-Shp -DisableStreaming`, every `/responses` turn, `/models`, the token
+  exchange and embeddings; streamed requests expose the same contract through
+  their sender.
 - The streaming sender no longer quotes an unbounded error body. A non-success
   status from `Invoke-ShpStreamRequest` put the service's whole response into the
   exception message, so a 5xx from an intermediate proxy could turn an entire

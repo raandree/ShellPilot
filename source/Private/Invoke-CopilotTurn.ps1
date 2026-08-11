@@ -232,7 +232,11 @@ function Invoke-CopilotTurn {
     if ($Stream) {
         $payload.stream_options = @{ include_usage = $true }
         $body = ConvertTo-ShpStableJson -InputObject $payload -Depth 10
-        $req = Invoke-ShpStreamRequest -Uri "$ApiBase/chat/completions" -Headers $Headers -Body $body
+        # Structured error detail gives the wrapper an HTTP status even though
+        # HttpRequestException carries no response, so 429/5xx stay count-bounded
+        # while a true no-response failure uses the network-outage budget.
+        $streamRequest = @{ Uri = "$ApiBase/chat/completions"; Headers = $Headers; Body = $body }
+        $req = Invoke-ShpWithRetry -MaxRetryCount $MaxRetryCount -RetryDelaySec $RetryDelaySec -NetworkOutageToleranceSec $NetworkOutageToleranceSec -ArgumentList $streamRequest -ScriptBlock { param($p) Invoke-ShpStreamRequest @p }
         try {
             $turn = Read-ShpChatStream -Reader $req.Reader -Echo:$Stream -EchoReasoning:$EchoReasoning
             $respHeaders = @{}

@@ -4,6 +4,40 @@ BeforeAll {
     Remove-Module -Name $script:moduleName -Force -ErrorAction SilentlyContinue
     Import-Module -Name $script:moduleName -Force -ErrorAction Stop
 
+    if (-not ('ShellPilot.Tests.ThrowingHttpContent' -as [type])) {
+        Add-Type -TypeDefinition @'
+using System.IO;
+using System.Net;
+using System.Net.Http;
+using System.Threading.Tasks;
+
+namespace ShellPilot.Tests
+{
+    public sealed class ThrowingHttpContent : HttpContent
+    {
+        public bool Disposed { get; private set; }
+
+        protected override Task SerializeToStreamAsync(Stream stream, TransportContext context)
+        {
+            return Task.FromException(new IOException("response body read failed"));
+        }
+
+        protected override bool TryComputeLength(out long length)
+        {
+            length = 0;
+            return false;
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            Disposed = true;
+            base.Dispose(disposing);
+        }
+    }
+}
+'@
+    }
+
     # Stand-in for the module's shared HttpClient, so the classifier can be
     # exercised against the error Invoke-ShpHttpRequest really raises rather
     # than against a hand-built exception. See Invoke-ShpHttpRequest.Tests.ps1.
@@ -13,10 +47,11 @@ BeforeAll {
             [scriptblock]$Responder
         )
 
-        $client = [pscustomobject]@{ CallCount = 0; Responder = $Responder }
+        $client = [pscustomobject]@{ CallCount = 0; Responder = $Responder; LastRequest = $null }
         $client | Add-Member -MemberType ScriptMethod -Name SendAsync -Value {
             param($request, $cancelToken)
             $this.CallCount++
+            $this.LastRequest = $request
             [System.Threading.Tasks.Task]::FromResult((& $this.Responder $request))
         }
         $client
@@ -216,6 +251,114 @@ Describe 'Invoke-ShpWithRetry' {
             $err.TargetObject.ErrorCode | Should -Be 'unsupported_api_for_model'
             $err.TargetObject.StatusCode | Should -Be 400
             $err.Exception.Response.StatusCode | Should -Be ([System.Net.HttpStatusCode]::BadRequest)
+        }
+    }
+
+    Context 'Classification of a real Invoke-ShpStreamRequest failure' {
+        AfterEach {
+            InModuleScope $script:moduleName { $script:ShpHttpClient = $null }
+        }
+
+        It 'Does not retry a 400 raised by Invoke-ShpStreamRequest' {
+            $responder = {
+                param($request)
+                $response = [System.Net.Http.HttpResponseMessage]::new([System.Net.HttpStatusCode]::BadRequest)
+                $response.Content = [System.Net.Http.StringContent]::new('{"error":{"code":"model_max_prompt_tokens_exceeded"}}', [System.Text.Encoding]::UTF8, 'application/json')
+                $response
+            }
+            $client = New-ShpFakeHttpClient -Responder $responder
+
+            $err = InModuleScope $script:moduleName -Parameters @{ Client = $client } {
+                param($Client)
+                $script:ShpHttpClient = $Client
+                $script:elapsedQueue = [System.Collections.Generic.Queue[double]]::new()
+                @(0, 31) | ForEach-Object { $script:elapsedQueue.Enqueue([double]$_) }
+                $provider = { $script:elapsedQueue.Dequeue() }
+                $options = @{ Uri = 'https://api.example/chat/completions'; Headers = @{}; Body = '{}' }
+                {
+                    Invoke-ShpWithRetry -MaxRetryCount 2 -RetryDelaySec 0 -NetworkOutageToleranceSec 30 -ElapsedProvider $provider -ArgumentList $options -ScriptBlock { param($p) Invoke-ShpStreamRequest @p }
+                } | Should -Throw -PassThru
+            }
+
+            $client.CallCount | Should -Be 1
+            $err.TargetObject.StatusCode | Should -Be 400
+        }
+
+        It 'Preserves a 400 and disposes resources when reading the error body fails' {
+            $content = [ShellPilot.Tests.ThrowingHttpContent]::new()
+            $responder = {
+                param($request)
+                $response = [System.Net.Http.HttpResponseMessage]::new([System.Net.HttpStatusCode]::BadRequest)
+                $response.Content = $content
+                $response
+            }.GetNewClosure()
+            $client = New-ShpFakeHttpClient -Responder $responder
+
+            $err = InModuleScope $script:moduleName -Parameters @{ Client = $client } {
+                param($Client)
+                $script:ShpHttpClient = $Client
+                $script:elapsedQueue = [System.Collections.Generic.Queue[double]]::new()
+                @(0, 31) | ForEach-Object { $script:elapsedQueue.Enqueue([double]$_) }
+                $provider = { $script:elapsedQueue.Dequeue() }
+                $options = @{ Uri = 'https://api.example/chat/completions'; Headers = @{}; Body = '{}' }
+                {
+                    Invoke-ShpWithRetry -MaxRetryCount 2 -RetryDelaySec 0 -NetworkOutageToleranceSec 30 -ElapsedProvider $provider -ArgumentList $options -ScriptBlock { param($p) Invoke-ShpStreamRequest @p }
+                } | Should -Throw -PassThru
+            }
+
+            $client.CallCount | Should -Be 1
+            $err.Exception | Should -BeOfType ([System.Net.Http.HttpRequestException])
+            $err.TargetObject.StatusCode | Should -Be 400
+            $content.Disposed | Should -BeTrue
+            $requestContentError = {
+                $client.LastRequest.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+            } | Should -Throw -PassThru
+            $requestContentError.Exception.InnerException |
+                Should -BeOfType ([System.ObjectDisposedException])
+        }
+
+        It 'Retries a 429 raised by Invoke-ShpStreamRequest up to MaxRetryCount' {
+            $responder = {
+                param($request)
+                $response = [System.Net.Http.HttpResponseMessage]::new([System.Net.HttpStatusCode]::TooManyRequests)
+                $response.Content = [System.Net.Http.StringContent]::new('{"error":{"message":"rate limited"}}', [System.Text.Encoding]::UTF8, 'application/json')
+                $response
+            }
+            $client = New-ShpFakeHttpClient -Responder $responder
+
+            $err = InModuleScope $script:moduleName -Parameters @{ Client = $client } {
+                param($Client)
+                $script:ShpHttpClient = $Client
+                $options = @{ Uri = 'https://api.example/chat/completions'; Headers = @{}; Body = '{}' }
+                {
+                    Invoke-ShpWithRetry -MaxRetryCount 2 -RetryDelaySec 0 -NetworkOutageToleranceSec 0 -ArgumentList $options -ScriptBlock { param($p) Invoke-ShpStreamRequest @p }
+                } | Should -Throw -PassThru
+            }
+
+            $client.CallCount | Should -Be 3
+            $err.TargetObject.StatusCode | Should -Be 429
+        }
+
+        It 'Retries a 503 raised by Invoke-ShpStreamRequest up to MaxRetryCount' {
+            $responder = {
+                param($request)
+                $response = [System.Net.Http.HttpResponseMessage]::new([System.Net.HttpStatusCode]::ServiceUnavailable)
+                $response.Content = [System.Net.Http.StringContent]::new('{"error":{"message":"temporarily unavailable"}}', [System.Text.Encoding]::UTF8, 'application/json')
+                $response
+            }
+            $client = New-ShpFakeHttpClient -Responder $responder
+
+            $err = InModuleScope $script:moduleName -Parameters @{ Client = $client } {
+                param($Client)
+                $script:ShpHttpClient = $Client
+                $options = @{ Uri = 'https://api.example/chat/completions'; Headers = @{}; Body = '{}' }
+                {
+                    Invoke-ShpWithRetry -MaxRetryCount 2 -RetryDelaySec 0 -NetworkOutageToleranceSec 0 -ArgumentList $options -ScriptBlock { param($p) Invoke-ShpStreamRequest @p }
+                } | Should -Throw -PassThru
+            }
+
+            $client.CallCount | Should -Be 3
+            $err.TargetObject.StatusCode | Should -Be 503
         }
     }
 }

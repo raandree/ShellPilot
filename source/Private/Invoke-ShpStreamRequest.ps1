@@ -81,10 +81,16 @@ function Invoke-ShpStreamRequest {
     }
 
     if (-not $response.IsSuccessStatusCode) {
-        $errorBody = $response.Content.ReadAsStringAsync().GetAwaiter().GetResult()
         $status = [int]$response.StatusCode
-        $response.Dispose()
-        $request.Dispose()
+        $errorBody = $null
+        $bodyReadError = $null
+        try {
+            $errorBody = $response.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+        } catch {
+            $bodyReadError = $_
+        } finally {
+            try { $response.Dispose() } finally { $request.Dispose() }
+        }
 
         $rawBody = if ($null -eq $errorBody) { '' } else { $errorBody }
         # Bound the quoted body exactly as the buffered sender does: this
@@ -92,7 +98,11 @@ function Invoke-ShpStreamRequest {
         # and an unbounded proxy error page becomes the whole message. The
         # wording is deliberately NOT converged with the buffered sender's - the
         # URI and status are recoverable there and only textual here.
-        $detail = $rawBody
+        $detail = if ($bodyReadError) {
+            "Unable to read response body: $($bodyReadError.Exception.Message)"
+        } else {
+            $rawBody
+        }
         if ($detail.Length -gt $script:MaxHttpErrorBodyChars) {
             $originalLen = $detail.Length
             $detail = $detail.Substring(0, $script:MaxHttpErrorBodyChars) + " ...[truncated, original $originalLen chars]"
@@ -100,13 +110,20 @@ function Invoke-ShpStreamRequest {
 
         # Streaming is the Invoke-Shp default, so this is the path a caller hits
         # most: it gets the same structured members as the buffered sender. The
-        # exception TYPE stays HttpRequestException - Invoke-ShpWithRetry reads it
-        # as a connection-level outage, and changing it would silently rewrite
-        # that classification the moment this sender is routed through the retry
-        # wrapper. TargetObject is also the only programmatic home the status has
-        # here, because this exception carries no response.
+        # exception TYPE stays HttpRequestException to preserve caller-visible
+        # behaviour. Invoke-ShpWithRetry reads TargetObject.StatusCode before the
+        # exception type, so this remains a status-code failure; a transport
+        # exception thrown above has no structured status and remains a
+        # connection-level outage. TargetObject is the only programmatic home the
+        # status has here, because this exception carries no response.
+        $errorMessage = "Copilot streaming request to '{0}' failed with status {1}: {2}" -f $Uri, $status, $detail
+        $exception = if ($bodyReadError) {
+            [System.Net.Http.HttpRequestException]::new($errorMessage, $bodyReadError.Exception)
+        } else {
+            [System.Net.Http.HttpRequestException]::new($errorMessage)
+        }
         $errorRecord = [System.Management.Automation.ErrorRecord]::new(
-            [System.Net.Http.HttpRequestException]::new(("Copilot streaming request to '{0}' failed with status {1}: {2}" -f $Uri, $status, $detail)),
+            $exception,
             'ShpStreamRequestFailed',
             [System.Management.Automation.ErrorCategory]::ProtocolError,
             (New-ShpHttpErrorDetail -StatusCode $status -Body $rawBody -RequestUri $Uri))

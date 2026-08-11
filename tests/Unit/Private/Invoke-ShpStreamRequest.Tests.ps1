@@ -122,9 +122,9 @@ Describe 'Invoke-ShpStreamRequest' {
             $err.TargetObject.Param      | Should -Be 'store'
             $err.TargetObject.RequestUri | Should -Be 'https://api.example/chat/completions'
             $err.FullyQualifiedErrorId   | Should -Be 'ShpStreamRequestFailed,Invoke-ShpStreamRequest'
-            # The exception type must not change: Invoke-ShpWithRetry classifies
-            # HttpRequestException as a connection-level outage, and the streaming
-            # sender is not routed through it yet.
+            # The exception type remains caller-visible. Invoke-ShpWithRetry reads
+            # TargetObject.StatusCode before the type, while a transport exception
+            # with no structured status remains a connection-level outage.
             $err.Exception | Should -BeOfType ([System.Net.Http.HttpRequestException])
         }
     }

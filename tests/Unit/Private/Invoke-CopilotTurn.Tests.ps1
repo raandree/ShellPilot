@@ -213,8 +213,9 @@ Describe 'Invoke-CopilotTurn' {
                     Client   = $null
                 }
             }
+            Mock Invoke-ShpWithRetry { & $ScriptBlock @ArgumentList }
 
-            $turn = Invoke-CopilotTurn -Mode 'chat' -Model 'm' -ApiBase 'https://api.example' -Headers @{} -Conversation @(@{ role = 'user'; content = 'hi' }) -Stream -MaxOutputTokens 64000
+            $turn = Invoke-CopilotTurn -Mode 'chat' -Model 'm' -ApiBase 'https://api.example' -Headers @{} -Conversation @(@{ role = 'user'; content = 'hi' }) -Stream -MaxOutputTokens 64000 -MaxRetryCount 4 -RetryDelaySec 0 -NetworkOutageToleranceSec 17
             $turn.Content          | Should -Be 'Hi there'
             $turn.FinishReason     | Should -Be 'stop'
             $turn.PromptTokens     | Should -Be 4
@@ -227,6 +228,9 @@ Describe 'Invoke-CopilotTurn' {
             $body.max_tokens                   | Should -Be 64000
 
             Should -Invoke Invoke-ShpStreamRequest -Times 1 -Exactly
+            Should -Invoke Invoke-ShpWithRetry -Times 1 -Exactly -ParameterFilter {
+                $MaxRetryCount -eq 4 -and $RetryDelaySec -eq 0 -and $NetworkOutageToleranceSec -eq 17
+            }
         }
     }
 

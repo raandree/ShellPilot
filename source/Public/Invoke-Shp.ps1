@@ -310,15 +310,17 @@ function Invoke-Shp {
         and then the built-in default.
 
     .PARAMETER MaxRetryCount
-        Maximum retries on a transient (429/5xx) HTTP failure. Falls back to the
-        session context and then the built-in default.
+        Maximum retries on a transient (429/5xx) HTTP failure, for buffered and
+        streamed requests. Falls back to the session context and then the
+        built-in default.
 
     .PARAMETER NetworkOutageToleranceSec
         Wall-clock budget, in seconds, for riding out a connection-level network
         outage - a dropped connection that returns no HTTP response. The call is
         retried until this many seconds have elapsed since the first connection
-        failure, then the error is rethrown. Falls back to the session context
-        and then the built-in default (30). 0 disables outage tolerance.
+        failure, then the error is rethrown. Applies to buffered and streamed
+        requests. Falls back to the session context and then the built-in
+        default (30). 0 disables outage tolerance.
 
     .PARAMETER TokenPath
         Path to the cached OAuth token file.

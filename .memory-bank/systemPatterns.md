@@ -189,16 +189,19 @@ model simply reports Priced false.
 
 ### HTTP retry and connection options
 
-Every non-streaming HTTP call (chat, responses, /models, the token exchange,
-and embeddings) is wrapped by the private Invoke-ShpWithRetry, which retries a
-transient 429/5xx with exponential backoff. The request options are passed to
-the wrapper via -ArgumentList and consumed by a param() script block - NOT via
-.GetNewClosure(), because a closure makes Pester mocks of Invoke-WebRequest /
-Invoke-RestMethod miss and the call hits the network. Connection options
-(timeout, retry count and delay, and an opt-in ApiBase/ApiKey alternative
-backend) resolve with the same precedence as the model defaults: explicit
-parameter > session context (Set-ShpContext, $script:ShpContext) > built-in
-default.
+Every HTTP call, including a streamed chat request, is wrapped by the private
+Invoke-ShpWithRetry, which retries a transient 429/5xx with exponential
+backoff. A status comes from the exception's response when available, then from
+the structured error target; only an error with no status is considered for the
+network-outage budget. This ordering matters because the streaming sender's
+HttpRequestException carries no response while its TargetObject carries the
+HTTP status. The request options are passed to the wrapper via -ArgumentList and
+consumed by a param() script block - NOT via .GetNewClosure(), because a closure
+makes Pester mocks of Invoke-WebRequest / Invoke-RestMethod miss and the call
+hits the network. Connection options (timeout, retry count and delay, and an
+opt-in ApiBase/ApiKey alternative backend) resolve with the same precedence as
+the model defaults: explicit parameter > Session context (Set-ShpContext,
+$script:ShpContext) > built-in default.
 
 ### Connection and session-token reuse (per-Turn latency)
 
@@ -256,15 +259,20 @@ streaming is the Invoke-Shp default, so it is the path a caller actually hits.
 - FullyQualifiedErrorId becomes ShpHttpRequestFailed / ShpStreamRequestFailed
   plus the function name.
 
-Neither exception TYPE changes, and that is load-bearing in two different ways.
-The buffered exception keeps its live response, so the 429/5xx and
-network-outage classification is untouched - asserted by a test that drives the
-real sender through the retry wrapper. The streaming sender keeps throwing
-HttpRequestException, which Invoke-ShpWithRetry reads as a connection-level
-outage; swapping it would silently rewrite that classification the moment the
-streaming sender is routed through the wrapper. On that path TargetObject is
-also the only programmatic home the status has, because the exception carries no
-response.
+Neither exception TYPE changes. The buffered exception keeps its live response,
+and the streaming sender keeps throwing HttpRequestException. The wrapper first
+reads an HTTP status from the response or structured TargetObject, so a streamed
+400 fails fast and a streamed 429/5xx is count-bounded; only a transport
+HttpRequestException with no structured status is a connection-level outage.
+On the streaming path TargetObject remains the only programmatic home the
+status has, because the exception carries no response.
+
+Capture a failed streaming response's status BEFORE reading its body, and
+dispose the response and request in a nested finally. Body reading is another
+failure boundary: if it throws, preserve that exception as the status-bearing
+HttpRequestException's inner exception rather than letting it replace the known
+HTTP refusal. Otherwise the wrapper sees a no-status I/O failure, reclassifies
+it as a network outage, replays a billable POST, and leaks both resources.
 
 The API-shape fallbacks in Invoke-Shp still match substrings rather than the
 structured code, deliberately: the store rejection's code is unsupported_value,

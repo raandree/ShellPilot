@@ -14,10 +14,11 @@ connection.
   NetworkOutageToleranceSec wall-clock budget (default 30), separate from the
   429/5xx status-code retries that MaxRetryCount bounds. Tune it per call with
   Invoke-Shp -NetworkOutageToleranceSec or for the session with
-  Set-ShpContext -NetworkOutageToleranceSec (0 disables it). Because every
-  non-streaming HTTP call already routes through the one wrapper, the guarantee
-  holds for every cmdlet. Streaming requests are still not retried (as in spec
-  005).
+  Set-ShpContext -NetworkOutageToleranceSec (0 disables it). Because every HTTP
+  call routes through the one wrapper, the guarantee holds for every cmdlet,
+  including a streamed Invoke-Shp turn. A streamed HTTP refusal carries its
+  status on the structured error target and is classified before the bare
+  HttpRequestException type, so a 400 is not mistaken for a network outage.
 
 ## Problem
 
@@ -64,17 +65,18 @@ because a single connection was dropped for a few seconds.
   - -TimeoutSec bounds a single request (how long one attempt may hang).
   - -MaxRetryCount bounds status-code (429/5xx) retries.
   - -NetworkOutageToleranceSec bounds the connection-failure retry window.
-- Because every non-streaming HTTP call already routes through
-  Invoke-ShpWithRetry (chat, responses, /models, the token exchange, and
-  embeddings), extending the one classifier makes the guarantee hold for every
-  cmdlet at once - the "all cmdlets" requirement. The remaining gap is the
-  streaming path, which spec 005 already records as not yet retried; routing
-  Invoke-ShpStreamRequest through the same wrapper is the follow-up needed for
-  full coverage.
+- Every HTTP call routes through Invoke-ShpWithRetry (streamed and buffered
+  chat, responses, /models, the token exchange, and embeddings), so the
+  guarantee holds for every cmdlet. The classifier checks a structured target's
+  StatusCode before treating a bare HttpRequestException as a no-response
+  outage; this keeps streamed HTTP refusals on the status-code policy while a
+  transport failure still uses the wall-clock budget.
 
 Hook points: the retryable-error classifier and the loop in
-[Invoke-ShpWithRetry](../source/Private/Invoke-ShpWithRetry.ps1); the
-module-scope defaults in [Prefix.ps1](../source/Prefix.ps1)
+[Invoke-ShpWithRetry](../source/Private/Invoke-ShpWithRetry.ps1), the streamed
+request routing in
+[Invoke-CopilotTurn](../source/Private/Invoke-CopilotTurn.ps1), the module-scope
+defaults in [Prefix.ps1](../source/Prefix.ps1)
 ($script:ShpContext, the new $script:DefaultNetworkOutageToleranceSec); and the
 parameter plus resolution in [Invoke-Shp](../source/Public/Invoke-Shp.ps1) and
 the context field in [Set-ShpContext](../source/Public/Set-ShpContext.ps1)
@@ -87,8 +89,11 @@ Unit-tested with a mocked HTTP layer and live-validated. The Pester suite
 exception (one with no Response) and asserts the call survives when the outage
 is shorter than the budget and rethrows when it is longer; the time bound is
 driven with RetryDelaySec 0 and an injectable -ElapsedProvider so it exercises
-without real waiting. tests/Unit/Public/Invoke-Shp.tests.ps1 asserts the
-explicit > context > default resolution of -NetworkOutageToleranceSec. As in
+without real waiting. The same suite drives the real streaming sender and
+asserts that a structured 400 is attempted once while a 429 is count-bounded;
+tests/Unit/Private/Invoke-CopilotTurn.Tests.ps1 proves a streamed turn enters the
+wrapper. tests/Unit/Public/Invoke-Shp.tests.ps1 asserts the explicit > context >
+default resolution of -NetworkOutageToleranceSec. As in
 spec 005, the request options reach the wrapper via -ArgumentList, never a
 closure, so the mocks still intercept. Live-validated end to end against a real
 DNS failure: with a 2-second budget the call retried the real Invoke-WebRequest
