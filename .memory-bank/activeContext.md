@@ -11,28 +11,29 @@ series existed for.
 
 54 calls (18 queries x 3 reps), claude-haiku-4.5, 80 seconds, $1.1623,
 **0 failures**. Session chat held at 2 entries throughout, so the harness's
-`Clear-ShpChat` isolation worked.
+`Clear-ShpChat` isolation worked - which was the point being tested.
 
-Result: **train 10/10 (100%), validation 7/8 (88%)** - 0 false positives, 1
-false negative. The previously reported 100%/100% WAS contaminated, exactly as
-suspected. The single validation failure is `pos-07` at 0.33 (1 of 3):
+**The SCORE from that run is WITHDRAWN** (corrected later the same day). It was
+`-SkillRoot`-ed at the CopilotAtelier repository root, and the SKILL.md search is
+recursive, so the built copies under `output/` put every skill in the catalogue
+twice - 88 entries for 44 skills. The judge was choosing from a corrupted menu.
+Cost was double for the same reason. Superseded by paired runs against the
+correct 44-skill catalogue:
 
-> `kannst du aus dieser Anleitung einen wiederverwendbaren Skill bauen?`
+| | train | validation | false negatives |
+| --- | --- | --- | --- |
+| `-Temperature 0` | 10/10 (100%) | 6/8 (75%) | `pos-07`, `pos-09` |
+| unpinned | 10/10 (100%) | 5/8 (62%) | `pos-06`, `pos-07`, `pos-09` |
 
-A **German-language** query. Replies were `skill-creator`, `none`, `none`. That
-is a real, actionable finding about `skill-creator`'s English-only trigger
-keywords - and it was invisible under the contaminated run. Caveat worth
-carrying: the harness does not pass `-Temperature`, so 0.33 still sits inside
-sampling noise. Re-run that one query at `-Temperature 0` before treating it as
-settled.
+So 13 points of validation was sampler noise, and the German `pos-07` query is a
+REAL gap: 0 of 3 both pinned and unpinned. The isolation finding stands; only
+the score was wrong.
 
-Two things about the harness, neither fixed (it is another repository and it is
-clean at `e348625`):
+Two things about the harness, both since addressed in that repository:
 
 - It writes with `[System.IO.File]`, which resolves relative paths against the
-  PROCESS cwd, not PowerShell's location. `-WorkDir .\work` therefore wrote to
-  wherever the shell happened to start. Absolute paths are the workaround.
-- It has no `-Temperature`, so the measurement cannot yet be pinned.
+  PROCESS cwd, not PowerShell's location. Absolute paths are the workaround.
+- It had no `-Temperature`, so the measurement could not be pinned. Added.
 
 ### 2. Spec 016 - failed calls are now recorded
 

@@ -88,17 +88,17 @@ Chronological record of shipped changes and remaining work. Latest first.
 - 2026-08-11 - Re-ran the CopilotAtelier trigger eval sweep cleanly, the payoff
   the whole external prompt series was built for. 54 calls (18 queries x 3
   reps), claude-haiku-4.5, 80 seconds, $1.1623, **0 failures**; the session chat
-  stayed at 2 entries, so the harness isolation held. Result: **train 10/10
-  (100%), validation 7/8 (88%)**, 0 false positives, 1 false negative. The
-  earlier 100%/100% was indeed contaminated. The single failure is `pos-07` at
-  0.33 - `kannst du aus dieser Anleitung einen wiederverwendbaren Skill bauen?`,
-  a GERMAN query, answered `skill-creator` / `none` / `none` - which points at
-  English-only trigger keywords in that skill's description. Not settled though:
-  the harness passes no `-Temperature`, so 0.33 is still inside sampling noise.
-  Two harness observations, neither fixed because it is another repository and
-  clean: it writes with `[System.IO.File]` so relative `-WorkDir` resolves
-  against the process cwd rather than PowerShell's location (absolute paths are
-  the workaround), and it exposes no `-Temperature` to pin the measurement.
+  stayed at 2 entries, so the harness isolation held - which was the point being
+  tested, and it stands. The SCORE from that run is **withdrawn**: `-SkillRoot`
+  pointed at the CopilotAtelier repository root and the SKILL.md search is
+  recursive, so the built copies under `output/` duplicated every skill into an
+  88-entry catalogue. Superseded the same day by paired runs against the correct
+  44-skill catalogue - pinned at `-Temperature 0`: train 10/10, validation 6/8;
+  unpinned: train 10/10, validation 5/8. 13 points of validation was sampler
+  noise, and the German `pos-07` query is a real gap at 0 of 3 both ways. Two
+  harness observations, both since fixed in that repository: it writes with
+  `[System.IO.File]` so a relative `-WorkDir` resolves against the process cwd
+  rather than PowerShell's location, and it exposed no `-Temperature`.
 
 - 2026-08-11 - Added `Invoke-ShpBatch`: many independent prompts run
   concurrently under `-ThrottleLimit` (default 4), one `ShellPilot.BatchResult`
