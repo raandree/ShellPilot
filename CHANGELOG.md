@@ -9,6 +9,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `Get-ShpUsage` now records calls that **failed**, not only the ones that
+  succeeded. A failed call carries `Success` `$false` and the failure message on
+  `Error`, plus whatever spend its completed round-trips had already incurred.
+  Both halves of that matter: a success rate computed from the old log was 100%
+  by construction, because only successes were in it; and a turn is a loop of
+  billable round-trips, so a turn refused on its third round-trip really was
+  charged for the first two and reported nothing. Only a call that reached the
+  API is recorded - a parameter combination rejected before any request was
+  never a call. `Invoke-ShpBatch` inherits this, so a failed batch item now
+  shows up in `Get-ShpUsage` too.
+  See [specs/016-failed-call-usage-accounting.md](specs/016-failed-call-usage-accounting.md).
+- `Get-ShpUsage -Summary` gained `Succeeded`, `Failed`, `TotalDurationMs`,
+  `MeanDurationMs`, `FirstCall`, `LastCall` and `ElapsedMs`, and the `ByModel`
+  breakdown gained `Succeeded`, `Failed` and `DurationMs`. `ElapsedMs` is
+  wall-clock between the first and last call and is deliberately *not* the sum
+  of `DurationMs`: under `Invoke-ShpBatch` the calls overlap, so the sum can far
+  exceed the elapsed time and the ratio between them is the speed-up the batch
+  bought.
+- `Get-ShpUsage -Since` and `-Before` filter by time window, so one phase of a
+  run can be summarised without clearing the log between phases. Both apply to
+  the records and to `-Summary`. There is deliberately no `-GroupBy`:
+  `Get-ShpUsage` returns the records, so `Group-Object` already groups by any
+  field, and `ByModel` is pre-aggregated only because that split is the common
+  case.
+
 - `Invoke-ShpBatch` runs many independent prompts concurrently and returns one
   `ShellPilot.BatchResult` per input, carrying the answer, that item's usage and
   cost, and - when the call failed - the error. `-ThrottleLimit` bounds how many
@@ -93,6 +118,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`Get-ShpUsage -Summary`'s `Calls` and `CostUSD` will report different
+  numbers for a session in which something failed.** `Calls` now counts calls
+  *attempted*; it previously counted records, and only successes were recorded,
+  so it meant "calls that succeeded". Read `Succeeded` for the old number.
+  `CostUSD` now includes the spend of turns that failed after one or more
+  billable round-trips, which was previously dropped. Both are corrections
+  rather than regressions - that money was really spent, and those calls were
+  really made - but a caller reading `Calls` as a success count must move to
+  `Succeeded`. Nothing changes for a session in which nothing failed.
 - The HTTP retry backoff is now jittered: half the exponential delay plus a
   random amount up to the other half. A purely deterministic backoff
   synchronises under concurrency - several `Invoke-ShpBatch` workers refused by

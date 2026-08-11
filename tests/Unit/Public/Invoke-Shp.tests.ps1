@@ -1372,4 +1372,87 @@ Describe 'Invoke-Shp approval, budget and pricing tiers' {
             }
         }
     }
+
+    Context 'Usage accounting for a failed turn' {
+        BeforeEach {
+            InModuleScope $script:moduleName {
+                $script:ShpUsageLog = [System.Collections.Generic.List[pscustomobject]]::new()
+                $script:ShpChat = @()
+                Mock Get-ShpSessionToken { [pscustomobject]@{ token = 't'; expires_at = 0; endpoints = [pscustomobject]@{ api = 'https://api.example' } } }
+            }
+        }
+
+        AfterEach {
+            InModuleScope $script:moduleName {
+                $script:ShpUsageLog = [System.Collections.Generic.List[pscustomobject]]::new()
+                $script:ShpChat = @()
+            }
+        }
+
+        # Before this, a failed call left no trace at all - so any success rate
+        # computed from the usage log was 100% by construction, and any spend the
+        # turn had already incurred was silently dropped.
+        It 'Records a turn that failed, marked unsuccessful and carrying the message' {
+            InModuleScope $script:moduleName {
+                # Wording deliberately matches none of the API-shape fallback
+                # patterns, so the turn really does fail rather than retrying.
+                Mock Invoke-ShpHttpRequest { throw 'backend refused this call' }
+
+                { Invoke-Shp -Prompt 'p' -Model 'claude-haiku-4.5' -DisableStreaming -DisableBrowsing -DisableFileAccess -DisableTerminal -DisableUserPrompts -ErrorAction Stop } |
+                    Should -Throw
+
+                $u = @(Get-ShpUsage)
+                $u.Count      | Should -Be 1
+                $u[0].Success | Should -BeFalse
+                $u[0].Error   | Should -BeLike '*backend refused this call*'
+                $u[0].Prompt  | Should -Be 'p'
+            }
+        }
+
+        It 'Reports the failed call through the summary as attempted but not succeeded' {
+            InModuleScope $script:moduleName {
+                Mock Invoke-ShpHttpRequest { throw 'backend refused this call' }
+
+                { Invoke-Shp -Prompt 'p' -Model 'claude-haiku-4.5' -DisableStreaming -DisableBrowsing -DisableFileAccess -DisableTerminal -DisableUserPrompts -ErrorAction Stop } |
+                    Should -Throw
+
+                $s = Get-ShpUsage -Summary
+                $s.Calls     | Should -Be 1
+                $s.Succeeded | Should -Be 0
+                $s.Failed    | Should -Be 1
+            }
+        }
+
+        # The log records calls that reached the API. A parameter combination
+        # rejected before any request was never a call, so it is not one.
+        It 'Does not record a parameter rejection that never reached the API' {
+            InModuleScope $script:moduleName {
+                { Invoke-Shp -Prompt 'p' -UseServerSideState -ResponseFormat 'json_object' -ErrorAction Stop } |
+                    Should -Throw
+
+                @(Get-ShpUsage).Count | Should -Be 0
+            }
+        }
+
+        It 'Still records a successful turn as successful' {
+            InModuleScope $script:moduleName {
+                Mock Invoke-CopilotTurn {
+                    [pscustomobject]@{
+                        Mode = 'chat'; Content = 'ok'; FinishReason = 'stop'; ToolCalls = @()
+                        AssistantMessage = [pscustomobject]@{ content = 'ok' }; Reasoning = ''
+                        PromptTokens = 7; CompletionTokens = 3; CachedTokens = 0; CacheWriteTokens = 0
+                        ModelName = 'claude-haiku-4.5'; CopilotUsage = $null; Raw = @{}; Response = [pscustomobject]@{ Headers = @{} }
+                    }
+                }
+
+                $null = Invoke-Shp -Prompt 'p' -Model 'claude-haiku-4.5' -DisableBrowsing -DisableFileAccess -DisableTerminal -DisableUserPrompts
+
+                $u = @(Get-ShpUsage)
+                $u.Count           | Should -Be 1
+                $u[0].Success      | Should -BeTrue
+                $u[0].Error        | Should -BeNullOrEmpty
+                $u[0].TotalTokens  | Should -Be 10
+            }
+        }
+    }
 }

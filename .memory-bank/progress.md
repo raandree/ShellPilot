@@ -7,10 +7,10 @@ Chronological record of shipped changes and remaining work. Latest first.
 - ShellPilot is a Sampler-built PowerShell module (cmdlet prefix Shp) with 23
   public cmdlets, Pester 5 tests, QA gates (TestQuality, helpQuality),
   GitVersion, and a GitHub Actions CI. main builds at 0.2.0-preview0001.
-- All 13 migration specs (002-014) are implemented, plus 015 (batch execution);
-  the backend-dependent ones are live-verified. Server-side state (011) is
-  implemented but the Copilot proxy does not support it, so it falls back to
-  client-side history.
+- All 13 migration specs (002-014) are implemented, plus 015 (batch execution)
+  and 016 (failed-call usage accounting); the backend-dependent ones are
+  live-verified. Server-side state (011) is implemented but the Copilot proxy
+  does not support it, so it falls back to client-side history.
 - The full Pester run crashes locally on a .NET 10 native access violation
   (see techContext); changes are verified out-of-band and the full suite runs
   on CI.
@@ -61,6 +61,44 @@ Chronological record of shipped changes and remaining work. Latest first.
   `Invoke-ShpBatch` covers the concurrent case.
 
 ## Log
+
+- 2026-08-11 - Recorded failed calls in the usage log (spec 016). Measured
+  before the fix: one failed `Invoke-Shp` call left **0** usage records and two
+  failed `Invoke-ShpBatch` items left **0**, because the append was the last
+  statement of the function with no `finally`. That was wrong twice - a success
+  rate from the log was 100% by construction, and a Turn is a loop of billable
+  round-trips, so a turn refused on its third really was charged for the first
+  two and reported nothing. `Invoke-Shp` has exactly three throws; the parameter
+  rejection at 1005 precedes any request and is deliberately not recorded, and
+  the two spend-bearing ones take a one-line call each - no `try`/`finally`
+  around 400 lines of loop. New private `Add-ShpUsageRecord` is now the only
+  writer of `$script:ShpUsageLog` and prices the turn from the raw round-trip
+  accumulator, so the success and failure paths cannot disagree about cost.
+  Records gained `Success` and `Error`; `-Summary` gained `Succeeded`, `Failed`,
+  `TotalDurationMs`, `MeanDurationMs`, `FirstCall`, `LastCall` and `ElapsedMs`,
+  and `-Since` / `-Before` filter both shapes. `Calls` deliberately changed
+  meaning to "attempted" and `CostUSD` now includes failed-turn spend - both
+  corrections, both called out in the changelog; `Succeeded` restores the old
+  `Calls`. No `-GroupBy`: `Group-Object` already does it. `Invoke-ShpBatch`
+  inherited the fix with no code change and is guarded by a test. Final:
+  795/795 tests (from 762), 82.69% coverage, 16 tasks / 0 errors / 0 warnings.
+  Live: `Calls=3 Succeeded=1 Failed=2`, and `-Since` isolates the batch phase to
+  `Calls=2 Succeeded=0 Failed=2`.
+
+- 2026-08-11 - Re-ran the CopilotAtelier trigger eval sweep cleanly, the payoff
+  the whole external prompt series was built for. 54 calls (18 queries x 3
+  reps), claude-haiku-4.5, 80 seconds, $1.1623, **0 failures**; the session chat
+  stayed at 2 entries, so the harness isolation held. Result: **train 10/10
+  (100%), validation 7/8 (88%)**, 0 false positives, 1 false negative. The
+  earlier 100%/100% was indeed contaminated. The single failure is `pos-07` at
+  0.33 - `kannst du aus dieser Anleitung einen wiederverwendbaren Skill bauen?`,
+  a GERMAN query, answered `skill-creator` / `none` / `none` - which points at
+  English-only trigger keywords in that skill's description. Not settled though:
+  the harness passes no `-Temperature`, so 0.33 is still inside sampling noise.
+  Two harness observations, neither fixed because it is another repository and
+  clean: it writes with `[System.IO.File]` so relative `-WorkDir` resolves
+  against the process cwd rather than PowerShell's location (absolute paths are
+  the workaround), and it exposes no `-Temperature` to pin the measurement.
 
 - 2026-08-11 - Added `Invoke-ShpBatch`: many independent prompts run
   concurrently under `-ThrottleLimit` (default 4), one `ShellPilot.BatchResult`

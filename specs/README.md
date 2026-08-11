@@ -37,6 +37,7 @@ its design, and its source hook points.
 - [Network-outage tolerance](013-network-outage-tolerance.md)
 - [Sampling parameters (temperature, top-p, seed)](014-sampling-parameters.md)
 - [Batched, throttled prompt execution](015-batch-execution.md)
+- [Failed-call usage accounting](016-failed-call-usage-accounting.md)
 
 ### Tier 2
 

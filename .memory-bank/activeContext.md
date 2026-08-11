@@ -4,12 +4,92 @@ Current working focus for ShellPilot. Overwrite this file as the focus shifts.
 
 ## Focus
 
-Shipped `Invoke-ShpBatch`, prompt 4's ask: run many independent prompts
-concurrently and get one result object per input. Baseline before the turn was
-a clean worktree at `78db130` on `main`, two commits ahead of `origin/main`,
-679/679 tests green and 81.49% coverage. Final state: 762/762 tests, 81.69%
-coverage, build 16 tasks / 0 errors / 0 warnings. Committed on `main` at the
-user's explicit request; NOT pushed.
+Two things shipped this turn, and the second was the payoff the whole prompt
+series existed for.
+
+### 1. The trigger eval sweep was finally re-run clean
+
+54 calls (18 queries x 3 reps), claude-haiku-4.5, 80 seconds, $1.1623,
+**0 failures**. Session chat held at 2 entries throughout, so the harness's
+`Clear-ShpChat` isolation worked.
+
+Result: **train 10/10 (100%), validation 7/8 (88%)** - 0 false positives, 1
+false negative. The previously reported 100%/100% WAS contaminated, exactly as
+suspected. The single validation failure is `pos-07` at 0.33 (1 of 3):
+
+> `kannst du aus dieser Anleitung einen wiederverwendbaren Skill bauen?`
+
+A **German-language** query. Replies were `skill-creator`, `none`, `none`. That
+is a real, actionable finding about `skill-creator`'s English-only trigger
+keywords - and it was invisible under the contaminated run. Caveat worth
+carrying: the harness does not pass `-Temperature`, so 0.33 still sits inside
+sampling noise. Re-run that one query at `-Temperature 0` before treating it as
+settled.
+
+Two things about the harness, neither fixed (it is another repository and it is
+clean at `e348625`):
+
+- It writes with `[System.IO.File]`, which resolves relative paths against the
+  PROCESS cwd, not PowerShell's location. `-WorkDir .\work` therefore wrote to
+  wherever the shell happened to start. Absolute paths are the workaround.
+- It has no `-Temperature`, so the measurement cannot yet be pinned.
+
+### 2. Spec 016 - failed calls are now recorded
+
+Prompt 5's premise was mostly disproved (`Get-ShpUsage -Summary` already
+existed), but its "check what a failed call records" instruction found the real
+defect. Measured before the fix: one failed `Invoke-Shp` call left **0** usage
+records, two failed `Invoke-ShpBatch` items left **0**.
+
+That is two failures at once, and the second is the serious one:
+
+- A success rate computed from the log was **100% by construction**, because
+  its denominator was "calls that succeeded".
+- A Turn is a loop of billable round-trips, so a turn refused on its third
+  round-trip really was charged for the first two - and reported nothing.
+  `CostUSD` understated real spend, and the more tool-calling a workload does
+  the worse it got.
+
+The fix needed no `try`/`finally` around 400 lines of turn loop. `Invoke-Shp`
+has exactly THREE throws, verified by search: parameter validation at 1005
+(before any request - deliberately not recorded), `Exceeded MaxToolIterations`
+at 1042, and the rethrow at 1095. The last two are the spend-bearing ones and
+take a one-line call each. Contract: **the log records every turn that issued at
+least one API request**.
+
+One builder, `Add-ShpUsageRecord`, is now the only writer of
+`$script:ShpUsageLog`. It takes the raw per-round-trip accumulator and prices it
+itself rather than being handed totals, so success and failure cannot disagree
+about what a call cost - the same one-definition rule as `New-ShpHttpErrorDetail`
+and `New-ShpBatchResult`.
+
+**`Calls` deliberately changed meaning** from "calls that succeeded" to "calls
+attempted", and `CostUSD` now includes failed-turn spend. Keeping `Calls` as a
+success count and adding `FailedCalls` was rejected: it would preserve a number
+by enshrining the exact confusion being removed. `Succeeded` restores the old
+value under a name that says what it is. Called out in the changelog.
+
+Also added: `Succeeded`, `Failed`, `TotalDurationMs`, `MeanDurationMs`,
+`FirstCall`, `LastCall`, `ElapsedMs` on the summary (and `Succeeded`/`Failed`/
+`DurationMs` on `ByModel`), plus `-Since` / `-Before`. `ElapsedMs` is wall-clock
+and deliberately NOT the sum of `DurationMs` - under `Invoke-ShpBatch` the calls
+overlap, so the ratio between the two IS the speed-up the batch bought.
+
+**No `-GroupBy`**, deliberately. `Get-ShpUsage` returns the records, so
+`Group-Object` already groups by any field better than a bespoke parameter
+would; `ByModel` is pre-aggregated only because that split is the common case.
+
+`Invoke-ShpBatch` needed no change - `Invoke-ShpBatchItem` reads the worker log
+after its try/catch, so it inherited the fix. Guarded by a test, because it is a
+behaviour nobody wrote.
+
+Verified: red 20/26, then green. Full build 795/795 tests (from 762), 82.69%
+coverage, 16 tasks / 0 errors / 0 warnings. Live: a failed call and two failed
+batch items now appear in the log with `OK False`; summary reports
+`Calls=3 Succeeded=1 Failed=2`; `-Since` isolates the batch phase to exactly
+`Calls=2 Succeeded=0 Failed=2`.
+
+## Superseded focus (2026-08-11) - batch execution
 
 The A-vs-B decision the prompt left open was answered A (a new cmdlet) rather
 than B (pipeline binding on `Invoke-Shp -Prompt`), on four grounds that are

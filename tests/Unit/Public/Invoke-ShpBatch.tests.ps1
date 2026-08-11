@@ -371,5 +371,29 @@ Describe 'Invoke-ShpBatch' {
             # Its presence afterwards can therefore only come from the merge.
             @(Get-ShpUsage | Where-Object { $_.Prompt -eq 'alpha' }).Count | Should -Be 1
         }
+
+        # Invoke-ShpBatchItem reads the worker's usage log after its try/catch,
+        # so once Invoke-Shp records failed turns the batch inherits it with no
+        # code change. Guard that, because it is a behaviour nobody wrote.
+        It 'Should carry a FAILED item usage record home as well' {
+            InModuleScope $script:moduleName {
+                Mock Invoke-Shp {
+                    $null = Add-ShpUsageRecord -RequestedModel 'test-model' -Prompt $Prompt -ErrorMessage 'backend refused'
+                    throw 'backend refused'
+                }
+            }
+
+            $result = @(Invoke-ShpBatch -Prompt 'gamma' -WarningAction SilentlyContinue)
+
+            $result[0].Success | Should -BeFalse
+            # Asserting the failed record ARRIVED rather than a count: in-process
+            # the worker shares the caller's log, so the record is both left
+            # there by the worker and merged home by the batch. Only the merge
+            # happens for real, in a separate runspace.
+            $failed = @(Get-ShpUsage | Where-Object { -not $_.Success })
+            $failed.Count      | Should -BeGreaterThan 0
+            $failed[0].Prompt  | Should -Be 'gamma'
+            $failed[0].Error   | Should -BeLike '*backend refused*'
+        }
     }
 }

@@ -282,6 +282,36 @@ structured code, deliberately: the store rejection's code is unsupported_value,
 so branching on the code would break the very fallback it looks like it would
 tighten.
 
+### The usage log records attempts, not just successes
+
+One writer, `Add-ShpUsageRecord`, appends every call to `$script:ShpUsageLog` -
+the turn that returned an answer and the turn that threw. It is handed the raw
+per-round-trip accumulator and prices the turn itself, so the two paths cannot
+drift about what a call cost.
+
+Recording only successes was wrong twice. A success rate computed from the log
+was 100% by construction, because the denominator was "calls that succeeded".
+And a Turn is a loop of BILLABLE round-trips, so a turn refused on its third
+round-trip really was charged for the first two; reporting those as free
+understated spend, and worsened the more tool-calling a workload did.
+
+The contract is drawn at the API boundary: the log records every turn that
+issued at least one request. A parameter combination rejected before any request
+was never a call and is not recorded. That boundary is why the fix is two
+one-line calls at the two spend-bearing throws rather than a `try`/`finally`
+around the whole turn loop - `Invoke-Shp` has exactly three throws, and only two
+of them can follow a billed request.
+
+`Calls` on the summary therefore counts ATTEMPTS; `Succeeded` is the count that
+used to be called `Calls`. Preserving the old number under the old name was
+rejected as enshrining the confusion. `ElapsedMs` is wall-clock between first
+and last call and is deliberately not the sum of `DurationMs`: under
+`Invoke-ShpBatch` calls overlap, so the ratio of the two is the speed-up.
+
+No `-GroupBy` parameter exists, deliberately: `Get-ShpUsage` returns the
+records, so `Group-Object` already groups by any field. `ByModel` is
+pre-aggregated only because that split is the common case.
+
 ### Concurrency lives outside Invoke-Shp, never inside it
 
 Invoke-ShpBatch runs independent prompts in a pooled set of parallel runspaces.

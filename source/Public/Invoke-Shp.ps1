@@ -1039,7 +1039,13 @@ function Invoke-Shp {
 
     while ($true) {
         $iteration++
-        if ($iteration -gt $MaxToolIterations) { throw "Exceeded MaxToolIterations ($MaxToolIterations)." }
+        if ($iteration -gt $MaxToolIterations) {
+            # Every completed iteration was a billable round-trip, so record what
+            # this turn already spent before abandoning it.
+            $limitError = "Exceeded MaxToolIterations ($MaxToolIterations)."
+            $null = Add-ShpUsageRecord -RequestedModel $Model -ServerModel $(if ($turn) { $turn.ModelName } else { $null }) -Prompt $Prompt -RoundTrip $roundTrips.ToArray() -ContextTokens $peakPromptTokens -Iterations ($iteration - 1) -ToolCallCount (@($toolCallsExecuted).Count) -DurationMs ([int]$sw.Elapsed.TotalMilliseconds) -ErrorMessage $limitError
+            throw $limitError
+        }
         if ($ShowThinking) { Write-Host ("`n=== iteration {0} ({1}) ===" -f $iteration, $mode) -ForegroundColor DarkCyan }
         try {
             $conv = if ($mode -eq 'responses') { $respInput } else { $chatMessages }
@@ -1092,6 +1098,10 @@ function Invoke-Shp {
                 Write-Verbose "Model '$Model' rejected on /chat/completions - switching to /responses."
                 $apiShapeSwitched = $true; $mode='responses'; $iteration--; continue
             }
+            # No fallback applied, so this turn is over. Record it before
+            # rethrowing: a Turn is a loop of billable round-trips, and the ones
+            # completed before this failure were charged for.
+            $null = Add-ShpUsageRecord -RequestedModel $Model -ServerModel $(if ($turn) { $turn.ModelName } else { $null }) -Prompt $Prompt -RoundTrip $roundTrips.ToArray() -ContextTokens $peakPromptTokens -Iterations ($iteration - 1) -ToolCallCount (@($toolCallsExecuted).Count) -DurationMs ([int]$sw.Elapsed.TotalMilliseconds) -ErrorMessage $errText
             throw
         }
 
@@ -1406,27 +1416,9 @@ function Invoke-Shp {
 
     # Record this call in the per-session usage log (every call, including
     # stateless -History calls) so the session's token and credit spend can be
-    # analysed afterwards via Get-ShpUsage.
-    $null = $script:ShpUsageLog.Add([pscustomobject]@{
-        PSTypeName       = 'ShellPilot.UsageRecord'
-        Timestamp        = [DateTime]::UtcNow
-        Model            = $turn.ModelName
-        RequestedModel   = $Model
-        Prompt           = $Prompt
-        PromptTokens     = $totalPrompt
-        CompletionTokens = $totalCompletion
-        TotalTokens      = $totalPrompt + $totalCompletion
-        CachedTokens     = $totalCached
-        ContextTokens    = $peakPromptTokens
-        CostUSD          = $costUSD
-        Credits          = $credits
-        Priced           = $price.Priced
-        PriceTableKey    = $priceKey
-        Iterations       = $iteration
-        ToolCalls        = @($toolCallsExecuted).Count
-        FinishReason     = $turn.FinishReason
-        DurationMs       = [int]$sw.Elapsed.TotalMilliseconds
-    })
+    # analysed afterwards via Get-ShpUsage. A failed turn is recorded too, at
+    # the throws above, through this same builder.
+    $null = Add-ShpUsageRecord -RequestedModel $Model -ServerModel $turn.ModelName -Prompt $Prompt -RoundTrip $roundTrips.ToArray() -ContextTokens $peakPromptTokens -Iterations $iteration -ToolCallCount (@($toolCallsExecuted).Count) -FinishReason $turn.FinishReason -DurationMs ([int]$sw.Elapsed.TotalMilliseconds)
 
     $result
 }

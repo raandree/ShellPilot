@@ -142,6 +142,7 @@
         <AutoSize />
         <TableHeaders>
           <TableColumnHeader><Label>Time</Label></TableColumnHeader>
+          <TableColumnHeader><Label>OK</Label></TableColumnHeader>
           <TableColumnHeader><Label>Model</Label></TableColumnHeader>
           <TableColumnHeader><Label>Prompt</Label><Alignment>Right</Alignment></TableColumnHeader>
           <TableColumnHeader><Label>Completion</Label><Alignment>Right</Alignment></TableColumnHeader>
@@ -159,6 +160,7 @@
               <TableColumnItem>
                 <ScriptBlock>if ($_.Timestamp -is [datetime]) { $_.Timestamp.ToString('HH:mm:ss') } else { $_.Timestamp }</ScriptBlock>
               </TableColumnItem>
+              <TableColumnItem><PropertyName>Success</PropertyName></TableColumnItem>
               <TableColumnItem><PropertyName>Model</PropertyName></TableColumnItem>
               <TableColumnItem><PropertyName>PromptTokens</PropertyName></TableColumnItem>
               <TableColumnItem><PropertyName>CompletionTokens</PropertyName></TableColumnItem>
@@ -186,11 +188,16 @@
           <ListEntry>
             <ListItems>
               <ListItem><PropertyName>Calls</PropertyName></ListItem>
+              <ListItem><PropertyName>Succeeded</PropertyName></ListItem>
+              <ListItem><PropertyName>Failed</PropertyName></ListItem>
               <ListItem><PropertyName>PromptTokens</PropertyName></ListItem>
               <ListItem><PropertyName>CompletionTokens</PropertyName></ListItem>
               <ListItem><PropertyName>TotalTokens</PropertyName></ListItem>
               <ListItem><PropertyName>CostUSD</PropertyName></ListItem>
               <ListItem><PropertyName>Credits</PropertyName></ListItem>
+              <ListItem><PropertyName>TotalDurationMs</PropertyName></ListItem>
+              <ListItem><PropertyName>MeanDurationMs</PropertyName></ListItem>
+              <ListItem><PropertyName>ElapsedMs</PropertyName></ListItem>
             </ListItems>
           </ListEntry>
         </ListEntries>
@@ -208,6 +215,8 @@
         <TableHeaders>
           <TableColumnHeader><Label>Model</Label></TableColumnHeader>
           <TableColumnHeader><Label>Calls</Label><Alignment>Right</Alignment></TableColumnHeader>
+          <TableColumnHeader><Label>OK</Label><Alignment>Right</Alignment></TableColumnHeader>
+          <TableColumnHeader><Label>Failed</Label><Alignment>Right</Alignment></TableColumnHeader>
           <TableColumnHeader><Label>Prompt</Label><Alignment>Right</Alignment></TableColumnHeader>
           <TableColumnHeader><Label>Completion</Label><Alignment>Right</Alignment></TableColumnHeader>
           <TableColumnHeader><Label>Total</Label><Alignment>Right</Alignment></TableColumnHeader>
@@ -219,6 +228,8 @@
             <TableColumnItems>
               <TableColumnItem><PropertyName>Model</PropertyName></TableColumnItem>
               <TableColumnItem><PropertyName>Calls</PropertyName></TableColumnItem>
+              <TableColumnItem><PropertyName>Succeeded</PropertyName></TableColumnItem>
+              <TableColumnItem><PropertyName>Failed</PropertyName></TableColumnItem>
               <TableColumnItem><PropertyName>PromptTokens</PropertyName></TableColumnItem>
               <TableColumnItem><PropertyName>CompletionTokens</PropertyName></TableColumnItem>
               <TableColumnItem><PropertyName>TotalTokens</PropertyName></TableColumnItem>
