@@ -147,6 +147,37 @@ before each chat turn and elides the OLDEST tool-role message content to a short
 marker (keeping role + tool_call_id so the sequence stays valid) once the estimate
 exceeds $script:DefaultMaxContextWindowTokens (900000; 0 disables).
 
+### A child process is given argv, never a joined command line
+
+Anything handed to another process goes through ProcessStartInfo.ArgumentList
+(one element per argument), never through a string that something else will
+re-parse. Start-Process -ArgumentList is the trap: it JOINS the array with
+spaces into a single command line, and the native argument parser then consumes
+every unescaped double quote, so the child runs a different command - usually
+without erroring. Invoke-RunCommandTool shipped that defect and it failed
+plausibly, at exit code 0, while the returned envelope echoed the command that
+was SENT rather than the one that ran.
+
+Two rules follow. Pass argv, so quoting is the runtime's job (correct CRT
+escaping on Windows; on Unix argv reaches exec with no quoting layer at all).
+And make the round-trip testable: a test that asserts only on final stdout
+passes while the command is still being rewritten, so the child must echo back
+what it actually received ([Environment]::GetCommandLineArgs()).
+
+The cost of leaving Start-Process is that redirection becomes ours. There is no
+file-handle redirection on ProcessStartInfo, so stdout/stderr are pipes copied
+into the temp files with CopyToAsync on the BASE streams - asynchronous, so
+neither pipe can deadlock the other, and byte-level, so a line-based read cannot
+reshape the output. The post-exit drain is bounded (10s) because a detached
+grandchild that inherited the pipe holds it open indefinitely.
+
+Corollary that is deliberately NOT acted on: the child inherits the host's
+entire environment, so every $env: credential is visible to any command the
+model chooses to run. ProcessStartInfo.Environment makes a precise fix possible,
+but -UseNewEnvironment-style blunting would drop GIT_*, proxy settings and
+deliberate PATH edits, so it stays a maintainer decision rather than a silent
+change.
+
 ### Progressive disclosure for skills
 
 Get-ShpSkillCatalog injects only skill names and descriptions; the model

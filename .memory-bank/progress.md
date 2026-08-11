@@ -62,6 +62,39 @@ Chronological record of shipped changes and remaining work. Latest first.
 
 ## Log
 
+- 2026-08-11 - Fixed `run_command` running a different command than the one it
+  was given. Measured against `HEAD`: `Write-Output "double quoted works"` ran
+  as three bare arguments (stdout `double`/`quoted`/`works`, exit **0**),
+  `$env:X = "turn1"; Write-Output "set to $env:X"` returned exit **0** with
+  stdout `set`/`to` and stderr *"The term 'turn1' is not recognized"*, and a
+  `--pretty=format:"%h %s"` argument arrived at the grandchild as two argv
+  elements (`--pretty=format:%h||%s`). Cause: the command line was one element
+  of `Start-Process -ArgumentList`, PowerShell joins that array into a single
+  string, and the native argument parser then consumes every unescaped `"`.
+  Worst part was that it failed *plausibly* - exit 0, output-shaped output - and
+  the envelope echoed the command SENT, so every transcript and `CommandsRun`
+  entry recorded a command that never ran.
+  Chose `System.Diagnostics.ProcessStartInfo` + `ArgumentList` over
+  `-EncodedCommand` and over a temp `.ps1`: the runtime does the per-argument
+  quoting correctly (and on Unix passes argv to `exec` with no quoting layer at
+  all), while the process command line stays readable for a user watching Task
+  Manager and does not trip EDR heuristics that treat base64 PowerShell as a
+  signal - which matters for a tool whose whole premise is auditable
+  unsandboxed terminal access. Base64 would also have inflated the command
+  ~2.67x against the 32,767-char Windows command-line limit.
+  Cost accepted: this function now owns redirection. `ProcessStartInfo` cannot
+  redirect to a file handle the way `Start-Process` does, so stdout/stderr are
+  pipes copied to the same temp files with `CopyToAsync` on the *base* streams -
+  asynchronous so neither pipe can deadlock the other, and byte-level so the
+  output is not reshaped by a line-based read. The drain after exit is bounded
+  at 10s because a detached grandchild that inherited the pipe would otherwise
+  hold it open forever.
+  `-UseNewEnvironment` was **not** changed: verified byte-identical inheritance
+  before and after (a parent `$env:` secret is still visible to the child, and a
+  caller's `PSModulePath` customisation still reaches it). Left as a maintainer
+  decision - it is a breaking behaviour change, and the blunt switch would drop
+  `GIT_*`, proxy settings and deliberate `PATH` edits that commands need.
+  Suite 795 -> 812, 0 failures, coverage 82.69% -> 83.02%, analyzer clean.
 - 2026-08-11 - Recorded failed calls in the usage log (spec 016). Measured
   before the fix: one failed `Invoke-Shp` call left **0** usage records and two
   failed `Invoke-ShpBatch` items left **0**, because the append was the last

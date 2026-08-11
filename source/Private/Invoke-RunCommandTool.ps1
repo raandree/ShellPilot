@@ -16,9 +16,15 @@ function Invoke-RunCommandTool {
         Standard output and standard error are each capped at MaxChars characters
         so a chatty command cannot overflow the model context window.
 
+        The command is handed to the child unaltered - no escaping, no quoting
+        layer - so the string reported back in the envelope is exactly the string
+        that ran. The child also inherits the host process environment, including
+        any credential kept in $env:.
+
     .PARAMETER Command
         The command line to execute. Interpreted by PowerShell 7, so it may use
-        pipelines, native executables, and PowerShell cmdlets.
+        pipelines, native executables, and PowerShell cmdlets. Passed through
+        verbatim, quotes included.
 
     .PARAMETER WorkingDirectory
         Directory to run the command in. Defaults to the session's current
@@ -65,6 +71,9 @@ function Invoke-RunCommandTool {
 
     $outFile = [System.IO.Path]::GetTempFileName()
     $errFile = [System.IO.Path]::GetTempFileName()
+    $outStream = $null
+    $errStream = $null
+    $proc = $null
     try {
         # Run inside a child PowerShell 7 process so the model gets a real shell
         # (pipelines, native commands) without mutating the host session state.
@@ -78,10 +87,43 @@ function Invoke-RunCommandTool {
             $WorkingDirectory = (Resolve-Path -LiteralPath $WorkingDirectory -ErrorAction Stop).ProviderPath
         }
 
-        $proc = Start-Process -FilePath $exe -ArgumentList @('-NoProfile', '-NonInteractive', '-Command', $Command) -WorkingDirectory $WorkingDirectory -RedirectStandardOutput $outFile -RedirectStandardError $errFile -NoNewWindow -PassThru
+        # ArgumentList quotes each element the way the platform requires, so the
+        # child receives the command line byte for byte. Start-Process -ArgumentList
+        # instead joins the array into a single string, and the native argument
+        # parser then consumes every unescaped double quote before the child sees it.
+        $psi = [System.Diagnostics.ProcessStartInfo]::new()
+        $psi.FileName = $exe
+        $psi.WorkingDirectory = $WorkingDirectory
+        $psi.UseShellExecute = $false
+        $psi.CreateNoWindow = $true
+        $psi.RedirectStandardOutput = $true
+        $psi.RedirectStandardError = $true
+        foreach ($argument in '-NoProfile', '-NonInteractive', '-Command', $Command) { $psi.ArgumentList.Add($argument) }
 
-        if (-not $proc.WaitForExit($TimeoutSeconds * 1000)) {
+        $outStream = [System.IO.File]::Create($outFile)
+        $errStream = [System.IO.File]::Create($errFile)
+        $proc = [System.Diagnostics.Process]::Start($psi)
+
+        # Copy both pipes concurrently: blocking on one while the child fills the
+        # other deadlocks, and a line-based read would not preserve the bytes the
+        # command emitted.
+        $copyTasks = @(
+            $proc.StandardOutput.BaseStream.CopyToAsync($outStream)
+            $proc.StandardError.BaseStream.CopyToAsync($errStream)
+        )
+
+        $exited = $proc.WaitForExit($TimeoutSeconds * 1000)
+        if (-not $exited) {
             try { $proc.Kill($true) } catch { Write-Verbose "Could not kill timed-out process: $($_.Exception.Message)" }
+        }
+
+        # Drain what is still in flight before the files are read. Bounded, because
+        # a detached grandchild that inherited the pipe holds it open indefinitely.
+        try { $null = [System.Threading.Tasks.Task]::WaitAll($copyTasks, 10000) } catch { Write-Verbose "Output copy did not finish: $($_.Exception.Message)" }
+        $outStream.Dispose(); $outStream = $null
+        $errStream.Dispose(); $errStream = $null
+
+        if (-not $exited) {
             return ([pscustomobject]@{
                     command  = $Command
                     timedOut = $true
@@ -113,6 +155,9 @@ function Invoke-RunCommandTool {
     } catch {
         return (@{ command = $Command; error = $_.Exception.Message } | ConvertTo-Json -Compress)
     } finally {
+        if ($outStream) { $outStream.Dispose() }
+        if ($errStream) { $errStream.Dispose() }
+        if ($proc) { $proc.Dispose() }
         Remove-Item -LiteralPath $outFile, $errFile -Force -ErrorAction SilentlyContinue
     }
 }

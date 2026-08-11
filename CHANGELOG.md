@@ -136,6 +136,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`run_command` now runs the command it was given.** Every unescaped double
+  quote was being stripped before the child shell saw it, so the model's
+  `Write-Output "set to $env:X"` ran as four bare arguments and
+  `--pretty=format:"%h %s"` reached git as two. The command line was handed to
+  `Start-Process -ArgumentList` as one array element; PowerShell joins that array
+  into a single string, and the native argument parser then eats the quotes. It
+  failed *plausibly* - the first example returned exit code 0 with output that
+  looks like output - and the returned envelope echoed the command that was sent
+  rather than the one that ran, so every transcript and `CommandsRun` entry
+  recorded a command that never executed. The child is now started through
+  `System.Diagnostics.ProcessStartInfo` with an `ArgumentList`, which quotes each
+  element the way the platform requires, so the command is passed through
+  verbatim and what the envelope reports is what ran. Single-quoted commands,
+  the JSON envelope, `MaxChars` capping, the timeout envelope, the process-tree
+  kill, the default working directory and the `workingDirectory` override are all
+  unchanged, as is the environment the child inherits.
 - Streamed `Invoke-Shp` requests now use the same retry wrapper as buffered
   requests. HTTP 429/5xx responses are bounded by `MaxRetryCount`, and a true
   no-response transport failure uses `NetworkOutageToleranceSec`. The classifier

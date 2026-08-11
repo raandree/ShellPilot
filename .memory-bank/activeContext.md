@@ -4,7 +4,75 @@ Current working focus for ShellPilot. Overwrite this file as the focus shifts.
 
 ## Focus
 
-Two things shipped this turn, and the second was the payoff the whole prompt
+`run_command` was silently rewriting the model's command before running it, and
+that blocked publishing. Fixed, with the argument-passing layer removed rather
+than patched.
+
+Measured against `HEAD` before touching anything, calling the private function
+directly:
+
+| Sent | Actually ran | Observed |
+| --- | --- | --- |
+| `Write-Output 'single quoted works'` | unchanged | exit 0, correct |
+| `Write-Output "double quoted works"` | quotes gone | exit **0**, stdout `double`/`quoted`/`works` |
+| `$env:X = "turn1"; Write-Output "set to $env:X"` | quotes gone | exit **0**, stdout `set`/`to`, stderr *'turn1' is not recognized* |
+| `git … --pretty=format:"%h %s"` | two arguments | exit 1, *ambiguous argument* |
+| `… -File echo.ps1 --pretty=format:"%h %s"` | two argv elements | `--pretty=format:%h||%s` |
+
+Cause: the command was one element of `Start-Process -ArgumentList`. PowerShell
+joins that array into a single command-line string and the native argument
+parser then eats every unescaped `"`. The dangerous part is not that it broke,
+it is that it broke at exit code 0 with output-shaped output, while the returned
+envelope echoed the command SENT - so `CommandsRun`, every log line, and every UI
+rendering them recorded a command that never executed.
+
+**Approach: `System.Diagnostics.ProcessStartInfo` + `ArgumentList`**, chosen over
+the two alternatives on grounds specific to this product:
+
+- `-EncodedCommand` is provably exact and would have been a one-line diff, but it
+  makes the process command line opaque. For a tool documented as *unsandboxed
+  terminal access*, a user watching Task Manager losing the ability to see what
+  the agent is running is a real loss, and endpoint-security products treat
+  base64 PowerShell as a signal. It also inflates the command ~2.67x against the
+  32,767-char Windows limit, and long commands with JSON payloads are exactly the
+  case that motivated the fix.
+- A temp `.ps1` + `-File` changes `$PSCommandPath` / `$MyInvocation` inside the
+  command, which a model-written script may read.
+- `ArgumentList` makes quoting the runtime's job: correct CRT-rule escaping on
+  Windows, and on Unix argv goes to `exec` with no quoting layer at all.
+
+**Cost accepted:** this function now owns redirection. `ProcessStartInfo` has no
+file-handle redirection, so stdout/stderr are pipes copied into the same temp
+files via `CopyToAsync` on the **base** streams - asynchronous, so neither pipe
+can deadlock the other, and byte-level, so a line-based read cannot reshape the
+output. The post-exit drain is bounded at 10s: a detached grandchild that
+inherited the pipe would otherwise hold it open forever. `Start-Process` never
+had that problem because it handed the child real file handles.
+
+**The environment question (S3) is NOT changed, deliberately.** Verified
+byte-identical before and after: a parent `$env:` secret is still visible to
+every command the model runs, and a caller's `PSModulePath` customisation still
+reaches the child. `-UseNewEnvironment` is the blunt instrument - it starts from
+the default user/machine environment and would drop `GIT_*`, proxy settings and
+deliberate `PATH` edits that commands legitimately need. The precise version is
+now available (`ProcessStartInfo` exposes `Environment`), but choosing an
+allow-list or deny-list is a breaking behaviour change and belongs to the
+maintainer, not to this fix.
+
+Tests were written red first and assert on **what the child received** - the
+grandchild echoes its raw argv - not only on final stdout, because a
+stdout-only test passes while the command is still being rewritten. One trap
+found while writing them: `pwsh -File script.ps1 --pretty=format:"%h %s"` splits
+that into two `$args` elements *by itself*, independently of this tool, so the
+test reads `[Environment]::GetCommandLineArgs()` instead.
+
+Verified: 9 of 20 red before, 20 of 20 green after; full suite 795 -> 812, 0
+failures; coverage 82.69% -> 83.02%; `Invoke-ScriptAnalyzer` clean on both
+changed files; build 9 tasks / 0 errors / 0 warnings.
+
+## Superseded focus (2026-08-11) - eval sweep and failed-call accounting
+
+Two things shipped that turn, and the second was the payoff the whole prompt
 series existed for.
 
 ### 1. The trigger eval sweep was finally re-run clean
