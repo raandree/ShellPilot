@@ -73,6 +73,7 @@ $script:ShpContext = @{
     MaxRetryCount             = $null
     RetryDelaySec             = $null
     NetworkOutageToleranceSec = $null
+    MaxContextWindowTokens    = $null
     ApiBase                   = $null
     ApiKey                    = $null
 }

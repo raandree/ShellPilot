@@ -33,6 +33,7 @@ function Clear-ShpContext {
         $script:ShpContext.MaxRetryCount = $null
         $script:ShpContext.RetryDelaySec = $null
         $script:ShpContext.NetworkOutageToleranceSec = $null
+        $script:ShpContext.MaxContextWindowTokens    = $null
         $script:ShpContext.ApiBase       = $null
         $script:ShpContext.ApiKey        = $null
     }

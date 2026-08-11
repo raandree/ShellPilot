@@ -4,84 +4,193 @@ Current working focus for ShellPilot. Overwrite this file as the focus shifts.
 
 ## Focus
 
+Finished the error-body work: the failed response is now handed to the caller as
+DATA, not only as text, and the streaming sender's message is bounded. Changes
+are deliberately UNCOMMITTED per the user's request. Baseline before the turn was
+`b35d404` / `v0.4.0-preview0004`, clean worktree, 645 tests green.
+
+The measurement came first and it overturned the premise the follow-on work was
+resting on. An unattended eval sweep of 54 calls through `Invoke-Shp` had hit 16
+HTTP 400s that "then succeeded on retry with an identical request body", cause
+undiagnosed, and a `-RetryOn` passthrough was being designed on top of that.
+
+Rerun with instrumentation (same 54 prompts from the harness's own Prepare mode,
+same model, same isolation switches, plus two extra retries per call):
+
+- 108 failed attempts, ALL HTTP 400, ALL one code:
+  `model_max_prompt_tokens_exceeded`, `prompt token count of ~176,375 exceeds
+  the limit of 136,000`.
+- Calls 1-18 succeeded, calls 19-54 never did. A clean monotonic cutover, not a
+  scatter.
+- ZERO retries of a byte-identical request ever succeeded - 0 of 108.
+- Control run, identical in every way except `Clear-ShpChat` before each call:
+  54 of 54 succeeded.
+
+So it was never rate limiting, model routing, or anything per-model. `Invoke-Shp
+-Prompt` seeds from and writes back to the module-scoped session conversation
+($script:ShpChat), so a caller looping in ONE process accumulates every prompt
+and reply; at call 19 the accumulated conversation crossed claude-haiku-4.5's
+136k window and every later call was refused. It "succeeded on retry" because
+the operator re-ran the harness in a FRESH process where $script:ShpChat starts
+empty - the retried body was not identical, it was two orders of magnitude
+smaller. A failed call never writes back, which is why the reported token count
+then stays pinned (176371-176384, the spread being only the per-query prompt).
+
+Two consequences worth carrying forward. No retry policy could have helped, so
+`-RetryOn` must not be justified by this evidence. And ShellPilot's own context
+guard did not catch it: `$script:DefaultMaxContextWindowTokens` is 900000, which
+is 6.6x claude-haiku-4.5's real 136000 window, so `Compress-ShpChatContext` never
+fired. Filed under "What is left" rather than fixed here.
+
+Shipped this turn:
+
+1. `Invoke-ShpHttpRequest` raises a hand-built `ErrorRecord` via
+   `$PSCmdlet.ThrowTerminatingError()` instead of `throw <exception>`.
+   `ErrorDetails.Message` now carries the response body the way
+   `Invoke-RestMethod` does, and `TargetObject` carries a
+   `ShellPilot.HttpErrorDetail` (`StatusCode`, `ErrorCode`, `Param`, `Message`,
+   raw `Body`, `RequestUri`). `Invoke-Shp` line 1033 has always opened its catch
+   with `$_.ErrorDetails.Message` - a member the module never populated, so that
+   line had never once returned a value.
+2. `Param` is carried because the code alone is not sufficient, which the probes
+   proved: a rejected `store` comes back as code `unsupported_value` with param
+   `store`.
+3. `Invoke-ShpStreamRequest` bounds its quoted body with the same
+   `$script:MaxHttpErrorBodyChars` and marker. Wording deliberately unchanged -
+   that exception carries no response, so its URI and status exist only in text.
+
+Verified rather than assumed, by probe before writing code:
+
+- `ErrorDetails` and `TargetObject` really were null on the raised error, and the
+  `FullyQualifiedErrorId` was the ENTIRE exception message (an artefact of
+  `throw <exception>`). It is now `ShpHttpRequestFailed,Invoke-ShpHttpRequest`.
+- `ThrowTerminatingError` keeps the same exception object and its live
+  `HttpResponseMessage`, and both `ErrorDetails` and `TargetObject` survive
+  `Invoke-ShpWithRetry`'s bare `throw` on the give-up path. The classifier
+  expression `$exn.Response.StatusCode` still resolves to 400. Proven twice: in
+  a standalone semantics probe and by a new test that drives the real sender
+  through the wrapper.
+
+`ErrorDetails.Message` is bounded like the exception message because it REPLACES
+the record's display text; `TargetObject.Body` keeps the body whole, and the
+`code` is parsed from the whole body, so truncation can never hide it.
+
+SCOPE, verified live on the final build: the structured members are now on BOTH
+senders, so they cover the `Invoke-Shp` default (streaming) as well as
+`-DisableStreaming`, every `/responses` turn, `/models`, the token exchange and
+embeddings. Same refusal, both ways:
+
+- default (streaming): `HttpRequestException`, `HTTP 400 model_not_supported
+  (param model) - The requested model is not supported.`
+- `-DisableStreaming`: `HttpResponseException`, same detail object
+
+That was NOT true when the work first landed. Streaming was left out because
+prompt 2b fenced `Invoke-ShpStreamRequest` to "bound it, leave its wording
+alone", and a live smoke test then showed the fenced path was the DEFAULT one -
+so the ask's whole premise ("a script that wants to branch on code has to regex
+an exception string") was still true for the common case. Extending it touches
+no wording and gives the status a programmatic home for the first time, because
+`HttpRequestException` carries no response.
+
+The exception TYPE on the streaming path is deliberately unchanged.
+`Invoke-ShpWithRetry` reads a bare `HttpRequestException` as a connection-level
+outage, so swapping it would silently rewrite that classification the moment the
+streaming sender is routed through the retry wrapper - which is still an open
+item. `TargetObject.StatusCode` is the hook that work now has.
+
+Both senders build the detail through one private helper,
+`New-ShpHttpErrorDetail`, so the `ShellPilot.HttpErrorDetail` contract has a
+single definition.
+
+Also shipped this turn, both found while acting on the sweep:
+
+- The context guard is now controllable. `Invoke-Shp -MaxContextWindowTokens`
+  and `Set-ShpContext -MaxContextWindowTokens` resolve with the usual
+  precedence; the built-in 900000 is unchanged, so no existing call moves. It
+  was never any model's real window (claude-haiku-4.5 is 136000), so the guard
+  simply never fired. A `model_max_prompt_tokens_exceeded` reply now also emits
+  a warning naming the real cause and the two remedies - the guard cannot rescue
+  that failure, because it elides TOOL RESULTS and the overflow is conversation
+  history.
+- `-History @()` now genuinely starts from nothing. It is documented as
+  stateless, but an empty array is falsy, so the truthiness check fell through
+  to seeding from the session chat - the exact opposite of the request, and the
+  same "binding, not truthiness" class of bug the repository already documents
+  as a pattern. Verified live: a `-History @()` call did not know a word planted
+  in the session conversation, and left that conversation untouched.
+
+The consuming harness was fixed too, in the other repository and uncommitted:
+`V:\Git\CopilotAtelier\Skills\agent-evals\scripts\run-trigger-evals.ps1` now
+calls `Clear-ShpChat` before every judge call. Verified without spending
+anything by shadowing `Invoke-Shp` with a stub that simulates the accumulation:
+stub self-check proves accumulation is observable (0, 2), and all 54 judge calls
+then start from an empty conversation. Second-order finding worth carrying: the
+judge was never a fresh context for calls 2-18 either, so the 100%/100% trigger
+scores in that repository's handoff were measured under contamination and need
+re-running.
+
+Redaction question CLOSED with evidence, not with a policy. The earlier probe
+only covered credentials; the real worry was that the request body always carries
+the user's prompt and the whole conversation. Eleven probes against the live
+endpoint, each with a canary GUID planted in the request body, across three
+different error producers:
+
+| Probe | Status / code | Echoed request content |
+| --- | --- | --- |
+| unknown model, canary in prompt | 400 `model_not_supported` | no |
+| malformed JSON, canary inside | 400 `invalid_request_body` | no |
+| `messages` a string not an array | 400 `invalid_request_body` | no |
+| unknown parameter named after the canary | 200 (ignored) | no |
+| `temperature: 99` | 400 `invalid_request_body` | no |
+| content-type `text/plain` | 200 - the MODEL answered | not an error body |
+| 404 unknown path (edge) | 404 `404 page not found` | no |
+| GET on /chat/completions | 405, empty body | no |
+| oversized prompt, 460,008 tokens of canary | 400 `model_max_prompt_tokens_exceeded` | no |
+| `store: true` on /responses | 400 `unsupported_value`, param `store` | no |
+| reasoning summary on /responses | 400 `unsupported_api_for_model` | no |
+
+No reachable failure echoed request content. The single canary hit was an HTTP
+200: the gateway ignored the wrong content type, the model answered, and the
+answer quoted the canary - a completion, not an error message. The most
+convincing negative is the oversized-prompt case: 460,008 tokens of planted text
+produced a 122-character error that quotes only counts. No redaction policy was
+written and no spec was opened; 015 stays free.
+
+The four API-shape fallback patterns in `Invoke-Shp` were deliberately LEFT
+loose, and the probes are why. Preferring the structured code would BREAK the
+`store` fallback outright - the real rejection is code `unsupported_value`, and
+only `param` names the field. The one case that could not be measured is a pure
+reasoning-summary rejection (gpt-4.1 has no /responses API at all, so that probe
+returned `unsupported_api_for_model` instead). Tightening on the strength of one
+measured case and one unmeasured one would be the same guesswork this turn just
+spent a sweep to avoid. `Param` is now on the record, so a later tightening is
+cheap once that body is observed.
+
+## Preceding change (2026-08-11)
+
 Surfaced the HTTP error response body in `Invoke-ShpHttpRequest`, the buffered
-sender. Changes are deliberately UNCOMMITTED per the user's request.
+sender. Committed as `b35d404`, tagged `v0.4.0-preview0004`.
 
 Trigger: the defect recorded (and left unfixed) by the preceding sampling turn.
 The sender read the body of a failed response and then threw it away, raising
 `HttpResponseException` with only `Response status code does not indicate
 success: 400 (Bad Request).`
 
-Two failures, and the second one is the expensive one. The caller could not tell
-what the service objected to - `Resolve-ShpError` sends
-`$ErrorRecord.Exception.Message` to the model and had nothing to explain. And it
-silently disabled all four API-shape fallbacks in `Invoke-Shp`, which build
-`$errText` from the exception message and match it for `store`,
-`unsupported_api_for_model`, `invalid_request_body` and `reasoning` / `summary`.
-None of those strings can appear in the old message, so on the buffered path
-every fallback was dead code.
+That cost twice. `Resolve-ShpError` had nothing to explain, and all four
+API-shape fallbacks in `Invoke-Shp` were dead code on the buffered path, because
+none of the strings they match could appear in the old message. The service's
+explanation is now quoted after the status line as `Response body: ...`, bounded
+by `$script:MaxHttpErrorBodyChars` (2000) with the usual truncation marker; an
+empty body leaves the message byte-identical. `Invoke-Shp -Model gpt-5.5
+-DisableStreaming` went from failing on a bare 400 to falling back to
+`/responses`. One hazard had to be closed with it: both shape fallbacks rewind
+the iteration counter, so a service refusing BOTH shapes with the same code
+bounced a turn forever (12 of 12 hops on a capped fake transport); an
+`$apiShapeSwitched` flag now allows one shape change per turn.
 
-Shipped this turn:
+The full record of that turn is in `progress.md`.
 
-1. The service's explanation is quoted after the status line as
-   `Response body: ...`. An empty body leaves the message byte-identical to
-   before, so nothing new appears where there is nothing to say.
-1. Bounded by the new `$script:MaxHttpErrorBodyChars` (2000) with the module's
-   existing `...[truncated, original N chars]` marker - a 5xx from an
-   intermediate proxy can be a whole HTML page.
-1. The exception type and the live `HttpResponseMessage` it carries are
-   unchanged, so `Invoke-ShpWithRetry` still classifies by
-   `$_.Exception.Response.StatusCode`.
-
-Deliberately NOT converged with `Invoke-ShpStreamRequest`'s message shape.
-That sender throws `HttpRequestException`, which carries no response, so its
-URI and status exist only in the text (`Copilot streaming request to '<uri>'
-failed with status 400: <body>`). The buffered exception keeps the response, so
-the URI and status stay recoverable programmatically and the standard
-`Invoke-WebRequest` status sentence plus the body is the honest shape. Two
-slightly different messages, each true to its own exception type, beat a forced
-abstraction.
-
-Verified by probe rather than assumption:
-
-- The real refusal body is `{"error":{"message":"model \"gpt-5.5\" is not
-  accessible via the /chat/completions endpoint","code":
-  "unsupported_api_for_model"}}` - 130 characters, and it does contain the
-  string the fallback matches.
-- No credential echo. A malformed bearer token returns `bad request:
-  Authorization header is badly formatted` and a signature-forged one returns
-  `IDE authentication failed: bad request: invalid token: cannot decode HMAC`.
-  Neither echoes the token, a planted canary, or the API key.
-- Retry classification still works: `Invoke-ShpWithRetry.Tests.ps1` now drives
-  the real sender through the classifier (429 retries three times, 400 does not
-  retry).
-
-Behaviour that flips for a user: `Invoke-Shp -Model gpt-5.5 -DisableStreaming`
-goes from failing on a bare 400 to succeeding via `/responses` - the intended
-fix. Also newly reachable on the buffered path, and worth knowing: the fallback
-patterns are loose substring matches against the whole service body, so an error
-mentioning `store` while `-UseServerSideState` is active, or `reasoning` /
-`summary` while `-ShowThinking` forced the responses shape, now triggers the
-retry it always intended to. That looseness is pre-existing and already live on
-the streaming path; it was left alone rather than tightened inside a fix.
-
-One hazard the fix made reachable HAD to be closed with it. Both API-shape
-fallbacks do `$iteration--` before `continue`, so `MaxToolIterations` never
-bounded them; once the buffered path could see `unsupported_api_for_model`, a
-service refusing BOTH shapes with that code bounced the turn between
-`/chat/completions` and `/responses` forever, one billable request per hop.
-Proved with a capped fake transport: 12 of 12 hops,
-`/chat/completions -> /responses -> ...`. Closed with a single
-`$apiShapeSwitched` flag guarding both branches - the shape may change once per
-turn, and the second refusal surfaces. Pre-existing in design, but unreachable
-before this change (the buffered leg never matched), so it is fixed here rather
-than filed.
-
-`Invoke-ShpHttpRequest` still has exactly two call sites, both in
-`Invoke-CopilotTurn` (the buffered chat turn and every responses turn), which
-bounds the blast radius. Nothing in the repository asserts the old message text.
-
-## Preceding change (2026-08-11)
+## Earlier change (2026-08-11) - sampling parameters
 
 Added sampling control (`-Temperature`, `-TopP`, `-Seed`) to `Invoke-Shp` so the
 module can back an evaluation harness. Committed as `c89f14a`.

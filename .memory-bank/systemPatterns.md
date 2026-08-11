@@ -229,7 +229,47 @@ API, result object, or the streaming/tool-loop behaviour:
   the API-shape fallbacks in Invoke-Shp, which match the error text, were dead
   code on the buffered path. Invoke-ShpStreamRequest keeps its own message shape
   (it throws HttpRequestException, which carries no response, so its URI and
-  status only exist in the text).
+  status only exist in the text) and bounds its quoted body with the same cap.
+
+### A failed response is data, not just text
+
+A caller that has to branch on WHY a request failed must not be made to regex an
+exception string. `throw <exception>` cannot express that: it yields an
+ErrorRecord with a null ErrorDetails and TargetObject, and a
+FullyQualifiedErrorId that is just the whole message. BOTH senders therefore
+build the ErrorRecord themselves and raise it with
+$PSCmdlet.ThrowTerminatingError(). Covering only the buffered one is not enough:
+streaming is the Invoke-Shp default, so it is the path a caller actually hits.
+
+- ErrorDetails.Message carries the response body, the same convention
+  Invoke-RestMethod follows and the member Invoke-Shp's catch block already read
+  first. It is bounded like the exception message because it REPLACES the
+  record's display text.
+- TargetObject carries a ShellPilot.HttpErrorDetail, built by the shared private
+  New-ShpHttpErrorDetail so the contract has one definition: StatusCode, the
+  service's ErrorCode and Param, its Message, the whole raw Body, and
+  RequestUri. The body stays whole here (nothing displays it) and the code is
+  parsed from the whole body, so truncation can never hide it. Param is present
+  because the code alone does not identify the refused field - a rejected store
+  returns code unsupported_value with param store. The object renders short,
+  because Resolve-ShpError interpolates TargetObject into a model prompt.
+- FullyQualifiedErrorId becomes ShpHttpRequestFailed / ShpStreamRequestFailed
+  plus the function name.
+
+Neither exception TYPE changes, and that is load-bearing in two different ways.
+The buffered exception keeps its live response, so the 429/5xx and
+network-outage classification is untouched - asserted by a test that drives the
+real sender through the retry wrapper. The streaming sender keeps throwing
+HttpRequestException, which Invoke-ShpWithRetry reads as a connection-level
+outage; swapping it would silently rewrite that classification the moment the
+streaming sender is routed through the wrapper. On that path TargetObject is
+also the only programmatic home the status has, because the exception carries no
+response.
+
+The API-shape fallbacks in Invoke-Shp still match substrings rather than the
+structured code, deliberately: the store rejection's code is unsupported_value,
+so branching on the code would break the very fallback it looks like it would
+tighten.
 
 ### User-defined tools
 

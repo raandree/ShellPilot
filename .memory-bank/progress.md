@@ -18,8 +18,41 @@ Chronological record of shipped changes and remaining work. Latest first.
 
 - Encrypted token storage (open decision #5) before a stable release.
 - Publish to the PowerShell Gallery (open decision #7).
+- Structured error access on the streaming path. `ErrorDetails` /
+  `TargetObject` reach only the buffered sender, so they cover
+  `Invoke-Shp -DisableStreaming`, `/responses`, `/models`, the token exchange
+  and embeddings - but NOT a streamed reply, which is the `Invoke-Shp` default.
+  `Invoke-ShpStreamRequest` still uses a plain `throw`, so a caller on the
+  default path is back to regexing the message. Ties into the streaming-path
+  retry item above: `Invoke-ShpWithRetry` classifies a bare
+  `HttpRequestException` as a connection-level outage, so routing the streaming
+  sender through it today would make a 400 retry for the full 30s budget.
 - Streaming-path retry: route Invoke-ShpStreamRequest through Invoke-ShpWithRetry
   so the 429/5xx and 30s network-outage guarantees also cover streamed replies.
+  Note the classification hazard: Invoke-ShpWithRetry reads a bare
+  HttpRequestException as a connection-level outage, and Invoke-ShpStreamRequest
+  throws that type for ANY non-success status, so routing it through the wrapper
+  unchanged would retry a 400 for the full 30s budget. The status is now on
+  TargetObject, which is the hook that fix needs.
+- Conversation-history overflow is still unrecoverable. Compress-ShpChatContext
+  elides TOOL RESULTS only, so a turn whose bulk is user/assistant history
+  cannot be trimmed and the call simply fails. Invoke-Shp now warns and names
+  the remedy, but eliding old conversation turns changes call semantics and
+  needs its own decision.
+- Context-window guard budget. $script:DefaultMaxContextWindowTokens is 900000,
+  but real windows are far smaller - claude-haiku-4.5 is 136000 - so
+  Compress-ShpChatContext never fires for a small model and a caller looping
+  Invoke-Shp in one process walks into a permanent 400
+  (model_max_prompt_tokens_exceeded) instead of having the oldest tool results
+  elided. Get-ShpModel already reports the per-model MaxContextWindowTokens, so
+  the guard could resolve the real window and keep 900000 only as a fallback.
+  Measured, not theorised - see the 2026-08-11 sweep entry below.
+  PARTLY DONE: the budget is now settable per call and per session
+  (-MaxContextWindowTokens). Resolving it AUTOMATICALLY from the model is still
+  open, and needs a no-network design - Get-ShpModel issues a live /models call,
+  so consulting it inside the turn loop would add network I/O to every call and
+  to the unit suite. Caching what Get-ShpModel already returns is the obvious
+  route.
 - Path-scoping / allow-listing for the unsandboxed tools. ShouldProcess now
   gates them interactively, but there is still no persisted allow/deny rule set
   (the Copilot CLI's Kind(argument) model is the reference).
@@ -32,6 +65,102 @@ Chronological record of shipped changes and remaining work. Latest first.
   share `$script:ShpSessionTokenCache` / `$script:ShpHttpClient`.
 
 ## Log
+
+- 2026-08-11 - Closed the streaming-path gap and the two defects the sweep
+  exposed. A live smoke test on the finished error-body work showed the
+  structured members reached only the BUFFERED sender, while streaming is the
+  `Invoke-Shp` DEFAULT - so the ask's own premise ("a script that wants to
+  branch on code has to regex an exception string") was still true for the
+  common path. Both senders now build the detail through one private helper,
+  `New-ShpHttpErrorDetail`, and both raise an ErrorRecord carrying the body on
+  `ErrorDetails.Message` and a `ShellPilot.HttpErrorDetail` on `TargetObject`.
+  Verified live, same refusal both ways: `HTTP 400 model_not_supported (param
+  model) - The requested model is not supported.` The streaming exception TYPE
+  is deliberately unchanged - `Invoke-ShpWithRetry` reads a bare
+  `HttpRequestException` as a connection-level outage, so swapping it would
+  silently rewrite that classification the moment the streaming sender is routed
+  through the wrapper. Second change: the context guard is now controllable via
+  `Invoke-Shp -MaxContextWindowTokens` and `Set-ShpContext`, with the built-in
+  900000 unchanged so no existing call moves; that default was never any model's
+  real window (claude-haiku-4.5 is 136000), which is why the guard never fired,
+  and a `model_max_prompt_tokens_exceeded` reply now warns with the real cause
+  and the remedies because the guard cannot rescue it (it elides TOOL RESULTS
+  and the overflow is conversation history). Third: `-History @()` now genuinely
+  starts from nothing - it is documented as stateless but an empty array is
+  falsy, so the truthiness check fell through to seeding from the session chat,
+  the same "binding, not truthiness" bug class the repository already documents;
+  proved with a guard test that fails against the old logic ("Expected 0, but
+  got 1") after an earlier version of it passed vacuously, then verified live (a
+  `-History @()` call did not know a word planted in the session conversation
+  and left it untouched). The consuming harness was fixed in the other
+  repository too, uncommitted:
+  `V:\Git\CopilotAtelier\Skills\agent-evals\scripts\run-trigger-evals.ps1` calls
+  `Clear-ShpChat` before every judge call, verified at zero cost by shadowing
+  `Invoke-Shp` with a stub that simulates the accumulation (self-check proves
+  accumulation is observable at 0, 2; all 54 calls then start empty). Worth
+  carrying: that harness's judge was never a fresh context for calls 2-18
+  either, so its 100%/100% trigger scores were measured under contamination.
+  Test-first: 12 red, then green. Full suite 675/675 (from a 645 baseline),
+  build 9 tasks / 0 errors / 0 warnings. Uncommitted per the user's request.
+
+- 2026-08-11 - Finished the error-body work and diagnosed the undiagnosed 400s.
+  The measurement came first and overturned the premise the follow-on work was
+  resting on. An eval sweep of 54 calls through `Invoke-Shp` had hit 16 HTTP
+  400s that "succeeded on retry with an identical request body"; a `-RetryOn`
+  passthrough was being designed on top of that. Rerun with instrumentation
+  (same 54 prompts from the harness's own Prepare mode, same model, same
+  isolation switches, two extra retries per call): 108 failed attempts, ALL 400,
+  ALL one code - `model_max_prompt_tokens_exceeded`, `prompt token count of
+  ~176,375 exceeds the limit of 136,000`. Calls 1-18 succeeded and 19-54 never
+  did, a clean monotonic cutover; ZERO of 108 identical-body retries succeeded.
+  Control run, identical but with `Clear-ShpChat` before each call: 54 of 54
+  succeeded. So it was never rate limiting, model routing or anything
+  per-model - `Invoke-Shp -Prompt` seeds from and writes back to
+  `$script:ShpChat`, so a caller looping in ONE process accumulates every prompt
+  and reply and crosses claude-haiku-4.5's 136k window at call 19. It "succeeded
+  on retry" because the operator re-ran the harness in a FRESH process where the
+  session chat starts empty; the retried body was not identical, it was two
+  orders of magnitude smaller. A failed call never writes back, which is why the
+  reported count then stays pinned (176371-176384, the spread being only the
+  per-query prompt). Consequences: no retry policy could have helped, so
+  `-RetryOn` must not be justified by this evidence; and ShellPilot's own guard
+  did not catch it because `$script:DefaultMaxContextWindowTokens` (900000) is
+  6.6x the real window - filed under "What is left". Code shipped:
+  `Invoke-ShpHttpRequest` now raises a hand-built `ErrorRecord` through
+  `$PSCmdlet.ThrowTerminatingError()` instead of `throw <exception>`, so
+  `ErrorDetails.Message` carries the response body the way `Invoke-RestMethod`
+  does and `TargetObject` carries a `ShellPilot.HttpErrorDetail` (`StatusCode`,
+  `ErrorCode`, `Param`, `Message`, raw `Body`, `RequestUri`); `Invoke-Shp` has
+  always opened its catch with `$_.ErrorDetails.Message`, a member the module
+  never populated, so that line had never once returned a value. `Param` is
+  carried because the code alone is insufficient - a rejected `store` comes back
+  as code `unsupported_value` with param `store`. `Invoke-ShpStreamRequest` now
+  bounds its quoted body with the same cap and marker, wording deliberately
+  unchanged. Verified by probe before writing code: `ErrorDetails` and
+  `TargetObject` really were null and the `FullyQualifiedErrorId` was the ENTIRE
+  exception message (now `ShpHttpRequestFailed,Invoke-ShpHttpRequest`); and
+  `ThrowTerminatingError` keeps the same exception and its live response, with
+  both members surviving `Invoke-ShpWithRetry`'s bare `throw` - proven in a
+  standalone semantics probe and by a new test driving the real sender through
+  the wrapper. Redaction question CLOSED with evidence: 11 live probes, each
+  with a canary GUID planted in the request body, across three error producers
+  (model, gateway, edge) - no reachable failure echoed request content. The one
+  canary hit was an HTTP 200 where the gateway ignored a wrong content type and
+  the model answered; not an error body. The strongest negative is the
+  oversized-prompt case: 460,008 tokens of planted text produced a 122-character
+  error quoting only counts. No policy and no spec were written; 015 stays free.
+  The four API-shape fallback patterns were deliberately left loose - preferring
+  the structured code would BREAK the `store` fallback, whose real code is
+  `unsupported_value`, and the one case that could not be measured is a pure
+  reasoning-summary rejection. One regression was caught in self-review rather
+  than by a test: `Resolve-ShpError` builds a model prompt with
+  `('Target: {0}' -f $ErrorRecord.TargetObject)`, and TargetObject was null
+  before this change, so the stock pscustomobject rendering would have sent a
+  whole proxy error page on a billable call - the detail object now carries a
+  short `ToString()` while keeping `Body` whole. Test-first: 8 red, then green;
+  two further tests (`Param`, short rendering) came from live probe evidence and
+  from that self-review. Full suite 656/656, build 9 tasks / 0 errors / 0
+  warnings, coverage 81.15%. Uncommitted per the user's request.
 
 - 2026-08-11 - Surfaced the HTTP error response body in `Invoke-ShpHttpRequest`.
   The buffered sender read the body of a failed response and then discarded it,

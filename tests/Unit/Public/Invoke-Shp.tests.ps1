@@ -242,6 +242,128 @@ Describe 'Invoke-Shp' {
         }
     }
 
+    Context 'Context-window budget' {
+        BeforeEach {
+            InModuleScope $script:moduleName {
+                $script:ShpChat = @()
+                $script:capturedMaxTokens = $null
+                Mock Get-ShpSessionToken { [pscustomobject]@{ token = 't'; expires_at = 0; endpoints = [pscustomobject]@{ api = 'https://session.example' } } }
+                Mock Compress-ShpChatContext { $script:capturedMaxTokens = $MaxTokens; 0 }
+                Mock Invoke-CopilotTurn {
+                    [pscustomobject]@{
+                        Mode = $Mode; Content = 'ok'; FinishReason = 'stop'; ToolCalls = @()
+                        AssistantMessage = [pscustomobject]@{ content = 'ok' }; AssistantItems = @(); Reasoning = ''
+                        PromptTokens = 1; CompletionTokens = 1; CachedTokens = 0; CacheWriteTokens = 0
+                        ModelName = $Model; ResponseId = $null; CopilotUsage = $null; Raw = @{}; Response = [pscustomobject]@{ Headers = @{} }
+                    }
+                }
+            }
+        }
+
+        AfterEach {
+            InModuleScope $script:moduleName { Clear-ShpContext; $script:ShpChat = @() }
+        }
+
+        It 'Resolves MaxContextWindowTokens as explicit > context > default' {
+            InModuleScope $script:moduleName {
+                Clear-ShpContext
+                $null = Invoke-Shp -Prompt 'hi' -DisableBrowsing -DisableFileAccess -DisableTerminal -DisableUserPrompts
+                $script:capturedMaxTokens | Should -Be 900000
+
+                Set-ShpContext -MaxContextWindowTokens 120000
+                $null = Invoke-Shp -Prompt 'hi' -DisableBrowsing -DisableFileAccess -DisableTerminal -DisableUserPrompts
+                $script:capturedMaxTokens | Should -Be 120000
+
+                $null = Invoke-Shp -Prompt 'hi' -MaxContextWindowTokens 50000 -DisableBrowsing -DisableFileAccess -DisableTerminal -DisableUserPrompts
+                $script:capturedMaxTokens | Should -Be 50000
+
+                Clear-ShpContext
+            }
+        }
+
+        It 'Disables the guard when the budget is zero' {
+            InModuleScope $script:moduleName {
+                Clear-ShpContext
+                # 0 is a meaningful value here, so it must survive the precedence
+                # chain rather than being read as "not supplied".
+                $null = Invoke-Shp -Prompt 'hi' -MaxContextWindowTokens 0 -DisableBrowsing -DisableFileAccess -DisableTerminal -DisableUserPrompts
+                $script:capturedMaxTokens | Should -Be 0
+            }
+        }
+
+        It 'Starts from nothing when -History is empty, instead of seeding from the session chat' {
+            InModuleScope $script:moduleName {
+                # -History is documented as stateless, but an empty array is
+                # falsy, so testing truthiness silently fell through to the
+                # session chat - the opposite of what the caller asked for.
+                $script:ShpChat = @(
+                    @{ role = 'user'; content = 'earlier question' }
+                    @{ role = 'assistant'; content = 'earlier answer' }
+                )
+                $script:capturedConversation = $null
+                Mock Invoke-CopilotTurn {
+                    $script:capturedConversation = @($Conversation)
+                    [pscustomobject]@{
+                        Mode = $Mode; Content = 'ok'; FinishReason = 'stop'; ToolCalls = @()
+                        AssistantMessage = [pscustomobject]@{ content = 'ok' }; AssistantItems = @(); Reasoning = ''
+                        PromptTokens = 1; CompletionTokens = 1; CachedTokens = 0; CacheWriteTokens = 0
+                        ModelName = $Model; ResponseId = $null; CopilotUsage = $null; Raw = @{}; Response = [pscustomobject]@{ Headers = @{} }
+                    }
+                }
+
+                $null = Invoke-Shp -Prompt 'fresh' -History @() -DisableBrowsing -DisableFileAccess -DisableTerminal -DisableUserPrompts
+
+                # Assert the conversation was actually captured first, so the
+                # negative assertion below cannot pass vacuously.
+                $script:capturedConversation | Should -Not -BeNullOrEmpty
+                @($script:capturedConversation | Where-Object { $_.content -eq 'fresh' }).Count | Should -Be 1
+                @($script:capturedConversation | Where-Object { $_.content -eq 'earlier question' }).Count | Should -Be 0
+                # A stateless call leaves the session chat untouched.
+                $script:ShpChat.Count | Should -Be 2
+            }
+        }
+    }
+
+    Context 'Prompt-too-large rejection' {        AfterEach {
+            InModuleScope $script:moduleName {
+                $script:ShpHttpClient = $null
+                $script:ShpChat = @()
+            }
+        }
+
+        It 'Explains that the session conversation is the cause and how to reset it' {
+            # The failure that cost an unattended eval sweep 36 of 54 calls and
+            # was misread as rate limiting. The guard cannot recover it - it
+            # elides tool results, and this overflow is user/assistant history -
+            # so the only honest help is to name the cause and the remedy.
+            $responder = {
+                param($request)
+                $response = [System.Net.Http.HttpResponseMessage]::new([System.Net.HttpStatusCode]::BadRequest)
+                $response.Content = [System.Net.Http.StringContent]::new(
+                    '{"error":{"message":"prompt token count of 176372 exceeds the limit of 136000","code":"model_max_prompt_tokens_exceeded"}}',
+                    [System.Text.Encoding]::UTF8, 'application/json')
+                $response
+            }
+            $client = New-ShpFakeHttpClient -Responder $responder
+
+            $warnings = InModuleScope $script:moduleName -Parameters @{ Client = $client } {
+                param($Client)
+                $script:ShpChat = @()
+                $script:ShpHttpClient = $Client
+                Mock Get-ShpSessionToken { [pscustomobject]@{ token = 't'; expires_at = 0; endpoints = [pscustomobject]@{ api = 'https://api.example' } } }
+
+                $captured = $null
+                try {
+                    Invoke-Shp -Prompt 'hi' -DisableStreaming -DisableBrowsing -DisableFileAccess -DisableTerminal -DisableUserPrompts -DisableTodoList -MaxRetryCount 0 -NetworkOutageToleranceSec 0 -WarningVariable captured -ErrorAction Stop
+                } catch { }
+                @($captured | ForEach-Object { [string]$_ })
+            }
+
+            ($warnings -join ' ') | Should -BeLike '*Clear-ShpChat*'
+            ($warnings -join ' ') | Should -BeLike '*136000*'
+        }
+    }
+
     Context 'Session default resolution' {
         AfterEach {
             InModuleScope $script:moduleName {

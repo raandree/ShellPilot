@@ -141,4 +141,190 @@ Describe 'Invoke-ShpHttpRequest' {
             $err.Exception.Message | Should -BeExactly 'Response status code does not indicate success: 502 (Bad Gateway).'
         }
     }
+
+    Context 'Structured access to the error body' {
+        # The body reaching the caller only as text inside Exception.Message
+        # forces a script that wants to branch on the service's error code to
+        # regex an exception string - and Invoke-Shp's own catch block reads
+        # $_.ErrorDetails.Message first, a member a plain `throw <exception>`
+        # can never populate.
+        BeforeAll {
+            $script:errorEnvelope = '{"error":{"message":"model \"gpt-5.5\" is not accessible via the /chat/completions endpoint","code":"unsupported_api_for_model"}}'
+        }
+
+        AfterEach {
+            InModuleScope $script:moduleName { $script:ShpHttpClient = $null }
+        }
+
+        It 'Populates ErrorDetails.Message with the response body so a caller can parse it' {
+            $body = $script:errorEnvelope
+            $responder = {
+                param($request)
+                $response = [System.Net.Http.HttpResponseMessage]::new([System.Net.HttpStatusCode]::BadRequest)
+                $response.Content = [System.Net.Http.StringContent]::new($body, [System.Text.Encoding]::UTF8, 'application/json')
+                $response
+            }.GetNewClosure()
+            $client = New-ShpFakeHttpClient -Responder $responder
+
+            $err = InModuleScope $script:moduleName -Parameters @{ Client = $client } {
+                param($Client)
+                $script:ShpHttpClient = $Client
+                { Invoke-ShpHttpRequest -Uri 'https://api.example/chat/completions' -Body '{}' } | Should -Throw -PassThru
+            }
+
+            $err.ErrorDetails | Should -Not -BeNullOrEmpty
+            ($err.ErrorDetails.Message | ConvertFrom-Json).error.code | Should -Be 'unsupported_api_for_model'
+        }
+
+        It 'Puts the status code and the service error code on TargetObject so a caller branches without string matching' {
+            $body = $script:errorEnvelope
+            $responder = {
+                param($request)
+                $response = [System.Net.Http.HttpResponseMessage]::new([System.Net.HttpStatusCode]::BadRequest)
+                $response.Content = [System.Net.Http.StringContent]::new($body, [System.Text.Encoding]::UTF8, 'application/json')
+                $response
+            }.GetNewClosure()
+            $client = New-ShpFakeHttpClient -Responder $responder
+
+            $err = InModuleScope $script:moduleName -Parameters @{ Client = $client } {
+                param($Client)
+                $script:ShpHttpClient = $Client
+                { Invoke-ShpHttpRequest -Uri 'https://api.example/chat/completions' -Body '{}' } | Should -Throw -PassThru
+            }
+
+            $err.TargetObject.StatusCode | Should -Be 400
+            $err.TargetObject.ErrorCode  | Should -Be 'unsupported_api_for_model'
+            $err.TargetObject.Message    | Should -BeExactly 'model "gpt-5.5" is not accessible via the /chat/completions endpoint'
+            $err.TargetObject.RequestUri | Should -Be 'https://api.example/chat/completions'
+            $err.TargetObject.Body       | Should -BeExactly $script:errorEnvelope
+        }
+
+        It 'Carries the refused parameter, which the error code alone does not identify' {
+            # Verified live: a rejected store parameter comes back as code
+            # "unsupported_value" with param "store", so a caller branching on the
+            # code alone cannot tell which field the service objected to.
+            $body = '{"error":{"message":"store is not supported","code":"unsupported_value","param":"store","type":"invalid_request_error"}}'
+            $responder = {
+                param($request)
+                $response = [System.Net.Http.HttpResponseMessage]::new([System.Net.HttpStatusCode]::BadRequest)
+                $response.Content = [System.Net.Http.StringContent]::new($body, [System.Text.Encoding]::UTF8, 'application/json')
+                $response
+            }.GetNewClosure()
+            $client = New-ShpFakeHttpClient -Responder $responder
+
+            $err = InModuleScope $script:moduleName -Parameters @{ Client = $client } {
+                param($Client)
+                $script:ShpHttpClient = $Client
+                { Invoke-ShpHttpRequest -Uri 'https://api.example/responses' -Body '{}' } | Should -Throw -PassThru
+            }
+
+            $err.TargetObject.ErrorCode | Should -Be 'unsupported_value'
+            $err.TargetObject.Param     | Should -Be 'store'
+        }
+
+        It 'Renders short by default so the whole body is not interpolated into a prompt' {
+            # Resolve-ShpError builds a model prompt with ('Target: {0}' -f
+            # $ErrorRecord.TargetObject); the stock rendering of a pscustomobject
+            # would put an entire proxy error page into a billable call.
+            $body = 'x' * 20000
+            $responder = {
+                param($request)
+                $response = [System.Net.Http.HttpResponseMessage]::new([System.Net.HttpStatusCode]::InternalServerError)
+                $response.Content = [System.Net.Http.StringContent]::new($body, [System.Text.Encoding]::UTF8, 'text/html')
+                $response
+            }.GetNewClosure()
+            $client = New-ShpFakeHttpClient -Responder $responder
+
+            $err = InModuleScope $script:moduleName -Parameters @{ Client = $client } {
+                param($Client)
+                $script:ShpHttpClient = $Client
+                { Invoke-ShpHttpRequest -Uri 'https://api.example/chat/completions' -Body '{}' } | Should -Throw -PassThru
+            }
+
+            ('Target: {0}' -f $err.TargetObject) | Should -BeExactly 'Target: HTTP 500'
+            $err.TargetObject.Body.Length | Should -Be 20000
+        }
+
+        It 'Names the failure with a stable FullyQualifiedErrorId instead of the whole message' {
+            $body = $script:errorEnvelope
+            $responder = {
+                param($request)
+                $response = [System.Net.Http.HttpResponseMessage]::new([System.Net.HttpStatusCode]::BadRequest)
+                $response.Content = [System.Net.Http.StringContent]::new($body, [System.Text.Encoding]::UTF8, 'application/json')
+                $response
+            }.GetNewClosure()
+            $client = New-ShpFakeHttpClient -Responder $responder
+
+            $err = InModuleScope $script:moduleName -Parameters @{ Client = $client } {
+                param($Client)
+                $script:ShpHttpClient = $Client
+                { Invoke-ShpHttpRequest -Uri 'https://api.example/chat/completions' -Body '{}' } | Should -Throw -PassThru
+            }
+
+            $err.FullyQualifiedErrorId | Should -Be 'ShpHttpRequestFailed,Invoke-ShpHttpRequest'
+        }
+
+        It 'Leaves ErrorCode null but still carries the body when the service returns no error envelope' {
+            $responder = {
+                param($request)
+                $response = [System.Net.Http.HttpResponseMessage]::new([System.Net.HttpStatusCode]::BadGateway)
+                $response.Content = [System.Net.Http.StringContent]::new('<html><body>502 Bad Gateway</body></html>', [System.Text.Encoding]::UTF8, 'text/html')
+                $response
+            }
+            $client = New-ShpFakeHttpClient -Responder $responder
+
+            $err = InModuleScope $script:moduleName -Parameters @{ Client = $client } {
+                param($Client)
+                $script:ShpHttpClient = $Client
+                { Invoke-ShpHttpRequest -Uri 'https://api.example/chat/completions' -Body '{}' } | Should -Throw -PassThru
+            }
+
+            $err.TargetObject.StatusCode | Should -Be 502
+            $err.TargetObject.ErrorCode  | Should -BeNullOrEmpty
+            $err.TargetObject.Body       | Should -BeExactly '<html><body>502 Bad Gateway</body></html>'
+        }
+
+        It 'Bounds ErrorDetails.Message with the same cap while keeping the whole body on TargetObject' {
+            # ErrorDetails.Message replaces the record's display text, so it gets
+            # the same bound as the exception message. Nothing displays
+            # TargetObject, so the body stays whole there for a caller to parse.
+            $body = 'x' * 20000
+            $responder = {
+                param($request)
+                $response = [System.Net.Http.HttpResponseMessage]::new([System.Net.HttpStatusCode]::InternalServerError)
+                $response.Content = [System.Net.Http.StringContent]::new($body, [System.Text.Encoding]::UTF8, 'text/html')
+                $response
+            }.GetNewClosure()
+            $client = New-ShpFakeHttpClient -Responder $responder
+
+            $err = InModuleScope $script:moduleName -Parameters @{ Client = $client } {
+                param($Client)
+                $script:ShpHttpClient = $Client
+                { Invoke-ShpHttpRequest -Uri 'https://api.example/chat/completions' -Body '{}' } | Should -Throw -PassThru
+            }
+
+            $err.ErrorDetails.Message.Length | Should -BeLessThan 5000
+            $err.ErrorDetails.Message | Should -Match ([regex]::Escape('...[truncated, original 20000 chars]'))
+            $err.TargetObject.Body.Length | Should -Be 20000
+        }
+
+        It 'Leaves ErrorDetails unset when the service returns an empty body, so the caller still falls through to the exception message' {
+            $responder = {
+                param($request)
+                $response = [System.Net.Http.HttpResponseMessage]::new([System.Net.HttpStatusCode]::BadGateway)
+                $response.Content = [System.Net.Http.StringContent]::new('', [System.Text.Encoding]::UTF8, 'application/json')
+                $response
+            }
+            $client = New-ShpFakeHttpClient -Responder $responder
+
+            $err = InModuleScope $script:moduleName -Parameters @{ Client = $client } {
+                param($Client)
+                $script:ShpHttpClient = $Client
+                { Invoke-ShpHttpRequest -Uri 'https://api.example/chat/completions' -Body '{}' } | Should -Throw -PassThru
+            }
+
+            $err.ErrorDetails | Should -BeNullOrEmpty
+            $err.TargetObject.StatusCode | Should -Be 502
+        }
+    }
 }

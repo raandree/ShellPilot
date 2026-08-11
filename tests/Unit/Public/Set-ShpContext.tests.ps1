@@ -23,6 +23,11 @@ Describe 'Set-ShpContext' {
         $ctx.NetworkOutageToleranceSec | Should -Be 45
     }
 
+    It 'Stores the context-window budget for the session' {
+        Set-ShpContext -MaxContextWindowTokens 120000
+        (Get-ShpContext).MaxContextWindowTokens | Should -Be 120000
+    }
+
     It 'Only changes the supplied options' {
         Set-ShpContext -TimeoutSec 30
         Set-ShpContext -MaxRetryCount 9

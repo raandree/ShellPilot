@@ -14,7 +14,15 @@ function Invoke-ShpStreamRequest {
         and disposes the reader and the response when finished, but must NOT
         dispose the shared client. Request headers are added without validation so
         the editor-identifying headers are sent verbatim, matching the
-        non-streaming path.
+        non-streaming path. A non-success status throws HttpRequestException with
+        the URI, the status and the service's error body in the message - that
+        exception carries no response, so those facts exist nowhere else in the
+        message - with the body capped at $script:MaxHttpErrorBodyChars
+        characters and the module's usual truncation marker, since a 5xx from an
+        intermediate proxy can be a whole HTML page. The raised ErrorRecord also
+        carries the body on ErrorDetails.Message and a ShellPilot.HttpErrorDetail
+        on TargetObject, the same structured members the buffered sender
+        provides, which is where the status becomes programmatically readable.
 
     .PARAMETER Uri
         The absolute request URI (for example https://api.example/chat/completions).
@@ -77,7 +85,33 @@ function Invoke-ShpStreamRequest {
         $status = [int]$response.StatusCode
         $response.Dispose()
         $request.Dispose()
-        throw [System.Net.Http.HttpRequestException]::new(("Copilot streaming request to '{0}' failed with status {1}: {2}" -f $Uri, $status, $errorBody))
+
+        $rawBody = if ($null -eq $errorBody) { '' } else { $errorBody }
+        # Bound the quoted body exactly as the buffered sender does: this
+        # exception carries no response, so the body only ever exists as text,
+        # and an unbounded proxy error page becomes the whole message. The
+        # wording is deliberately NOT converged with the buffered sender's - the
+        # URI and status are recoverable there and only textual here.
+        $detail = $rawBody
+        if ($detail.Length -gt $script:MaxHttpErrorBodyChars) {
+            $originalLen = $detail.Length
+            $detail = $detail.Substring(0, $script:MaxHttpErrorBodyChars) + " ...[truncated, original $originalLen chars]"
+        }
+
+        # Streaming is the Invoke-Shp default, so this is the path a caller hits
+        # most: it gets the same structured members as the buffered sender. The
+        # exception TYPE stays HttpRequestException - Invoke-ShpWithRetry reads it
+        # as a connection-level outage, and changing it would silently rewrite
+        # that classification the moment this sender is routed through the retry
+        # wrapper. TargetObject is also the only programmatic home the status has
+        # here, because this exception carries no response.
+        $errorRecord = [System.Management.Automation.ErrorRecord]::new(
+            [System.Net.Http.HttpRequestException]::new(("Copilot streaming request to '{0}' failed with status {1}: {2}" -f $Uri, $status, $detail)),
+            'ShpStreamRequestFailed',
+            [System.Management.Automation.ErrorCategory]::ProtocolError,
+            (New-ShpHttpErrorDetail -StatusCode $status -Body $rawBody -RequestUri $Uri))
+        if ($detail.Trim()) { $errorRecord.ErrorDetails = [System.Management.Automation.ErrorDetails]::new($detail.Trim()) }
+        $PSCmdlet.ThrowTerminatingError($errorRecord)
     }
 
     $stream = $response.Content.ReadAsStreamAsync().GetAwaiter().GetResult()

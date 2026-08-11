@@ -133,6 +133,19 @@ function Invoke-Shp {
         a model that signals a tool call without emitting one, independent of
         this cap.
 
+    .PARAMETER MaxContextWindowTokens
+        Estimated-token budget for the accumulated conversation of this turn.
+        Before each chat request, the oldest tool results are elided until the
+        estimate fits, so a few large read_file, fetch_url or run_command results
+        cannot overflow the model's context window. Precedence is the usual one:
+        this parameter, then Set-ShpContext -MaxContextWindowTokens, then the
+        built-in 900000. That default is a fallback, not any model's real window
+        (claude-haiku-4.5 is 136000), so set it to the model's own
+        MaxContextWindowTokens from Get-ShpModel to make the guard fire when it
+        should. 0 disables the guard. Note this bounds TOOL RESULTS only - the
+        session conversation itself is never elided, so a long-running loop of
+        calls still needs Clear-ShpChat or -History.
+
     .PARAMETER MaxBudgetUSD
         Stop the tool-calling loop once this turn's estimated spend exceeds the
         given amount in USD. Checked after each round-trip, so the round-trip
@@ -535,6 +548,9 @@ function Invoke-Shp {
         [ValidateRange(1, [int]::MaxValue)]
         [int]$MaxToolIterations = 25,
 
+        [ValidateRange(0, [int]::MaxValue)]
+        [int]$MaxContextWindowTokens,
+
         [ValidateRange(0.0, [double]::MaxValue)]
         [double]$MaxBudgetUSD,
 
@@ -609,8 +625,11 @@ function Invoke-Shp {
     # otherwise seed from the module-scoped session chat ($script:ShpChat),
     # which is empty on the first call and populated automatically afterwards
     # by every prior Invoke-Shp call. To start a fresh chat, run Clear-ShpChat.
+    # Binding is the test, not truthiness: -History @() means "start from
+    # nothing", and reading it as "not supplied" would silently seed the call
+    # from the session chat it was passed to avoid.
     $priorHistory = @()
-    if ($PSBoundParameters.ContainsKey('History') -and $History) {
+    if ($PSBoundParameters.ContainsKey('History')) {
         $priorHistory = @($History)
     } else {
         $priorHistory = @($script:ShpChat)
@@ -643,6 +662,10 @@ function Invoke-Shp {
     $effectiveOutageTolerance = if ($PSBoundParameters.ContainsKey('NetworkOutageToleranceSec')) { $NetworkOutageToleranceSec }
                                 elseif ($null -ne $script:ShpContext.NetworkOutageToleranceSec) { [int]$script:ShpContext.NetworkOutageToleranceSec }
                                 else { $script:DefaultNetworkOutageToleranceSec }
+    # 0 disables the context guard, so binding - not truthiness - is the test.
+    $effectiveContextBudget = if ($PSBoundParameters.ContainsKey('MaxContextWindowTokens')) { $MaxContextWindowTokens }
+                              elseif ($null -ne $script:ShpContext.MaxContextWindowTokens) { [int]$script:ShpContext.MaxContextWindowTokens }
+                              else { $script:DefaultMaxContextWindowTokens }
 
     $browsingEnabled = -not $DisableBrowsing
     $fileAccessEnabled = -not $DisableFileAccess
@@ -1025,13 +1048,21 @@ function Invoke-Shp {
             # read_file / fetch_url / run_command results overflow the window
             # (the 413 / model_max_prompt_tokens_exceeded failure).
             if ($mode -ne 'responses') {
-                $trimmedContext = Compress-ShpChatContext -Messages $chatMessages -MaxTokens $script:DefaultMaxContextWindowTokens
+                $trimmedContext = Compress-ShpChatContext -Messages $chatMessages -MaxTokens $effectiveContextBudget
                 if ($trimmedContext -gt 0) { Write-Verbose ("Context guard elided {0} old tool result(s) to stay within the window." -f $trimmedContext) }
             }
             $turn = Invoke-CopilotTurn -Mode $mode -Model $Model -ApiBase $apiBase -Headers $apiHeaders -Conversation $conv -Tools $tls -RequestReasoningSummary:($mode -eq 'responses' -and $requestReasoning) -ReasoningEffort $ReasoningEffort -MaxOutputTokens $MaxOutputTokens -Stream:($streamingEnabled -and $mode -eq 'chat') -EchoReasoning:($ShowThinking -and $streamingEnabled -and $mode -eq 'chat') -Store:($serverSideActive -and $mode -eq 'responses') -PreviousResponseId $previousResponseId @structuredParams @samplingParams @connectionParams
         } catch {
             $errText = $_.ErrorDetails.Message
             if ([string]::IsNullOrWhiteSpace($errText)) { $errText = $_.Exception.Message }
+            # The prompt outgrew the model's window. The context guard cannot
+            # rescue this: it elides tool results, and the usual cause is the
+            # session conversation, which every -Prompt call seeds from and
+            # writes back to. Left undiagnosed this reads as a bare 400 and gets
+            # mistaken for rate limiting, so name the cause and the remedy.
+            if ($_.TargetObject -and $_.TargetObject.ErrorCode -eq 'model_max_prompt_tokens_exceeded') {
+                Write-Warning ("The request exceeded the model's context window ({0}). Every -Prompt call continues the session conversation, so a loop of calls grows until it no longer fits: run Clear-ShpChat between calls, or pass -History for a stateless call. -MaxContextWindowTokens only bounds tool results." -f $_.TargetObject.Message)
+            }
             # Server-side state requested but the backend rejects the store
             # parameter (the Copilot proxy is stateless). Fall back to ordinary
             # client-side history: drop store/previous_response_id, switch to

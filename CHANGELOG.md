@@ -9,6 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `Invoke-Shp -MaxContextWindowTokens` and `Set-ShpContext
+  -MaxContextWindowTokens` set the token budget above which a turn elides its
+  oldest tool results, with the usual precedence of explicit parameter, then
+  session context, then the built-in default. The built-in 900000 is a fallback
+  rather than any model's real window - `claude-haiku-4.5` is 136000 - so the
+  guard could never fire for a smaller model; set this from the model's own
+  `MaxContextWindowTokens` (see `Get-ShpModel`) to make it fire when it should.
+  `0` disables the guard. The default is unchanged, so existing calls behave
+  exactly as before. Note this bounds tool results only: the session
+  conversation is never elided, so a long loop of calls still needs
+  `Clear-ShpChat` or `-History`.
+- `Invoke-Shp` now explains a rejection it cannot recover from. A service reply
+  of `model_max_prompt_tokens_exceeded` is emitted as a warning naming the real
+  cause - every `-Prompt` call continues the session conversation, so a loop of
+  calls grows until it no longer fits - and the two remedies. Left unexplained
+  this reads as a bare 400 and gets mistaken for rate limiting.
+
 - `Invoke-Shp -Temperature`, `-TopP` and `-Seed` control the model's sampling,
   so a call that has to be reproducible (grading or judging in an evaluation
   harness) can pin itself with `-Temperature 0` and a variance measurement can
@@ -53,6 +70,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `Invoke-Shp -History @()` now genuinely starts from nothing. `-History` is
+  documented as stateless, but an empty array is falsy and the check tested
+  truthiness, so an explicitly empty history silently fell through to seeding
+  the call from the session conversation - the opposite of what was asked for.
+  Binding is now the test, matching the module's rule for every other optional
+  value whose type has a meaningful default.
+- The streaming sender now carries the same structured error as the buffered
+  one. Streaming is the `Invoke-Shp` default, so this was the common path on
+  which a caller still had to match substrings in an exception message. A
+  non-success status from `Invoke-ShpStreamRequest` now raises an ErrorRecord
+  with the body on `ErrorDetails.Message` and a `ShellPilot.HttpErrorDetail` on
+  `TargetObject`, which is also the only programmatic home the status has on
+  that path - `HttpRequestException` carries no response. The exception type and
+  the message wording are unchanged.
+- A failed **buffered** request now hands the service's error to the caller as
+  data instead of only as text. `Invoke-ShpHttpRequest` raises a built error
+  record rather than a bare exception, so `$_.ErrorDetails.Message` carries the
+  response body the way `Invoke-RestMethod` does, and `$_.TargetObject` carries a
+  `ShellPilot.HttpErrorDetail` with `StatusCode`, the service's own `ErrorCode`
+  and `Param`, its `Message`, the whole raw `Body` and the `RequestUri` - so a
+  script can branch on the error code without matching substrings in an
+  exception string. `Invoke-Shp`'s own catch block has always read
+  `$_.ErrorDetails.Message` first, a member that until now was never populated
+  and silently fell through on every failure. The exception object and the live
+  response it carries are unchanged, so the 429/5xx retry and the network-outage
+  budget classify a failure exactly as before, and the failure is now identified
+  by the stable `ShpHttpRequestFailed,Invoke-ShpHttpRequest` error id instead of
+  by an error id that repeated the whole message. Because `ErrorDetails.Message`
+  replaces the record's display text, it is capped like the exception message;
+  `TargetObject.Body` keeps the body whole. This covers every non-streaming
+  call - `Invoke-Shp -DisableStreaming`, every `/responses` turn, `/models`, the
+  token exchange and embeddings. A streamed reply, which is the `Invoke-Shp`
+  default, still fails with a plain `HttpRequestException` and no structured
+  members.
+- The streaming sender no longer quotes an unbounded error body. A non-success
+  status from `Invoke-ShpStreamRequest` put the service's whole response into the
+  exception message, so a 5xx from an intermediate proxy could turn an entire
+  HTML page into an error message. It is now capped at the same 2000 characters
+  with the same `...[truncated, original N chars]` marker as the buffered
+  sender. The wording is deliberately unchanged: that exception carries no
+  response, so its URI and status exist only in the text.
 - A failed non-streaming request now reports what the service objected to. The
   buffered sender read the error response body and then discarded it, so a
   rejected request surfaced only as

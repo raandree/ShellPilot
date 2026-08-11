@@ -37,11 +37,18 @@ function Set-ShpContext {
         connection failure, then the error is rethrown. Built-in default: 30. 0
         disables outage tolerance.
 
+    .PARAMETER MaxContextWindowTokens
+        Estimated-token budget for the accumulated conversation of a single
+        turn, above which Invoke-Shp elides the oldest tool results before the
+        next request. Built-in default: 900000, which is a fallback rather than
+        any model's real window - set this to the model's own
+        MaxContextWindowTokens (see Get-ShpModel) to make the guard fire when it
+        should. 0 disables the guard.
+
     .PARAMETER ApiBase
         Opt-in base URL of an alternative, OpenAI-compatible endpoint to use
         instead of the Copilot session endpoint. Off unless set; never a
         default. Pair with -ApiKey for bearer authentication.
-
     .PARAMETER ApiKey
         Opt-in API key (bearer token) sent when -ApiBase points at an
         alternative backend. Ignored when no ApiBase is set.
@@ -85,6 +92,9 @@ function Set-ShpContext {
         [ValidateRange(0, [int]::MaxValue)]
         [int]$NetworkOutageToleranceSec,
 
+        [ValidateRange(0, [int]::MaxValue)]
+        [int]$MaxContextWindowTokens,
+
         [ValidateNotNullOrEmpty()]
         [string]$ApiBase,
 
@@ -100,6 +110,7 @@ function Set-ShpContext {
     if ($PSBoundParameters.ContainsKey('MaxRetryCount')) { $script:ShpContext.MaxRetryCount = $MaxRetryCount }
     if ($PSBoundParameters.ContainsKey('RetryDelaySec')) { $script:ShpContext.RetryDelaySec = $RetryDelaySec }
     if ($PSBoundParameters.ContainsKey('NetworkOutageToleranceSec')) { $script:ShpContext.NetworkOutageToleranceSec = $NetworkOutageToleranceSec }
+    if ($PSBoundParameters.ContainsKey('MaxContextWindowTokens')) { $script:ShpContext.MaxContextWindowTokens = $MaxContextWindowTokens }
     if ($PSBoundParameters.ContainsKey('ApiBase'))       { $script:ShpContext.ApiBase       = $ApiBase }
     if ($PSBoundParameters.ContainsKey('ApiKey'))        { $script:ShpContext.ApiKey        = $ApiKey }
 
@@ -109,6 +120,7 @@ function Set-ShpContext {
             MaxRetryCount             = $script:ShpContext.MaxRetryCount
             RetryDelaySec             = $script:ShpContext.RetryDelaySec
             NetworkOutageToleranceSec = $script:ShpContext.NetworkOutageToleranceSec
+            MaxContextWindowTokens    = $script:ShpContext.MaxContextWindowTokens
             ApiBase                   = $script:ShpContext.ApiBase
             ApiKey                    = if ($script:ShpContext.ApiKey) { '***' } else { $null }
         }

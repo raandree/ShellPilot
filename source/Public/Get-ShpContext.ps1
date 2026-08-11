@@ -39,6 +39,7 @@ function Get-ShpContext {
         MaxRetryCount             = $script:ShpContext.MaxRetryCount
         RetryDelaySec             = $script:ShpContext.RetryDelaySec
         NetworkOutageToleranceSec = $script:ShpContext.NetworkOutageToleranceSec
+        MaxContextWindowTokens    = $script:ShpContext.MaxContextWindowTokens
         ApiBase                   = $script:ShpContext.ApiBase
         ApiKey                    = if ($script:ShpContext.ApiKey) { '***' } else { $null }
     }

@@ -189,5 +189,33 @@ Describe 'Invoke-ShpWithRetry' {
 
             $client.CallCount | Should -Be 1
         }
+
+        It 'Hands the structured error detail through to the caller when it gives up' {
+            # The wrapper rethrows with a bare `throw`. Invoke-Shp reads
+            # $_.ErrorDetails.Message and can branch on $_.TargetObject.ErrorCode,
+            # so both have to survive that rethrow or the structured access is
+            # only reachable by calling the sender directly.
+            $responder = {
+                param($request)
+                $response = [System.Net.Http.HttpResponseMessage]::new([System.Net.HttpStatusCode]::BadRequest)
+                $response.Content = [System.Net.Http.StringContent]::new('{"error":{"message":"nope","code":"unsupported_api_for_model"}}', [System.Text.Encoding]::UTF8, 'application/json')
+                $response
+            }
+            $client = New-ShpFakeHttpClient -Responder $responder
+
+            $err = InModuleScope $script:moduleName -Parameters @{ Client = $client } {
+                param($Client)
+                $script:ShpHttpClient = $Client
+                $options = @{ Method = 'Post'; Uri = 'https://api.example/chat/completions'; Body = '{}' }
+                {
+                    Invoke-ShpWithRetry -MaxRetryCount 2 -RetryDelaySec 0 -ArgumentList $options -ScriptBlock { param($p) Invoke-ShpHttpRequest @p }
+                } | Should -Throw -PassThru
+            }
+
+            ($err.ErrorDetails.Message | ConvertFrom-Json).error.code | Should -Be 'unsupported_api_for_model'
+            $err.TargetObject.ErrorCode | Should -Be 'unsupported_api_for_model'
+            $err.TargetObject.StatusCode | Should -Be 400
+            $err.Exception.Response.StatusCode | Should -Be ([System.Net.HttpStatusCode]::BadRequest)
+        }
     }
 }
