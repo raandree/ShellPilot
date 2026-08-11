@@ -199,6 +199,19 @@ $docs | ForEach-Object {
 } | Sort-Object Score -Descending
 ```
 
+### Control the sampling
+
+`-Temperature`, `-TopP` and `-Seed` decide how much variation a reply is
+allowed. Use `-Temperature 0` when a call must be reproducible - grading or
+judging in an evaluation harness - so a rerun yields the same verdict and the
+grader itself stops contributing variance. Each is omitted from the request
+unless you pass it, so the model's own default otherwise applies.
+
+```powershell
+Invoke-Shp -Prompt "Score this answer 0-1, reply with only the number.`n$answer" -Temperature 0
+Invoke-Shp -Prompt 'Name one PowerShell cmdlet.' -Temperature 0.7 -Seed 1234
+```
+
 ### Estimate size and cost before sending
 
 ```powershell

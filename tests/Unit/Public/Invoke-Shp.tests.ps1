@@ -34,6 +34,108 @@ Describe 'Invoke-Shp' {
         (Get-Command -Name 'Invoke-Shp').Parameters['MaxOutputTokens'].ParameterType | Should -Be ([int])
     }
 
+    Context 'Sampling parameters' {
+        BeforeEach {
+            InModuleScope $script:moduleName {
+                $script:ShpChat = @()
+                $script:capturedBody = $null
+                Mock Get-ShpSessionToken { [pscustomobject]@{ token = 't'; expires_at = 0; endpoints = [pscustomobject]@{ api = 'https://api.example' } } }
+                # Mock the HTTP layer rather than Invoke-CopilotTurn so the
+                # assertions are about the request body that actually goes on
+                # the wire - "omitted" has to mean the field is absent there.
+                Mock Invoke-ShpHttpRequest {
+                    $script:capturedBody = $Body
+                    $payload = [pscustomobject]@{
+                        choices = @([pscustomobject]@{ message = [pscustomobject]@{ content = 'ok' }; finish_reason = 'stop' })
+                        usage   = [pscustomobject]@{ prompt_tokens = 1; completion_tokens = 1 }
+                        model   = 'm'
+                    } | ConvertTo-Json -Depth 8
+                    [pscustomobject]@{ Content = $payload; Headers = @{} }
+                }
+            }
+        }
+
+        AfterEach {
+            InModuleScope $script:moduleName { $script:ShpChat = @() }
+        }
+
+        It 'Exposes -Temperature, -TopP and -Seed with the expected types' {
+            $params = (Get-Command -Name 'Invoke-Shp').Parameters
+            $params['Temperature'].ParameterType | Should -Be ([double])
+            $params['TopP'].ParameterType        | Should -Be ([double])
+            $params['Seed'].ParameterType        | Should -Be ([int])
+        }
+
+        It 'Constrains -Temperature to 0..2 and -TopP to 0..1' {
+            $temperatureRange = (Get-Command -Name 'Invoke-Shp').Parameters['Temperature'].Attributes |
+                Where-Object { $_ -is [System.Management.Automation.ValidateRangeAttribute] }
+            $topPRange = (Get-Command -Name 'Invoke-Shp').Parameters['TopP'].Attributes |
+                Where-Object { $_ -is [System.Management.Automation.ValidateRangeAttribute] }
+
+            $temperatureRange.MinRange | Should -Be 0
+            $temperatureRange.MaxRange | Should -Be 2
+            $topPRange.MinRange        | Should -Be 0
+            $topPRange.MaxRange        | Should -Be 1
+        }
+
+        It 'Throws a range-validation error on an out-of-range -Temperature instead of clamping it' {
+            $err = { Invoke-Shp -Prompt 'hi' -Temperature 5 -DisableBrowsing -DisableFileAccess -DisableTerminal -DisableUserPrompts } |
+                Should -Throw -PassThru
+            $err.FullyQualifiedErrorId | Should -BeLike 'ParameterArgumentValidationError*'
+        }
+
+        It 'Throws a range-validation error on an out-of-range -TopP instead of clamping it' {
+            $err = { Invoke-Shp -Prompt 'hi' -TopP 1.5 -DisableBrowsing -DisableFileAccess -DisableTerminal -DisableUserPrompts } |
+                Should -Throw -PassThru
+            $err.FullyQualifiedErrorId | Should -BeLike 'ParameterArgumentValidationError*'
+        }
+
+        It 'Leaves the sampling fields out of the request body when the parameters are omitted' {
+            InModuleScope $script:moduleName {
+                $null = Invoke-Shp -Prompt 'hi' -DisableStreaming -DisableBrowsing -DisableFileAccess -DisableTerminal -DisableUserPrompts
+                $script:capturedBody | Should -Not -BeNullOrEmpty
+                $script:capturedBody | Should -Not -Match 'temperature'
+                $script:capturedBody | Should -Not -Match 'top_p'
+                $script:capturedBody | Should -Not -Match 'seed'
+            }
+        }
+
+        It 'Puts explicit sampling values into the request body' {
+            InModuleScope $script:moduleName {
+                $null = Invoke-Shp -Prompt 'hi' -Temperature 0.25 -TopP 0.9 -Seed 42 -DisableStreaming -DisableBrowsing -DisableFileAccess -DisableTerminal -DisableUserPrompts
+                $body = $script:capturedBody | ConvertFrom-Json
+                $body.temperature | Should -Be 0.25
+                $body.top_p       | Should -Be 0.9
+                $body.seed        | Should -Be 42
+            }
+        }
+
+        It 'Sends -Temperature 0 as an explicit zero rather than treating it as omitted' {
+            InModuleScope $script:moduleName {
+                $null = Invoke-Shp -Prompt 'grade this' -Temperature 0 -DisableStreaming -DisableBrowsing -DisableFileAccess -DisableTerminal -DisableUserPrompts
+                $body = $script:capturedBody | ConvertFrom-Json
+                $body.PSObject.Properties.Name | Should -Contain 'temperature'
+                $body.temperature | Should -Be 0
+                $script:capturedBody | Should -Not -Match 'top_p'
+                $script:capturedBody | Should -Not -Match 'seed'
+            }
+        }
+
+        It 'Reports the sampling settings on the result, null when unset' {
+            InModuleScope $script:moduleName {
+                $set = Invoke-Shp -Prompt 'hi' -Temperature 0 -TopP 0.9 -Seed 7 -DisableStreaming -DisableBrowsing -DisableFileAccess -DisableTerminal -DisableUserPrompts
+                $set.Temperature | Should -Be 0
+                $set.TopP        | Should -Be 0.9
+                $set.Seed        | Should -Be 7
+
+                $unset = Invoke-Shp -Prompt 'hi' -DisableStreaming -DisableBrowsing -DisableFileAccess -DisableTerminal -DisableUserPrompts
+                $unset.Temperature | Should -BeNullOrEmpty
+                $unset.TopP        | Should -BeNullOrEmpty
+                $unset.Seed        | Should -BeNullOrEmpty
+            }
+        }
+    }
+
     Context 'Session default resolution' {
         AfterEach {
             InModuleScope $script:moduleName {

@@ -86,6 +86,34 @@ reasoning_effort (chat) vs reasoning.effort (responses), and the output cap is
 max_tokens (chat) vs max_output_tokens (responses). The service validates the
 effort value per model and returns a clear error for unsupported values.
 
+### Omit-or-send for optional request fields
+
+An optional field must be ABSENT from the request body when the caller did not
+ask for it, so the backend default applies and existing calls stay
+byte-identical. Two idioms exist and picking the wrong one is a silent bug:
+
+- Sentinel (`-gt 0`, `IsNullOrWhiteSpace`) works only where the type's default
+  is meaningless - `MaxOutputTokens`, `ReasoningEffort`.
+- Binding (`$PSBoundParameters.ContainsKey(...)`) is required wherever the
+  type's default is a legitimate value. Temperature and TopP are the case in
+  point: `0` is a real setting, so a sentinel would silently treat
+  `-Temperature 0` - the whole reason the parameter exists - as "not supplied".
+
+Invoke-Shp collects bound optional parameters into splat hashtables
+($structuredParams, $samplingParams, $connectionParams) and Invoke-CopilotTurn
+re-tests binding on its own side before touching the payload, so the rule holds
+across both API shapes and the streaming path.
+
+Support for such a field is a SERVICE decision, not a client one: the /models
+capability document advertises no flag for sampling, and support is not uniform
+(on /responses gpt-5.5 rejects temperature and top_p but accepts seed). Client
+validation therefore only enforces the protocol range, to catch a typo before a
+billable round-trip. Crucially there is NO graceful retry without the field:
+Invoke-Shp degrades for a rejected reasoning summary and for server-side store
+because degrading costs the caller nothing there, but a quietly dropped
+-Temperature 0 returns a plausible answer while destroying the determinism the
+caller depends on. Failing the call is the correct outcome.
+
 ### Tool-calling loop
 
 Each tool is declared as a JSON schema, dispatched by name in a switch, and

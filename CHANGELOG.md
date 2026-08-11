@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `Invoke-Shp -Temperature`, `-TopP` and `-Seed` control the model's sampling,
+  so a call that has to be reproducible (grading or judging in an evaluation
+  harness) can pin itself with `-Temperature 0` and a variance measurement can
+  fix its operating point instead of inheriting the backend default. Each field
+  is omitted from the request body entirely when the parameter is not passed, so
+  existing calls are unchanged. `-Temperature` is validated against 0..2 and
+  `-TopP` against 0..1 before the request is sent, and a model that rejects a
+  field fails the call rather than having the field silently dropped.
+  The values used are reported on the result as `Temperature`, `TopP` and
+  `Seed`. See [specs/014-sampling-parameters.md](specs/014-sampling-parameters.md).
 - `Invoke-Shp` and `Get-ShpCostEstimate` results carry `Priced` and
   `PriceTableKey`, so a call the price table cannot cost is no longer
   indistinguishable from a free one. `PriceTableKey` stays populated even when

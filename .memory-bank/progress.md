@@ -16,6 +16,19 @@ Chronological record of shipped changes and remaining work. Latest first.
 
 ## What is left
 
+- Surface the HTTP error response body. `Invoke-ShpHttpRequest` reads the body
+  of a failed response and then discards it, throwing `HttpResponseException`
+  with only `Response status code does not indicate success: 400 (Bad Request).`
+  That hides which request field the service refused, and it kills all four
+  API-shape fallbacks in `Invoke-Shp`, which match `$errText` against `store`,
+  `unsupported_api_for_model`, `invalid_request_body` and `reasoning` /
+  `summary` - text that never arrives. Confined to the BUFFERED path:
+  `Invoke-ShpStreamRequest` already includes the body, so `Invoke-Shp -Model
+  gpt-5.5` succeeds via the fallback on the default streaming path but dies on a
+  bare 400 with `-DisableStreaming`. Fix by matching the streaming sender, while
+  still throwing `HttpResponseException` carrying the live response so the
+  `Invoke-ShpWithRetry` 429/5xx classification keeps working. Pre-existing
+  (reproduced on v0.4.0).
 - Encrypted token storage (open decision #5) before a stable release.
 - Publish to the PowerShell Gallery (open decision #7).
 - Streaming-path retry: route Invoke-ShpStreamRequest through Invoke-ShpWithRetry
@@ -33,6 +46,23 @@ Chronological record of shipped changes and remaining work. Latest first.
 
 ## Log
 
+- 2026-08-11 - Added sampling control to `Invoke-Shp`: `-Temperature`
+  (`ValidateRange 0..2`), `-TopP` (`0..1`) and `-Seed` (`[int]`), forwarded
+  through `Invoke-CopilotTurn` into BOTH payload shapes and the streaming path.
+  Omit-or-send rather than defaulted - `0` is a meaningful temperature, so the
+  `-gt 0` idiom used for `-MaxOutputTokens` cannot express "unset"; binding is
+  the only safe test, and an unbound parameter never reaches the request body,
+  leaving existing calls byte-identical. Values land on the result as
+  `Temperature` / `TopP` / `Seed`, null when omitted. Motivated by using
+  ShellPilot as the backend of an agent-skill eval, where an unpinned grader is
+  itself a variance source and a 0.67 trigger rate cannot be told apart from
+  sampling noise. Backend support was probed, not assumed: `/models` advertises
+  no sampling capability flag, `/chat/completions` accepted all three on every
+  model probed, but on `/responses` gpt-5.5 rejects `temperature` and `top_p`
+  while accepting `seed`. No graceful retry was added - a silently dropped
+  `-Temperature 0` would fake a determinism the caller never got, so the call is
+  allowed to fail. Spec `specs/014-sampling-parameters.md`. Uncommitted per the
+  user's request.
 - 2026-08-06 - Made an unpriced call observable and re-verified the price table
   against the live GitHub Copilot billing doc. `Invoke-Shp` and
   `Get-ShpCostEstimate` results (and each `Get-ShpUsage` record) now carry

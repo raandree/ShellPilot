@@ -94,6 +94,108 @@ Describe 'Invoke-CopilotTurn' {
         }
     }
 
+    Context 'Sampling parameters' {
+        BeforeEach {
+            InModuleScope $script:moduleName {
+                $script:capturedBody = $null
+                Mock Invoke-ShpHttpRequest {
+                    $script:capturedBody = $Body
+                    $chat = [pscustomobject]@{
+                        choices = @([pscustomobject]@{ message = [pscustomobject]@{ content = 'ok' }; finish_reason = 'stop' })
+                        usage   = [pscustomobject]@{ prompt_tokens = 1; completion_tokens = 1 }
+                        model   = 'm'
+                    } | ConvertTo-Json -Depth 8
+                    $responses = [pscustomobject]@{
+                        output = @([pscustomobject]@{ type = 'message'; content = @([pscustomobject]@{ type = 'output_text'; text = 'ok' }) })
+                        status = 'completed'
+                        usage  = [pscustomobject]@{ input_tokens = 1; output_tokens = 1 }
+                        model  = 'm'
+                    } | ConvertTo-Json -Depth 8
+                    [pscustomobject]@{ Content = $(if ($Uri -match '/responses') { $responses } else { $chat }); Headers = @{} }
+                }
+            }
+        }
+
+        It 'Omits temperature, top_p and seed from the chat payload when not supplied' {
+            InModuleScope $script:moduleName {
+                $null = Invoke-CopilotTurn -Mode 'chat' -Model 'm' -ApiBase 'https://api.example' -Headers @{} -Conversation @(@{ role = 'user'; content = 'hi' })
+                $script:capturedBody | Should -Not -Match 'temperature'
+                $script:capturedBody | Should -Not -Match 'top_p'
+                $script:capturedBody | Should -Not -Match 'seed'
+            }
+        }
+
+        It 'Maps the sampling parameters onto the chat payload' {
+            InModuleScope $script:moduleName {
+                $null = Invoke-CopilotTurn -Mode 'chat' -Model 'm' -ApiBase 'https://api.example' -Headers @{} -Conversation @(@{ role = 'user'; content = 'hi' }) -Temperature 0.25 -TopP 0.9 -Seed 42
+                $body = $script:capturedBody | ConvertFrom-Json
+                $body.temperature | Should -Be 0.25
+                $body.top_p       | Should -Be 0.9
+                $body.seed        | Should -Be 42
+            }
+        }
+
+        It 'Sends an explicit temperature of 0 rather than treating it as unset' {
+            InModuleScope $script:moduleName {
+                $null = Invoke-CopilotTurn -Mode 'chat' -Model 'm' -ApiBase 'https://api.example' -Headers @{} -Conversation @(@{ role = 'user'; content = 'hi' }) -Temperature 0
+                $body = $script:capturedBody | ConvertFrom-Json
+                $body.PSObject.Properties.Name | Should -Contain 'temperature'
+                $body.temperature | Should -Be 0
+                $script:capturedBody | Should -Not -Match 'top_p'
+            }
+        }
+
+        It 'Maps the sampling parameters onto the responses payload' {
+            InModuleScope $script:moduleName {
+                $null = Invoke-CopilotTurn -Mode 'responses' -Model 'm' -ApiBase 'https://api.example' -Headers @{} -Conversation @(@{ role = 'user'; content = 'hi' }) -Temperature 1 -TopP 0.5 -Seed 7
+                $body = $script:capturedBody | ConvertFrom-Json
+                $body.temperature | Should -Be 1
+                $body.top_p       | Should -Be 0.5
+                $body.seed        | Should -Be 7
+            }
+        }
+
+        It 'Omits the sampling fields from the responses payload when not supplied' {
+            InModuleScope $script:moduleName {
+                $null = Invoke-CopilotTurn -Mode 'responses' -Model 'm' -ApiBase 'https://api.example' -Headers @{} -Conversation @(@{ role = 'user'; content = 'hi' })
+                $script:capturedBody | Should -Not -Match 'temperature'
+                $script:capturedBody | Should -Not -Match 'top_p'
+                $script:capturedBody | Should -Not -Match 'seed'
+            }
+        }
+
+        It 'Carries the sampling parameters into a streamed chat request' {
+            InModuleScope $script:moduleName {
+                $script:capturedBody = $null
+                Mock Invoke-ShpStreamRequest {
+                    $script:capturedBody = $Body
+                    $sse = @(
+                        'data: {"model":"m","choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}]}'
+                        'data: [DONE]'
+                    ) -join "`n"
+                    [pscustomobject]@{ Reader = [System.IO.StringReader]::new($sse); Response = [pscustomobject]@{ Headers = @() }; Client = $null }
+                }
+
+                $null = Invoke-CopilotTurn -Mode 'chat' -Model 'm' -ApiBase 'https://api.example' -Headers @{} -Conversation @(@{ role = 'user'; content = 'hi' }) -Stream -Temperature 0 -Seed 99
+                $body = $script:capturedBody | ConvertFrom-Json
+                $body.temperature | Should -Be 0
+                $body.seed        | Should -Be 99
+            }
+        }
+
+        It 'Rejects an out-of-range temperature or top_p before sending' {
+            InModuleScope $script:moduleName {
+                $temperatureError = { Invoke-CopilotTurn -Mode 'chat' -Model 'm' -ApiBase 'https://api.example' -Headers @{} -Conversation @() -Temperature 2.5 } |
+                    Should -Throw -PassThru
+                $topPError = { Invoke-CopilotTurn -Mode 'chat' -Model 'm' -ApiBase 'https://api.example' -Headers @{} -Conversation @() -TopP 1.1 } |
+                    Should -Throw -PassThru
+                $temperatureError.FullyQualifiedErrorId | Should -BeLike 'ParameterArgumentValidationError*'
+                $topPError.FullyQualifiedErrorId        | Should -BeLike 'ParameterArgumentValidationError*'
+                Should -Invoke Invoke-ShpHttpRequest -Times 0 -Exactly
+            }
+        }
+    }
+
     It 'Streams a chat turn through Invoke-ShpStreamRequest and normalizes it' {
         InModuleScope $script:moduleName {
             $script:capturedBody = $null

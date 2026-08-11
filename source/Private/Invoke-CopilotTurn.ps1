@@ -57,6 +57,19 @@ function Invoke-CopilotTurn {
         on /chat/completions and as max_output_tokens on /responses. 0 (the
         default) leaves the limit to the service.
 
+    .PARAMETER Temperature
+        Sampling temperature (0..2). Sent as the temperature field on both
+        shapes. Omitted from the payload unless bound, because 0 is a
+        meaningful value and must stay distinguishable from "not supplied".
+
+    .PARAMETER TopP
+        Nucleus-sampling cutoff (0..1). Sent as the top_p field on both shapes,
+        and omitted from the payload unless bound.
+
+    .PARAMETER Seed
+        Best-effort determinism hint. Sent as the seed field on both shapes,
+        and omitted from the payload unless bound.
+
     .PARAMETER ResponseFormat
         Request a structured reply. 'json_object' asks the model to return a
         single valid JSON object; 'text' (the default) leaves the format free.
@@ -117,6 +130,11 @@ function Invoke-CopilotTurn {
         [switch]$EchoReasoning,
         [string]$ReasoningEffort,
         [int]$MaxOutputTokens,
+        [ValidateRange(0.0, 2.0)]
+        [double]$Temperature,
+        [ValidateRange(0.0, 1.0)]
+        [double]$TopP,
+        [int]$Seed,
         [ValidateSet('text', 'json_object')]
         [string]$ResponseFormat,
         [string]$JsonSchema,
@@ -127,6 +145,18 @@ function Invoke-CopilotTurn {
         [int]$RetryDelaySec = $script:DefaultRetryDelaySec,
         [int]$NetworkOutageToleranceSec = $script:DefaultNetworkOutageToleranceSec
     )
+
+    # Sampling knobs share one omit-or-send rule across both shapes: the field
+    # only reaches the payload when the caller bound the parameter, so 0 stays
+    # distinguishable from "not supplied" and an unset knob leaves the model's
+    # own default in force. The service - not this function - decides which
+    # model accepts which field, and its rejection is allowed to surface: a
+    # dropped temperature would fake a determinism the caller never got.
+    $sampling = @{}
+    if ($PSBoundParameters.ContainsKey('Temperature')) { $sampling.temperature = $Temperature }
+    if ($PSBoundParameters.ContainsKey('TopP'))        { $sampling.top_p       = $TopP }
+    if ($PSBoundParameters.ContainsKey('Seed'))        { $sampling.seed        = $Seed }
+
     if ($Mode -eq 'responses') {
         $payload = @{ model=$Model; input=@($Conversation); stream=$false }
         if ($Tools) { $payload.tools=@($Tools); $payload.tool_choice='auto' }
@@ -138,6 +168,7 @@ function Invoke-CopilotTurn {
         if (-not [string]::IsNullOrWhiteSpace($ReasoningEffort)) { $reasoningObj.effort = $ReasoningEffort }
         if ($reasoningObj.Count -gt 0) { $payload.reasoning = $reasoningObj }
         if ($MaxOutputTokens -gt 0) { $payload.max_output_tokens = $MaxOutputTokens }
+        foreach ($field in $sampling.Keys) { $payload[$field] = $sampling[$field] }
         if ($Store) { $payload.store = $true }
         if (-not [string]::IsNullOrWhiteSpace($PreviousResponseId)) { $payload.previous_response_id = $PreviousResponseId }
         $body = ConvertTo-ShpStableJson -InputObject $payload -Depth 12
@@ -184,6 +215,7 @@ function Invoke-CopilotTurn {
     # model and rejects unsupported values with a clear error.
     if (-not [string]::IsNullOrWhiteSpace($ReasoningEffort)) { $payload.reasoning_effort = $ReasoningEffort }
     if ($MaxOutputTokens -gt 0) { $payload.max_tokens = $MaxOutputTokens }
+    foreach ($field in $sampling.Keys) { $payload[$field] = $sampling[$field] }
     # Structured output: a full JSON schema wins over the simpler json_object
     # mode. Both are sent as response_format and apply to streamed and buffered
     # replies alike.

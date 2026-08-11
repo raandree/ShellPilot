@@ -4,16 +4,87 @@ Current working focus for ShellPilot. Overwrite this file as the focus shifts.
 
 ## Focus
 
+Added sampling control (`-Temperature`, `-TopP`, `-Seed`) to `Invoke-Shp` so the
+module can back an evaluation harness. Changes are deliberately UNCOMMITTED per
+the user's request.
+
+Trigger: ShellPilot is being used as the inference backend for an agent-skill
+eval that measures a trigger rate over N repetitions. With sampling left at the
+backend default, two queries scored 0.67 (2 of 3) and nothing distinguished a
+weak skill description from ordinary sampling noise - the measurement was
+uninterpretable. A grader also has to be pinnable to `-Temperature 0` or the
+grader itself becomes a variance source.
+
+Shipped this turn:
+
+1. `-Temperature` (`ValidateRange 0..2`), `-TopP` (`0..1`) and `-Seed` (`[int]`,
+   no protocol range) on `Invoke-Shp`, mirrored on private `Invoke-CopilotTurn`
+   and added to BOTH payload shapes (chat and responses, streaming included).
+1. Omit-or-send, not defaulted. `0` is a meaningful temperature and top-p, so
+   the `-gt 0` idiom used for `-MaxOutputTokens` is wrong here; binding is the
+   only safe test. `Invoke-Shp` collects bound parameters into a
+   `$samplingParams` splat (same shape as the existing `$structuredParams` /
+   `$connectionParams`) and `Invoke-CopilotTurn` adds a payload field only when
+   its own `$PSBoundParameters` contains it. Unbound means absent from the body,
+   so existing calls are byte-identical.
+1. Reported on the result as `Temperature` / `TopP` / `Seed`, null when omitted.
+   Deliberately NOT added to the `ShellPilot.Result` format view, which already
+   omits `ReasoningEffort` / `MaxOutputTokens`.
+1. Spec `specs/014-sampling-parameters.md`, linked from `specs/README.md`.
+
+Backend support was probed, not assumed - the `/models` capability document
+advertises NO flag for sampling. Probed against the live session endpoint:
+`/chat/completions` accepts all three on claude-opus-4.7 / haiku-4.5 /
+sonnet-4.6, gpt-4o-mini, gpt-4.1, gpt-5-mini, gpt-5.4 and gemini-3.5-flash;
+`/responses` accepts all three on grok-4.5 but gpt-5.5 REJECTS `temperature`
+and `top_p` while accepting `seed`. So support is not uniform, and the service
+also enforces the ranges itself. Notably the proxy does NOT narrow temperature
+to 0..1 for Claude - `claude-opus-4.7` accepted `temperature: 2`.
+
+No graceful retry was added, deliberately. `Invoke-Shp` degrades gracefully for
+a rejected reasoning summary and for server-side `store`, because degrading
+costs the caller nothing there. Sampling is the opposite: a quietly dropped
+`-Temperature 0` returns a plausible answer while destroying the determinism the
+caller depends on. The call is allowed to fail.
+
+Per-call only, not session state. `Set-ShpContext` holds connection options, so
+sampling is the wrong category for it; `Select-ShpModel` is the right category
+but a hidden session-wide temperature undermines the reproducibility the feature
+exists to provide. Additive later if a concrete need appears.
+
+Found but NOT fixed (pre-existing, reported to the user instead of bundled):
+`Invoke-ShpHttpRequest` reads the error response body and then discards it,
+throwing `HttpResponseException` with only
+`Response status code does not indicate success: 400 (Bad Request).` That makes
+a rejected sampling field fail without saying which field, and it also kills the
+API-shape fallbacks in `Invoke-Shp`, which match `$errText` for `store`,
+`unsupported_api_for_model`, `invalid_request_body`, `reasoning` / `summary` -
+text that never arrives.
+
+The defect is confined to the BUFFERED path. `Invoke-ShpStreamRequest` already
+includes the error body in its message, so on the default streaming path the
+fallbacks fire correctly - the fix is to bring the buffered sender in line with
+the streaming one, not to invent a convention. Same model, one switch apart:
+`Invoke-Shp -Model gpt-5.5 -Prompt '...'` succeeds with `ApiMode=responses`,
+while the same call with `-DisableStreaming` dies on a bare 400. Reproduced on
+v0.4.0 with no sampling parameter involved, confirming it predates this change.
+`Invoke-ShpHttpRequest` is called only from `Invoke-CopilotTurn` (buffered chat
+turn plus every responses turn), which bounds the blast radius. A paste-ready
+prompt for the fix is at
+`C:\Users\install\Desktop\ShellPilot-Prompt-2-surface-http-error-body.md`.
+
+## Superseded focus (2026-08-06)
+
 Made an unpriced call observable, and re-verified the price table against the
-live GitHub Copilot billing doc. Changes are deliberately UNCOMMITTED per the
-user's request; the working tree was clean at `efd5e61` before this turn.
+live GitHub Copilot billing doc. The working tree was clean at `efd5e61` before
+that turn.
 
 Trigger: a live DeskPilot session on ShellPilot 0.3.1 recorded 1,087,054 tokens
 across 3 turns as $0.00 on `claude-opus-5`. The exact-key price lookup found no
 entry, so `CostUSD`, `Credits` and `CostBreakdown` were all null with no signal -
 an unpriced call was indistinguishable from a free one.
 
-Shipped this turn:
+Shipped that turn:
 
 1. Observability. `Invoke-Shp` and `Get-ShpCostEstimate` results, and each
    `Get-ShpUsage` record, gained `Priced` (bool) and `PriceTableKey`.

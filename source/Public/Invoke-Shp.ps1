@@ -160,6 +160,46 @@ function Invoke-Shp {
         non-streaming but 64000 when streamed) - add -Stream to lift the cap.
         Omit it to leave the limit to the service.
 
+    .PARAMETER Temperature
+        Sampling temperature between 0 and 2. Lower values make the reply more
+        deterministic, higher values more varied. Use 0 when a call must be
+        reproducible - grading, judging, or classification in an evaluation
+        harness - so a rerun yields the same verdict and the grader itself stops
+        contributing variance; leave it unset for ordinary prose. Sent as the
+        temperature field on /chat/completions and on /responses, and omitted
+        from the request entirely when you do not pass it, so the model's own
+        default applies. A value outside 0..2 is rejected before the request is
+        sent rather than clamped.
+
+        Not every model accepts it: the field is honoured across the
+        /chat/completions models, but some reasoning models reject it on
+        /responses ("Unsupported parameter: 'temperature' is not supported with
+        this model"). ShellPilot never drops the field to make such a call
+        succeed - the request fails instead - because a silently dropped
+        -Temperature 0 would promise a determinism you did not get. Note that
+        the HTTP layer currently reports a rejection as a bare 400 without the
+        service's explanatory body, so the call is safe but the reason is not
+        yet spelled out. The models API advertises no capability flag for
+        sampling, so support is validated by the service per model, exactly
+        like -ReasoningEffort.
+
+    .PARAMETER TopP
+        Nucleus-sampling cutoff between 0 and 1: the model considers only the
+        tokens making up the top TopP of the probability mass. An alternative
+        to -Temperature; the providers recommend tuning one or the other, not
+        both. Sent as the top_p field on /chat/completions and on /responses,
+        and omitted from the request when you do not pass it. A value outside
+        0..1 is rejected before the request is sent rather than clamped, and -
+        like -Temperature - a model that rejects the field fails the call
+        instead of having the field dropped.
+
+    .PARAMETER Seed
+        Best-effort determinism hint: repeated requests with the same seed,
+        prompt and sampling settings aim to return the same reply. It is a hint,
+        not a guarantee, so pair it with -Temperature 0 rather than relying on
+        the seed alone. Sent as the seed field on /chat/completions and on
+        /responses, and omitted from the request when you do not pass it.
+
     .PARAMETER DisableStreaming
         Turn off live streaming. By default Invoke-Shp streams the reply
         token-by-token to the host over Server-Sent Events on /chat/completions,
@@ -358,6 +398,22 @@ function Invoke-Shp {
         single buffered reply.
 
     .EXAMPLE
+        Invoke-Shp -Prompt "Score this answer 0-1 and reply with only the number.`n$answer" -Temperature 0 -DisableBrowsing -DisableFileAccess -DisableTerminal -DisableUserPrompts
+
+        Grades an answer reproducibly. -Temperature 0 makes the judgement
+        near-deterministic, so rerunning the same grading call yields the same
+        verdict and the grader itself stops contributing variance to the
+        measurement.
+
+    .EXAMPLE
+        1..5 | ForEach-Object { (Invoke-Shp -Prompt 'Name one PowerShell cmdlet.' -Temperature 0.7 -Seed 1234).Content }
+
+        Measures the spread of a prompt at a realistic operating temperature.
+        -Temperature controls how much variation the model is allowed and -Seed
+        asks for best-effort repeatability of the sequence, so the observed
+        spread reflects the prompt rather than an unpinned sampler.
+
+    .EXAMPLE
         Invoke-Shp -Prompt 'Which files in this folder are larger than 1 MB? Use the terminal.'
 
         Terminal access is on by default, so the model can call the run_command
@@ -412,7 +468,9 @@ function Invoke-Shp {
         shell commands it ran (CommandsRun), the questions it asked on the
         console (QuestionsAsked), the per-turn todo checklist it maintained
         unless -DisableTodoList is set (TodoList), any reasoning the model exposed
-        (Reasoning), the running conversation history (History), and the raw API
+        (Reasoning), the sampling settings actually sent (Temperature / TopP /
+        Seed, each null when the parameter was omitted and the model default
+        applied), the running conversation history (History), and the raw API
         payload.
 
         Usage.ContextTokens is the peak single-request prompt size - how full
@@ -486,6 +544,14 @@ function Invoke-Shp {
 
         [ValidateRange(1, [int]::MaxValue)]
         [int]$MaxOutputTokens,
+
+        [ValidateRange(0.0, 2.0)]
+        [double]$Temperature,
+
+        [ValidateRange(0.0, 1.0)]
+        [double]$TopP,
+
+        [int]$Seed,
 
         [Parameter(ValueFromPipelineByPropertyName)]
         [object[]]$History,
@@ -930,6 +996,14 @@ function Invoke-Shp {
     $structuredParams = @{}
     if (-not [string]::IsNullOrWhiteSpace($ResponseFormat)) { $structuredParams.ResponseFormat = $ResponseFormat }
     if (-not [string]::IsNullOrWhiteSpace($JsonSchema))     { $structuredParams.JsonSchema = $JsonSchema }
+    # Sampling knobs are omit-or-send: 0 is a meaningful temperature and top_p,
+    # so "was it bound?" is the only safe test - a default value would silently
+    # change every existing call. Unbound means the field never reaches the
+    # request body and the model's own default applies.
+    $samplingParams = @{}
+    if ($PSBoundParameters.ContainsKey('Temperature')) { $samplingParams.Temperature = $Temperature }
+    if ($PSBoundParameters.ContainsKey('TopP'))        { $samplingParams.TopP        = $TopP }
+    if ($PSBoundParameters.ContainsKey('Seed'))        { $samplingParams.Seed        = $Seed }
     $connectionParams = @{ TimeoutSec = $effectiveTimeoutSec; MaxRetryCount = $effectiveMaxRetry; RetryDelaySec = $effectiveRetryDelay; NetworkOutageToleranceSec = $effectiveOutageTolerance }
 
     while ($true) {
@@ -948,7 +1022,7 @@ function Invoke-Shp {
                 $trimmedContext = Compress-ShpChatContext -Messages $chatMessages -MaxTokens $script:DefaultMaxContextWindowTokens
                 if ($trimmedContext -gt 0) { Write-Verbose ("Context guard elided {0} old tool result(s) to stay within the window." -f $trimmedContext) }
             }
-            $turn = Invoke-CopilotTurn -Mode $mode -Model $Model -ApiBase $apiBase -Headers $apiHeaders -Conversation $conv -Tools $tls -RequestReasoningSummary:($mode -eq 'responses' -and $requestReasoning) -ReasoningEffort $ReasoningEffort -MaxOutputTokens $MaxOutputTokens -Stream:($streamingEnabled -and $mode -eq 'chat') -EchoReasoning:($ShowThinking -and $streamingEnabled -and $mode -eq 'chat') -Store:($serverSideActive -and $mode -eq 'responses') -PreviousResponseId $previousResponseId @structuredParams @connectionParams
+            $turn = Invoke-CopilotTurn -Mode $mode -Model $Model -ApiBase $apiBase -Headers $apiHeaders -Conversation $conv -Tools $tls -RequestReasoningSummary:($mode -eq 'responses' -and $requestReasoning) -ReasoningEffort $ReasoningEffort -MaxOutputTokens $MaxOutputTokens -Stream:($streamingEnabled -and $mode -eq 'chat') -EchoReasoning:($ShowThinking -and $streamingEnabled -and $mode -eq 'chat') -Store:($serverSideActive -and $mode -eq 'responses') -PreviousResponseId $previousResponseId @structuredParams @samplingParams @connectionParams
         } catch {
             $errText = $_.ErrorDetails.Message
             if ([string]::IsNullOrWhiteSpace($errText)) { $errText = $_.Exception.Message }
@@ -1270,6 +1344,9 @@ function Invoke-Shp {
         Iterations=$iteration; ToolCalls=$toolCallsExecuted
         ReasoningEffort=$(if ([string]::IsNullOrWhiteSpace($ReasoningEffort)) { $null } else { $ReasoningEffort })
         MaxOutputTokens=$(if ($MaxOutputTokens -gt 0) { $MaxOutputTokens } else { $null })
+        Temperature=$(if ($samplingParams.ContainsKey('Temperature')) { $Temperature } else { $null })
+        TopP=$(if ($samplingParams.ContainsKey('TopP')) { $TopP } else { $null })
+        Seed=$(if ($samplingParams.ContainsKey('Seed')) { $Seed } else { $null })
         History=@($newHistory)
         BrowsingEnabled=[bool]$browsingEnabled; FileAccessEnabled=[bool]$fileAccessEnabled
         TerminalEnabled=[bool]$terminalEnabled; UserPromptsEnabled=[bool]$userPromptsEnabled
