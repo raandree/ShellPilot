@@ -1018,6 +1018,10 @@ function Invoke-Shp {
     $filesRead  = New-Object System.Collections.Generic.List[string]
     $filesWritten = New-Object System.Collections.Generic.List[string]
     $commandsRun = New-Object System.Collections.Generic.List[string]
+    # Every tool call the policy refused. An unattended run has to be auditable
+    # afterwards, and a refusal the caller cannot see is indistinguishable from
+    # a model that simply chose not to try.
+    $toolCallsDenied = New-Object System.Collections.Generic.List[string]
     $questionsAsked = New-Object System.Collections.Generic.List[string]
     $userToolsCalled = New-Object System.Collections.Generic.List[string]
     $reasoningLog = New-Object System.Collections.Generic.List[string]
@@ -1244,6 +1248,23 @@ function Invoke-Shp {
                 $toolResult = '{"error":"unknown tool"}'
                 try {
                     $fargs = $tc.Arguments | ConvertFrom-Json
+                    # Tool access policy (Set-ShpToolPolicy): one gate for every
+                    # unsandboxed tool, ahead of dispatch. ShouldProcess cannot
+                    # cover this - it is interactive only, so an unattended run
+                    # never prompts, which is exactly the run that needs scoping.
+                    $access = switch ($tc.Name) {
+                        { $_ -in 'read_file', 'list_directory', 'write_file', 'create_directory' } {
+                            Test-ShpToolAccess -Tool $tc.Name -Path ([string]$fargs.path)
+                        }
+                        'run_command' { Test-ShpToolAccess -Tool $tc.Name -Command ([string]$fargs.command) }
+                        default       { @{ Allowed = $true; Reason = '' } }
+                    }
+                    if (-not $access.Allowed) {
+                        $denial = '{0}: {1}' -f $tc.Name, $access.Reason
+                        if (-not $toolCallsDenied.Contains($denial)) { $null = $toolCallsDenied.Add($denial) }
+                        Write-Verbose ('Tool policy denied {0}' -f $denial)
+                        $toolResult = @{ denied = $access.Reason } | ConvertTo-Json -Compress
+                    } else {
                     switch ($tc.Name) {
                         'fetch_url' { $toolResult = Invoke-FetchUrlTool -Url ([string]$fargs.url) -AllowPrivateNetwork:$AllowPrivateNetwork }
                         'read_file' {
@@ -1332,6 +1353,7 @@ function Invoke-Shp {
                                 }
                             }
                         }
+                    }
                     }
                 } catch { $toolResult = (@{ error=$_.Exception.Message } | ConvertTo-Json -Compress) }
                 $toolCallsExecuted += [pscustomobject]@{ Name=$tc.Name; Arguments=$tc.Arguments; ResultPreview=$toolResult.Substring(0,[Math]::Min(200,$toolResult.Length)) }
@@ -1470,6 +1492,7 @@ function Invoke-Shp {
         StreamingEnabled=[bool]$streamingEnabled
         FilesRead=@($filesRead); FilesWritten=@($filesWritten); ApiMode=$turn.Mode
         CommandsRun=@($commandsRun); QuestionsAsked=@($questionsAsked)
+        ToolCallsDenied=@($toolCallsDenied)
         TodoList=@($todoList)
         UserToolsAvailable=@($userToolCommands.Keys); UserToolsCalled=@($userToolsCalled)
         InstructionsApplied=@($instructionsApplied)

@@ -218,6 +218,21 @@ Describe 'Invoke-ShpBatch' {
                 InModuleScope $script:moduleName { $script:ShpModelLimitCache = $null }
             }
         }
+        It 'Should carry the tool policy to the workers, or the batch is the one unguarded path' {
+            Set-ShpToolPolicy -Rule @('Shell(git status)')
+            try {
+                $null = Invoke-ShpBatch -Prompt 'a', 'b'
+                InModuleScope $script:moduleName {
+                    # A worker inherits no module state, so a policy left in the
+                    # caller's session would mean every batch item ran with the
+                    # tools unrestricted - the failure a security control must
+                    # not have.
+                    $script:capturedWorkItem[0].ToolPolicy      | Should -Not -BeNullOrEmpty
+                    $script:capturedWorkItem[0].ToolPolicy.Rule.Count | Should -Be 1
+                    $script:capturedWorkItem[1].ToolPolicy      | Should -Not -BeNullOrEmpty
+                }
+            } finally { Clear-ShpToolPolicy }
+        }
     }
 
     Context 'Malformed input' {

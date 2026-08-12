@@ -409,6 +409,12 @@ function Invoke-ShpBatch {
         $toolCommand = @()
         if (-not $DisableUserTools) { $toolCommand = @($script:ShpUserTools.Values | ForEach-Object { $_.Command }) }
 
+        # The tool policy travels with the work item. A worker inherits no module
+        # state, so a policy left behind in the caller's session would mean every
+        # batch item ran UNRESTRICTED - the failure mode a security control must
+        # not have, and the same class of bug the session context already had.
+        $toolPolicy = $script:ShpToolPolicy
+
         $spendBag = [System.Collections.Concurrent.ConcurrentBag[double]]::new()
         $budgetLimit = if ($PSBoundParameters.ContainsKey('MaxBatchBudgetUSD')) { [double]$MaxBatchBudgetUSD } else { 0.0 }
 
@@ -451,6 +457,7 @@ function Invoke-ShpBatch {
                     InvokeParams = $invokeParams
                     Context      = $context
                     ToolCommand  = $toolCommand
+                    ToolPolicy   = $toolPolicy
                     ModelLimit   = $modelLimit
                     SpendBag     = $spendBag
                     BudgetLimit  = $budgetLimit

@@ -169,12 +169,22 @@ $script:ChatCompressionTargetPercent = 50
 # first used.
 $script:ShpHttpClient = $null
 
-# Registry of user-defined tools (see Register-ShpTool). Maps a tool name to a
-# record carrying the backing command name and the generated JSON schema, so
+# Registry of user-defined tools (see Register-ShpTool). Maps a tool name to a# record carrying the backing command name and the generated JSON schema, so
 # Invoke-Shp can offer the model any PowerShell command as a callable tool.
 # Ordered so tools are offered in registration order. Session-scoped; not
 # persisted to disk.
 $script:ShpUserTools = [ordered]@{}
+
+# Allow/deny rule set scoping what the unsandboxed file and shell tools may
+# reach (see Set-ShpToolPolicy). $null means no policy, which is the historical
+# behaviour: every tool call is permitted. Once set, the model is denied by
+# default and only a matching rule allows an operation. Session state rather
+# than a per-call parameter on purpose - a reach that changed between iterations
+# of one unattended loop would let the weakest call define the blast radius, and
+# leave no single place to audit. Replayed into every Invoke-ShpBatch worker.
+# Session-scoped; never persisted to disk, and never loaded from a file unless
+# the caller names one.
+$script:ShpToolPolicy = $null
 
 # Most recent /responses response id, retained only when a call opts into
 # server-side conversation state (Invoke-Shp -UseServerSideState). Lets the next

@@ -20,8 +20,7 @@ Chronological record of shipped changes and remaining work. Latest first.
 
 - Encrypted token storage (open decision #5) before a stable release.
 - Publish to the PowerShell Gallery (open decision #7).
-- Path-scoping / allow-listing for the unsandboxed tools. ShouldProcess now
-  gates them interactively, but there is still no persisted allow/deny rule set
+- Path-scoping / allow-listing for the unsandboxed tools. ShouldProcess now  gates them interactively, but there is still no persisted allow/deny rule set
   (the Copilot CLI's Kind(argument) model is the reference).
 - MCP client (stdio + streamable HTTP) so the module can consume the wider tool
   ecosystem. Target spec revision 2025-11-25. Would be the first PowerShell MCP
@@ -39,6 +38,25 @@ Chronological record of shipped changes and remaining work. Latest first.
 
 ## Log
 
+- 2026-08-12 - Tool access policy shipped (spec 019). Justified by a scenario,
+  not by symmetry with `fetch_url`: an unattended `Invoke-ShpBatch` triage run
+  where untrusted issue text steers the model into reading a credential file and
+  running `git push`. `-Confirm` cannot help (interactive only; batch forces
+  `-DisableUserPrompts`) and the category switches are all-or-nothing, so the
+  only safe unattended setting was "all tools off".
+  Measured live: unrestricted, the model read a decoy secret outside the working
+  directory AND ran `git log`; scoped, both were denied with reasons on
+  `ToolCallsDenied` and the legitimate half of the task still completed.
+  The security-critical bug was found by its own test: `.ResolveLinkTarget()`
+  returns `$null` for a plain file inside a junction, so resolving only the LEAF
+  left `<root>/link/secret.txt` looking like it was inside the allowed root.
+  `Resolve-ShpRealPath` now resolves links anywhere in the chain and restarts
+  the walk after each rewrite. `run_command` uses token-prefix matching plus a
+  hard metacharacter deny checked BEFORE the rules, because every classic bypass
+  starts with a command the rules permit. Policy travels to batch workers - a
+  worker inherits no module state and would otherwise be the one unguarded path.
+  Verified: 893 -> 980 tests, 0 failures, 85.52% -> 85.73% coverage, 16 tasks /
+  0 errors / 0 warnings.
 - 2026-08-12 - Session-context propagation finished. Premise re-verified: the
   token exchange, `/models` and embeddings all called `Invoke-ShpWithRetry`
   with built-in defaults, and `Invoke-Shp` resolved its connection options

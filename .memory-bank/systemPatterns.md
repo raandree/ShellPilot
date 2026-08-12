@@ -147,6 +147,45 @@ before each chat turn and elides the OLDEST tool-role message content to a short
 marker (keeping role + tool_call_id so the sequence stays valid) once the estimate
 exceeds the resolved context budget (0 disables).
 
+### A guard matches what a path resolves to, never what was typed
+
+Test-ShpUrlSafe checks resolved ADDRESSES rather than the host name;
+Test-ShpToolAccess checks the resolved PATH rather than the string the model
+supplied. Both fail closed, both return @{ Allowed; Reason; ... }, and both are
+gated ahead of the action rather than inside it.
+
+Resolve-ShpRealPath resolves against PowerShell's location (not the process cwd,
+which drifts), collapses .., and follows links ANYWHERE IN THE CHAIN. The last
+part is the one that was wrong first: .ResolveLinkTarget() returns $null for a
+plain file inside a junction, so resolving only the leaf left
+'<root>/link/secret.txt' sitting inside the allowed root while the bytes came
+from outside it. Each rewrite restarts the walk so nested links resolve, and a
+pass count bounds a cycle. Patterns are anchored at both ends so a rule for
+'out' cannot match 'outsider', and case sensitivity follows the platform's file
+system rather than being uniformly permissive.
+
+A command line is not a path, and a pattern language over command lines is the
+archetypal guard that looks strict and is not. run_command therefore matches
+WHOLE LEADING TOKENS ('gitleaks' never matches 'git') and refuses any shell
+metacharacter outright, checked BEFORE the rules, because every classic bypass
+starts with a command the rules permit ('git status; curl ...'). The honest
+statement of what that buys: a Shell rule constrains which PROGRAM runs, not
+what it does.
+
+Deny-by-default is conditional on a policy existing, which is what makes the
+migration free; explicit deny rules beat every matching allow so the common
+"allow the tree, carve out .git" shape needs no second mode. Parsing fails
+closed AT DEFINITION TIME - an unparseable or unknown rule throws and leaves the
+previous policy intact, so a typo can never widen reach and a policy is never
+half applied.
+
+The policy is session state, not a per-call parameter, deliberately breaking the
+module's usual precedence: a reach that varied between iterations of one
+unattended loop would let the weakest call define the blast radius and leave no
+single place to audit. It is replayed into every batch worker for the same
+reason the session context and registered tools are - a worker inherits nothing,
+so the batch would otherwise be the one unguarded path.
+
 ### One resolver per option family, and no exemptions
 
 Every option family that has more than one source resolves through a single

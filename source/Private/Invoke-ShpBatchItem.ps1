@@ -79,6 +79,10 @@ function Invoke-ShpBatchItem {
         # limit cache would stay empty for the life of the batch.
         if ($null -ne $WorkItem.ModelLimit) { $script:ShpModelLimitCache = $WorkItem.ModelLimit }
 
+        # The tool policy must arrive before the first item runs, or the batch
+        # would be the one place the model is unrestricted.
+        $script:ShpToolPolicy = $WorkItem.ToolPolicy
+
         foreach ($command in @($WorkItem.ToolCommand)) {
             try {
                 $null = Register-ShpTool -Command $command -ErrorAction Stop

@@ -9,6 +9,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `Set-ShpToolPolicy`, `Get-ShpToolPolicy` and `Clear-ShpToolPolicy` scope what
+  the unsandboxed file and shell tools may reach, so an unattended run can be
+  given the access it needs instead of the caller's entire filesystem and shell.
+  Rules are written `Read(./src/**)`, `Write(./out/**)`, `Shell(git status)`,
+  with a leading `!` to deny; any matching deny beats every matching allow.
+  **Nothing changes until you set a policy** - and once you do, the model is
+  denied by default. Refusals are reported on the result as `ToolCallsDenied`,
+  and the policy travels into every `Invoke-ShpBatch` worker, because a worker
+  inherits no module state and would otherwise be the one unguarded path.
+  This closes a real gap rather than a symmetry: `-Confirm` is interactive only
+  so an unattended run never prompts, and `-DisableFileAccess` /
+  `-DisableTerminal` are all-or-nothing, so the only safe unattended setting was
+  "all tools off".
+  See [specs/019-tool-access-policy.md](specs/019-tool-access-policy.md).
+- Paths are matched on the absolute, **link-resolved** path rather than the
+  string the model supplied, so neither a `..` segment nor a directory junction
+  walks out of an allowed root, and patterns are anchored so a rule for `out`
+  cannot match `outsider`. `run_command` is matched on whole leading tokens and
+  **refuses any shell metacharacter** whatever the rules say, because
+  `git status; curl ...` would otherwise pass a rule that only ever meant
+  `git status`. A `Shell` rule constrains which program runs, not what it does;
+  the spec states that limit and the others plainly.
+
 - `Invoke-Shp -RetryDelaySec`, and `-TimeoutSec`, `-MaxRetryCount`,
   `-RetryDelaySec` and `-NetworkOutageToleranceSec` on `Get-ShpModel` and
   `Request-ShpEmbedding`. All four now resolve identically everywhere - explicit

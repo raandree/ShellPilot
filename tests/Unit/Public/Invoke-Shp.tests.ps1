@@ -518,6 +518,87 @@ Describe 'Invoke-Shp' {
         }
     }
 
+    Context 'Tool access policy' {
+        BeforeEach {
+            InModuleScope $script:moduleName {
+                Clear-ShpContext
+                Clear-ShpToolPolicy
+                $script:ShpChat = @()
+                $script:toolTurns = 0
+                Mock Get-ShpSessionToken { [pscustomobject]@{ token = 't'; expires_at = 0; endpoints = [pscustomobject]@{ api = 'https://session.example' } } }
+                Mock Invoke-RunCommandTool { '{"ran":true}' }
+                Mock Invoke-ReadFileTool { '{"read":true}' }
+            }
+        }
+
+        AfterEach { InModuleScope $script:moduleName { Clear-ShpToolPolicy; $script:ShpChat = @() } }
+
+        It 'Refuses a denied run_command without running it, and records why' {
+            InModuleScope $script:moduleName {
+                Set-ShpToolPolicy -Rule @('Shell(git status)')
+                Mock Invoke-CopilotTurn {
+                    $script:toolTurns++
+                    $calls = if ($script:toolTurns -eq 1) { @([pscustomobject]@{ Id = 'c1'; Name = 'run_command'; Arguments = '{"command":"git push"}' }) } else { @() }
+                    [pscustomobject]@{
+                        Mode = $Mode; Content = 'done'; FinishReason = 'stop'; ToolCalls = $calls
+                        AssistantMessage = [pscustomobject]@{ content = ''; tool_calls = @() }; AssistantItems = @(); Reasoning = ''
+                        PromptTokens = 1; CompletionTokens = 1; CachedTokens = 0; CacheWriteTokens = 0
+                        ModelName = $Model; ResponseId = $null; CopilotUsage = $null; Raw = @{}; Response = [pscustomobject]@{ Headers = @{} }
+                    }
+                }
+
+                $result = Invoke-Shp -Prompt 'go' -DisableBrowsing -DisableUserPrompts -DisableTodoList
+
+                Should -Invoke Invoke-RunCommandTool -Times 0 -Exactly
+                $result.ToolCallsDenied.Count | Should -Be 1
+                $result.ToolCallsDenied[0]    | Should -BeLike 'run_command:*'
+                $result.CommandsRun.Count     | Should -Be 0
+            }
+        }
+
+        It 'Still dispatches a call the policy allows' {
+            InModuleScope $script:moduleName {
+                Set-ShpToolPolicy -Rule @('Shell(git status)')
+                Mock Invoke-CopilotTurn {
+                    $script:toolTurns++
+                    $calls = if ($script:toolTurns -eq 1) { @([pscustomobject]@{ Id = 'c1'; Name = 'run_command'; Arguments = '{"command":"git status"}' }) } else { @() }
+                    [pscustomobject]@{
+                        Mode = $Mode; Content = 'done'; FinishReason = 'stop'; ToolCalls = $calls
+                        AssistantMessage = [pscustomobject]@{ content = ''; tool_calls = @() }; AssistantItems = @(); Reasoning = ''
+                        PromptTokens = 1; CompletionTokens = 1; CachedTokens = 0; CacheWriteTokens = 0
+                        ModelName = $Model; ResponseId = $null; CopilotUsage = $null; Raw = @{}; Response = [pscustomobject]@{ Headers = @{} }
+                    }
+                }
+
+                $result = Invoke-Shp -Prompt 'go' -DisableBrowsing -DisableUserPrompts -DisableTodoList
+
+                Should -Invoke Invoke-RunCommandTool -Times 1 -Exactly
+                $result.ToolCallsDenied.Count | Should -Be 0
+            }
+        }
+
+        It 'Leaves every tool call alone when no policy is set' {
+            InModuleScope $script:moduleName {
+                Clear-ShpToolPolicy
+                Mock Invoke-CopilotTurn {
+                    $script:toolTurns++
+                    $calls = if ($script:toolTurns -eq 1) { @([pscustomobject]@{ Id = 'c1'; Name = 'run_command'; Arguments = '{"command":"anything --at-all"}' }) } else { @() }
+                    [pscustomobject]@{
+                        Mode = $Mode; Content = 'done'; FinishReason = 'stop'; ToolCalls = $calls
+                        AssistantMessage = [pscustomobject]@{ content = ''; tool_calls = @() }; AssistantItems = @(); Reasoning = ''
+                        PromptTokens = 1; CompletionTokens = 1; CachedTokens = 0; CacheWriteTokens = 0
+                        ModelName = $Model; ResponseId = $null; CopilotUsage = $null; Raw = @{}; Response = [pscustomobject]@{ Headers = @{} }
+                    }
+                }
+
+                $result = Invoke-Shp -Prompt 'go' -DisableBrowsing -DisableUserPrompts -DisableTodoList
+
+                Should -Invoke Invoke-RunCommandTool -Times 1 -Exactly
+                $result.ToolCallsDenied.Count | Should -Be 0
+            }
+        }
+    }
+
     Context 'Session default resolution' {
         AfterEach {
             InModuleScope $script:moduleName {
