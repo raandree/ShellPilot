@@ -78,6 +78,17 @@ kind, MCP under `Invoke-ShpBatch` (a worker inherits nothing, so replay would
 start one server copy per worker), auto-restart, Streamable HTTP, and pinning
 a tool list across sessions.
 
+**Reviewed and accepted the same day**, with one design change. Refusing a
+configuration entry that requests `sandboxEnabled` was the wrong trade: a
+configuration written for a sandboxing host is precisely the one a caller
+wants to reuse, and the caller named the file deliberately. So the server
+starts, and the gap is made visible *twice* instead of fatal once - a warning
+naming what is not happening, plus `SandboxRequested` on the server record,
+because a warning scrolls away and a property does not. Eager start at
+registration confirmed; every 8-13 recommendation accepted as written, with
+decision 8's name-constraint probe now a Phase 2 prerequisite rather than a
+follow-up.
+
 No source file changed. Documentation only, on `ai/mcp-server-support`.
 
 ## Superseded focus (2026-08-12) - session-token refresh

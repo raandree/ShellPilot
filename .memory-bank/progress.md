@@ -41,6 +41,19 @@ Chronological record of shipped changes and remaining work. Latest first.
 
 ## Log
 
+- 2026-08-12 - Spec 021 reviewed and accepted, with one design change and no
+  code. Refusing a configuration entry that requests `sandboxEnabled` was the
+  wrong trade - a configuration written for a sandboxing host is exactly the
+  one a caller wants to reuse, and the caller named the file deliberately - so
+  the entry now starts and the gap is surfaced twice instead of being fatal
+  once: a warning naming what is not happening, plus `SandboxRequested` on the
+  server record, because a warning scrolls away and a property does not. An
+  unresolved `${...}` variable is still refused, being a correctness failure
+  rather than a policy one. Eager start at registration confirmed. Open
+  decisions 8-13 accepted as recommended; decision 8's Copilot function-name
+  probe is now a Phase 2 prerequisite, since the sanitiser cannot be written
+  to an unverified limit.
+
 - 2026-08-12 - Specified MCP server support (spec 021); no implementation, by
   request. Verified the protocol from the specification rather than from
   memory, which changed the design: **2026-07-28 is now the current revision**

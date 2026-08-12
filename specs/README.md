@@ -59,4 +59,5 @@ its design, and its source hook points.
 
 ## Specified, not yet implemented
 
-- [MCP (Model Context Protocol) server support](021-mcp-server-support.md)
+- [MCP (Model Context Protocol) server support](021-mcp-server-support.md) -
+  design reviewed and accepted 2026-08-12; implementation not started.

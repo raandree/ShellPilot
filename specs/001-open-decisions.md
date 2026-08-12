@@ -95,6 +95,24 @@ Recommendation: A, gated behind tests and CHANGELOG discipline.
 Each of these is deliberately unresolved in the v1 MCP design rather than
 guessed at. See [021-mcp-server-support.md](021-mcp-server-support.md).
 
+**Reviewed 2026-08-12: every recommendation below is accepted.** They are kept
+as numbered sections because most of them defer rather than close - the
+recorded choice is what v1 does and what a later version may revisit.
+
+| # | Decision | Choice |
+|---|----------|--------|
+| 8 | Copilot function-name constraint | Verify empirically before implementing |
+| 9 | `Mcp()` policy rule kind | Not in v1; revisit as its own decision |
+| 10 | MCP under `Invoke-ShpBatch` | Not available; warn once |
+| 11 | Restart a crashed server | Mark `Faulted`; explicit `-Force` only |
+| 12 | Streamable HTTP | Defer until stdio has shipped and been measured |
+| 13 | Cross-session tool-list pinning | Needs a module-state-on-disk decision first |
+
+Two further questions raised at review and answered there rather than here:
+eager start at registration is **confirmed**, and a configuration entry
+requesting a sandbox **warns and continues** (flagged `SandboxRequested`)
+instead of being refused.
+
 ## 8. The Copilot endpoint's function-name constraint
 
 Spec 021 namespaces an MCP tool as `mcp_<alias>_<tool>` and sanitises it to
@@ -109,6 +127,9 @@ proxy, and MCP permits `.` and up to 128 characters in a tool name.
 Recommendation: A. A guessed limit either truncates names that were fine or
 passes names the service refuses, and the second failure mode takes down the
 whole Turn with an error that names no tool.
+
+**ACCEPTED 2026-08-12: A.** The probe is a Phase 2 prerequisite, not a
+follow-up - the sanitiser cannot be written to an unverified limit.
 
 ## 9. An `Mcp()` kind for the tool policy
 
@@ -126,6 +147,10 @@ path out of an arbitrary tool's JSON arguments means guessing which property
 is a path, which is the "pattern language that looks strict and is not" that
 spec 019 rejected for command lines.
 
+**ACCEPTED 2026-08-12: A for v1**, with B kept open. The limit is stated in
+the spec and must also appear in the cmdlet help, because a caller will assume
+the opposite.
+
 ## 10. MCP inside `Invoke-ShpBatch`
 
 A worker runspace inherits no module state, so replaying an MCP registration
@@ -138,6 +163,8 @@ would start one copy of every server per worker.
 Recommendation: A now. C is the right shape but needs a fair lock and a
 starvation answer; B multiplies third-party processes by a number the caller
 chose for API concurrency, which is not the same budget.
+
+**ACCEPTED 2026-08-12: A.**
 
 ## 11. Restarting a server that exits
 
@@ -152,6 +179,9 @@ Recommendation: A now, B later with a cap. Automatic respawn of third-party
 code inside an unattended loop turns one crash into a crash loop nobody is
 watching, and the caller learns nothing.
 
+**ACCEPTED 2026-08-12: A**, recorded in the spec as a stated deviation from
+the specification's **SHOULD** rather than an oversight.
+
 ## 12. Streamable HTTP transport
 
 v1 is stdio only. HTTP brings the MCP Authorization framework (OAuth 2.1,
@@ -163,6 +193,8 @@ gives `fetch_url`.
 - B. Build both together.
 
 Recommendation: A. A half-authorised HTTP client is worse than none.
+
+**ACCEPTED 2026-08-12: A.**
 
 ## 13. Pinning a tool list across sessions
 
@@ -178,6 +210,8 @@ accepts whatever the server now offers.
 Recommendation: B, once there is somewhere to persist it. Nothing in the
 module writes to disk today except the token file, so this needs a decision
 about module state on disk first.
+
+**ACCEPTED 2026-08-12: A for v1**, B blocked on the disk-state decision.
 
 ## See also
 

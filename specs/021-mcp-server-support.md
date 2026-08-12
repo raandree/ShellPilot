@@ -6,10 +6,12 @@ alongside the built-in and user-defined tools.
 ## Status
 
 - Priority: Tier 1 - recommend now.
-- State: **Specified. Not implemented.** No MCP code exists in the module
-  today (verified: no match for `mcp` anywhere under `source/` at 0.4.0).
-  This document is the design under review; nothing below has been built or
-  measured.
+- State: **Specified and reviewed; not implemented.** No MCP code exists in the
+  module today (verified: no match for `mcp` anywhere under `source/` at
+  0.4.0). Reviewed 2026-08-12: the design below is accepted, eager start at
+  registration is confirmed, and a configuration entry that requests
+  sandboxing warns and continues rather than being refused (decision 2). The
+  recommendations in open decisions 8-13 are accepted as written.
 - Protocol revision targeted: **2026-07-28** (the current revision), with a
   documented fallback to the handshake-based `2025-11-25` era.
 
@@ -143,8 +145,9 @@ over-trust:
 
 - **The server itself.** Once attached, it runs as the caller. There is no
   sandbox in v1 and none is claimed. VS Code offers `sandboxEnabled` on macOS
-  and Linux; this module has no equivalent, which is why decision 2 *refuses*
-  a configuration entry that asks for one rather than ignoring the field.
+  and Linux; this module has no equivalent, which is why decision 2 warns on a
+  configuration entry that asks for one and records `SandboxRequested` on the
+  server, rather than ignoring the field.
 - **A server that behaves differently per call.** Freezing the tool list
   (decision 8) stops the list changing after approval. It does nothing about
   `search_issues` returning benign text nine times and an injected instruction
@@ -193,16 +196,28 @@ the name of one key and rejecting one buys nothing:
 
 A file containing both keys is an error, not a merge. Per entry, the fields
 read are `type` (`stdio` only in v1), `command`, `args`, `env`, and `cwd`.
-Everything else is ignored - with two exceptions that are **refused**, not
-ignored, because silently dropping them would be a downgrade the caller cannot
-see:
 
-- An entry with `sandboxEnabled` or a top-level `sandbox` block. The caller
-  asked for containment this module does not implement. Refuse the entry and
-  say so.
-- Any value containing an unresolved variable (`${input:...}`,
-  `${workspaceFolder}`, `${env:...}`). Passing those through literally would
-  launch a command line that is not the one the file describes.
+One field is **refused**: any value containing an unresolved variable
+(`${input:...}`, `${workspaceFolder}`, `${env:...}`). That is a correctness
+failure, not a policy one - passing them through literally would launch a
+command line that is not the one the file describes.
+
+One field is **warned about and honoured anyway**: `sandboxEnabled` on an
+entry, or a top-level `sandbox` block. VS Code implements those on macOS and
+Linux; this module implements nothing of the kind. Refusing the entry was the
+first instinct and it is the wrong trade - the caller named this file
+deliberately, and a configuration written for a sandboxing host is exactly the
+one a caller is most likely to want to reuse. So the server starts, and the
+gap is made *visible* twice rather than fatal once:
+
+- A warning at registration naming what is not happening: this entry asks for
+  sandboxing, ShellPilot does not sandbox an MCP server, and it is being
+  started unsandboxed.
+- `SandboxRequested` on the server record, reported by `Get-ShpMcpServer`.
+  A warning is a one-shot signal that scrolls away; a property is still there
+  when someone asks later what this session is actually running.
+
+Everything else in the entry is ignored.
 
 The `env` block is merged onto the minimal base of decision 9. `env` values
 are secrets in practice, so `Get-ShpMcpServer` reports env **keys** and masks
@@ -495,8 +510,8 @@ server.
   property (`User` or `Mcp`) and `Server` populated for MCP tools. Additive,
   so existing output keeps its columns.
 - `Get-ShpMcpServer` reports alias, transport, state, process id, era,
-  negotiated protocol version, tool count, `serverInfo`, and env **keys**
-  only.
+  negotiated protocol version, tool count, `SandboxRequested`, `serverInfo`,
+  and env **keys** only.
 - The result object gains `McpEnabled`, `McpToolsAvailable` and
   `McpToolsCalled`, mirroring `UserToolsAvailable` / `UserToolsCalled`.
 
@@ -528,7 +543,7 @@ without them. Open decision 10.
 | `source/Private/Get-ShpMcpToolList.ps1` | New. `tools/list` with cursor paging and page/tool bounds |
 | `source/Private/ConvertTo-ShpMcpToolSchema.ps1` | New. MCP `Tool` to a function schema: namespaced name, pass-through `inputSchema`, structural checks |
 | `source/Private/ConvertFrom-ShpMcpToolResult.ps1` | New. Content blocks, `structuredContent`, `isError` and `resultType` to the envelope string |
-| `source/Private/Resolve-ShpMcpConfig.ps1` | New. Parses `servers` / `mcpServers`; refuses `sandbox` and unresolved variables |
+| `source/Private/Resolve-ShpMcpConfig.ps1` | New. Parses `servers` / `mcpServers`; refuses unresolved variables, warns on a `sandbox` request and flags it |
 | `source/Public/Invoke-Shp.ps1` | `-DisableMcp`; MCP schemas joined to `$tools` after the user tools; an `mcp_*` dispatch branch ahead of `default`; `McpEnabled` / `McpToolsAvailable` / `McpToolsCalled` on the result |
 | `source/Public/Get-ShpTool.ps1` | `Origin` and `Server` properties; lists MCP tools too |
 | `source/Public/Invoke-ShpBatch.ps1` | Warn once when servers are registered (decision 14) |
@@ -551,7 +566,7 @@ without them. Open decision 10.
 | Auto-restart of a crashed server | Decision 3. A stated deviation from the specification's **SHOULD** |
 | An `Mcp()` tool-policy rule kind | Decision 12, open decision 9 |
 | MCP inside `Invoke-ShpBatch` | Decision 14, open decision 10 |
-| Sandboxing a server process | No portable mechanism here. Refusing a configuration that asks for it (decision 2) is the honest alternative |
+| Sandboxing a server process | No portable mechanism here. A configuration entry that asks for one is warned about and flagged as `SandboxRequested` on the server record (decision 2), so the gap stays visible after the warning has scrolled |
 
 ## Verification plan
 
@@ -560,7 +575,9 @@ without them. Open decision 10.
   JSON-RPC transcripts: the modern path, the `-32022` retry, the legacy
   fallback (both "other error" and "no answer"), paging, `isError`, every
   content-block type, `input_required`, absent `resultType`, name collision,
-  name sanitising, bound enforcement, and the configuration parser's refusals.
+  name sanitising, bound enforcement, and the configuration parser's behaviour
+  on both shapes - refusing an unresolved variable, and warning-plus-flagging a
+  sandbox request without dropping the entry.
 - **Process lifecycle**, using `pwsh` itself as a stub server so no third-party
   dependency is introduced: clean stop, hung stop, grandchild termination,
   orphan check after module removal.

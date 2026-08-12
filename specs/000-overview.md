@@ -54,7 +54,7 @@ proof of concept, what is partial, and what is still to be decided.
 | Inline completions | none | Out |
 | Chat participants (@) | none | TBD |
 | Context variables (#) | parameters and instruction files | TBD |
-| MCP server tools | none | Specified (spec 021), not implemented |
+| MCP server tools | none | Specified and reviewed (spec 021), not implemented |
 | Prompt files | none | TBD |
 | Session persistence / resume | none | TBD |
 | Hooks (PreToolUse / PostToolUse) | none | TBD |
