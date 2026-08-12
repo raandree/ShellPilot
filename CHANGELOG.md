@@ -265,6 +265,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A long Turn no longer dies with `401 IDE token expired`.** A tool-calling
+  Turn resolved its short-lived Copilot session token once, before the loop, and
+  then reused that one credential for every iteration - so an agentic Turn that
+  ran longer than the token's lifetime failed part-way through (observed at
+  iteration 41) with `IDE token expired: unauthorized: token expired`. The
+  sign-in was never the problem, and resending the prompt was not a recovery: it
+  started a brand-new Turn at iteration 1 and threw away all the completed work.
+  `Invoke-Shp` now re-resolves the session token before every iteration, which
+  costs nothing until it is needed because a still-valid token is served from
+  the in-memory cache without a round-trip. A 401 that still slips through is
+  recovered once by exchanging a fresh token and retrying the *same* iteration -
+  the answer is not duplicated, the iteration counter does not advance, and
+  usage is not double-counted. A revoked or unauthorized GitHub OAuth token
+  still fails, once, with a message naming `Initialize-Shp`, and an alternative
+  backend authenticating with your own API key never has its `Authorization`
+  header rewritten.
+- The session-token safety margin is now 300 seconds instead of 60, so a token
+  is never handed to a request it cannot outlive. A single tool iteration can
+  take minutes for a reasoning model working through a large tool result, so a
+  token with 61 seconds left used to be served and then die on the next request.
+  The cost is at most one extra token exchange per five minutes of an otherwise
+  cached session.
+
 - **`run_command` now runs the command it was given.** Every unescaped double
   quote was being stripped before the child shell saw it, so the model's
   `Write-Output "set to $env:X"` ran as four bare arguments and

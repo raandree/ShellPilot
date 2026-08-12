@@ -441,6 +441,236 @@ Describe 'Invoke-Shp' {
         }
     }
 
+    Context 'Session token lifetime across a long Turn' {
+        BeforeEach {
+            InModuleScope $script:moduleName {
+                $script:ShpChat = @()
+                $script:ShpUsageLog = [System.Collections.Generic.List[pscustomobject]]::new()
+                $script:turnCount = 0
+                $script:tokenCount = 0
+                $script:capturedAuth = [System.Collections.Generic.List[string]]::new()
+            }
+        }
+
+        AfterEach {
+            InModuleScope $script:moduleName {
+                Clear-ShpContext
+                $script:ShpChat = @()
+                $script:ShpUsageLog = [System.Collections.Generic.List[pscustomobject]]::new()
+            }
+        }
+
+        # A Turn is a loop of round-trips that can run for many minutes, and the
+        # Session token is short-lived. Resolving it once before the loop hands
+        # every later iteration a credential that may already be dead - the
+        # "IDE token expired" failure at iteration 41.
+        It 'Carries a re-resolved bearer into the next tool iteration' {
+            InModuleScope $script:moduleName {
+                Mock Get-ShpSessionToken {
+                    $script:tokenCount++
+                    [pscustomobject]@{ token = "t$($script:tokenCount)"; expires_at = 0; endpoints = [pscustomobject]@{ api = 'https://api.example' } }
+                }
+                Mock Invoke-RunCommandTool { '{"command":"echo hi","exitCode":0,"stdout":"hi","stderr":""}' }
+                Mock Invoke-CopilotTurn {
+                    $script:turnCount++
+                    $null = $script:capturedAuth.Add([string]$Headers.Authorization)
+                    if ($script:turnCount -eq 1) {
+                        [pscustomobject]@{
+                            Mode = 'chat'; Content = ''; FinishReason = 'tool_calls'
+                            ToolCalls = @([pscustomobject]@{ Id = 'c1'; Name = 'run_command'; Arguments = '{"command":"echo hi"}' })
+                            AssistantMessage = [pscustomobject]@{ content = '' }; Reasoning = ''
+                            PromptTokens = 1; CompletionTokens = 1; CachedTokens = 0; CacheWriteTokens = 0
+                            ModelName = $Model; CopilotUsage = $null; Raw = @{}; Response = [pscustomobject]@{ Headers = @{} }
+                        }
+                    } else {
+                        [pscustomobject]@{
+                            Mode = 'chat'; Content = 'done'; FinishReason = 'stop'; ToolCalls = @()
+                            AssistantMessage = [pscustomobject]@{ content = 'done' }; Reasoning = ''
+                            PromptTokens = 1; CompletionTokens = 1; CachedTokens = 0; CacheWriteTokens = 0
+                            ModelName = $Model; CopilotUsage = $null; Raw = @{}; Response = [pscustomobject]@{ Headers = @{} }
+                        }
+                    }
+                }
+
+                $null = Invoke-Shp -Prompt 'do work' -DisableBrowsing -DisableFileAccess -DisableUserPrompts -DisableTodoList
+
+                $script:capturedAuth.Count | Should -Be 2
+                $script:capturedAuth[1]    | Should -Not -Be $script:capturedAuth[0]
+                $script:capturedAuth[1]    | Should -Be "Bearer t$($script:tokenCount)"
+            }
+        }
+
+        # The regression guard for the reported defect: a 401 that still reaches
+        # the loop must be recovered once, not thrown at the user after 40
+        # completed iterations of work.
+        It 'Recovers an expired-token 401 by exchanging a fresh token and retrying the same iteration' {
+            InModuleScope $script:moduleName {
+                Mock Get-ShpSessionToken {
+                    $script:tokenCount++
+                    [pscustomobject]@{ token = "t$($script:tokenCount)"; expires_at = 0; endpoints = [pscustomobject]@{ api = 'https://api.example' } }
+                }
+                Mock Invoke-CopilotTurn {
+                    $script:turnCount++
+                    $null = $script:capturedAuth.Add([string]$Headers.Authorization)
+                    if ($script:turnCount -eq 1) {
+                        $detail = New-ShpHttpErrorDetail -StatusCode 401 -RequestUri 'https://api.example/chat/completions' `
+                            -Body '{"error":{"message":"IDE token expired: unauthorized: token expired"}}'
+                        $exception = [System.Net.Http.HttpRequestException]::new(
+                            "Copilot streaming request to 'https://api.example/chat/completions' failed with status 401: IDE token expired: unauthorized: token expired ")
+                        throw [System.Management.Automation.ErrorRecord]::new(
+                            $exception, 'ShpStreamRequestFailed', [System.Management.Automation.ErrorCategory]::ProtocolError, $detail)
+                    }
+                    [pscustomobject]@{
+                        Mode = 'chat'; Content = 'ok'; FinishReason = 'stop'; ToolCalls = @()
+                        AssistantMessage = [pscustomobject]@{ content = 'ok' }; Reasoning = ''
+                        PromptTokens = 5; CompletionTokens = 2; CachedTokens = 0; CacheWriteTokens = 0
+                        ModelName = 'claude-haiku-4.5'; CopilotUsage = $null; Raw = @{}; Response = [pscustomobject]@{ Headers = @{} }
+                    }
+                }
+
+                $r = Invoke-Shp -Prompt 'go' -Model 'claude-haiku-4.5' -DisableBrowsing -DisableFileAccess -DisableTerminal -DisableUserPrompts -DisableTodoList
+
+                # The answer is not duplicated and the iteration counter did not
+                # advance for the attempt that was refused.
+                $r.Content    | Should -Be 'ok'
+                $r.Iterations | Should -Be 1
+                $script:capturedAuth[1] | Should -Not -Be $script:capturedAuth[0]
+                Should -Invoke Get-ShpSessionToken -ParameterFilter { $Force.IsPresent } -Times 1 -Exactly
+
+                # Usage is recorded once, as one successful call.
+                $u = @(Get-ShpUsage)
+                $u.Count      | Should -Be 1
+                $u[0].Success | Should -BeTrue
+            }
+        }
+
+        # A revoked OAuth token cannot be rescued by any number of exchanges, so
+        # the recovery is one-shot and says what to do about it.
+        It 'Stops with a re-authentication hint when a fresh token cannot be exchanged' {
+            $warnings = InModuleScope $script:moduleName {
+                Mock Get-ShpSessionToken {
+                    if ($Force) { throw 'Copilot token exchange failed with status 401: bad credentials' }
+                    [pscustomobject]@{ token = 't1'; expires_at = 0; endpoints = [pscustomobject]@{ api = 'https://api.example' } }
+                }
+                Mock Invoke-CopilotTurn {
+                    $script:turnCount++
+                    $detail = New-ShpHttpErrorDetail -StatusCode 401 -RequestUri 'https://api.example/chat/completions' `
+                        -Body '{"error":{"message":"unauthorized: token expired"}}'
+                    $exception = [System.Net.Http.HttpRequestException]::new('failed with status 401: unauthorized: token expired')
+                    throw [System.Management.Automation.ErrorRecord]::new(
+                        $exception, 'ShpStreamRequestFailed', [System.Management.Automation.ErrorCategory]::ProtocolError, $detail)
+                }
+
+                $captured = $null
+                $thrown = $null
+                try {
+                    Invoke-Shp -Prompt 'go' -Model 'claude-haiku-4.5' -DisableBrowsing -DisableFileAccess -DisableTerminal -DisableUserPrompts -DisableTodoList -WarningVariable captured -ErrorAction Stop
+                } catch {
+                    $thrown = $_
+                }
+
+                # One attempt, one failed refresh, no spinning - and the turn
+                # still fails rather than returning an empty answer.
+                $thrown            | Should -Not -BeNullOrEmpty
+                $script:turnCount  | Should -Be 1
+                @($captured | ForEach-Object { [string]$_ })
+            }
+
+            ($warnings -join ' ') | Should -BeLike '*Initialize-Shp*'
+        }
+
+        # A second 401 with a token this call just exchanged is not expiry, so it
+        # is bounded rather than retried again.
+        It 'Gives up after one forced refresh when the service keeps refusing' {
+            InModuleScope $script:moduleName {
+                Mock Get-ShpSessionToken {
+                    $script:tokenCount++
+                    [pscustomobject]@{ token = "t$($script:tokenCount)"; expires_at = 0; endpoints = [pscustomobject]@{ api = 'https://api.example' } }
+                }
+                Mock Invoke-CopilotTurn {
+                    $script:turnCount++
+                    $detail = New-ShpHttpErrorDetail -StatusCode 401 -RequestUri 'https://api.example/chat/completions' `
+                        -Body '{"error":{"message":"unauthorized: token expired"}}'
+                    $exception = [System.Net.Http.HttpRequestException]::new('failed with status 401: unauthorized: token expired')
+                    throw [System.Management.Automation.ErrorRecord]::new(
+                        $exception, 'ShpStreamRequestFailed', [System.Management.Automation.ErrorCategory]::ProtocolError, $detail)
+                }
+
+                { Invoke-Shp -Prompt 'go' -Model 'claude-haiku-4.5' -DisableBrowsing -DisableFileAccess -DisableTerminal -DisableUserPrompts -DisableTodoList -ErrorAction Stop } |
+                    Should -Throw
+
+                $script:turnCount | Should -Be 2
+                Should -Invoke Get-ShpSessionToken -ParameterFilter { $Force.IsPresent } -Times 1 -Exactly
+            }
+        }
+
+        # An alternative backend authenticates with the caller's own API key, so
+        # the bearer is not a Session token and must never be replaced by one.
+        It 'Never rewrites the Authorization header when an alternative backend supplies the API key' {
+            InModuleScope $script:moduleName {
+                Clear-ShpContext
+                Set-ShpContext -ApiBase 'https://alt.example/v1' -ApiKey 'sk-local'
+                Mock Get-ShpSessionToken {
+                    $script:tokenCount++
+                    [pscustomobject]@{ token = "t$($script:tokenCount)"; expires_at = 0; endpoints = [pscustomobject]@{ api = 'https://api.example' } }
+                }
+                Mock Invoke-RunCommandTool { '{"command":"echo hi","exitCode":0,"stdout":"hi","stderr":""}' }
+                Mock Invoke-CopilotTurn {
+                    $script:turnCount++
+                    $null = $script:capturedAuth.Add([string]$Headers.Authorization)
+                    if ($script:turnCount -eq 1) {
+                        [pscustomobject]@{
+                            Mode = 'chat'; Content = ''; FinishReason = 'tool_calls'
+                            ToolCalls = @([pscustomobject]@{ Id = 'c1'; Name = 'run_command'; Arguments = '{"command":"echo hi"}' })
+                            AssistantMessage = [pscustomobject]@{ content = '' }; Reasoning = ''
+                            PromptTokens = 1; CompletionTokens = 1; CachedTokens = 0; CacheWriteTokens = 0
+                            ModelName = $Model; CopilotUsage = $null; Raw = @{}; Response = [pscustomobject]@{ Headers = @{} }
+                        }
+                    } else {
+                        [pscustomobject]@{
+                            Mode = 'chat'; Content = 'done'; FinishReason = 'stop'; ToolCalls = @()
+                            AssistantMessage = [pscustomobject]@{ content = 'done' }; Reasoning = ''
+                            PromptTokens = 1; CompletionTokens = 1; CachedTokens = 0; CacheWriteTokens = 0
+                            ModelName = $Model; CopilotUsage = $null; Raw = @{}; Response = [pscustomobject]@{ Headers = @{} }
+                        }
+                    }
+                }
+
+                $null = Invoke-Shp -Prompt 'do work' -DisableBrowsing -DisableFileAccess -DisableUserPrompts -DisableTodoList
+
+                $script:capturedAuth.Count | Should -Be 2
+                @($script:capturedAuth | Select-Object -Unique) | Should -Be @('Bearer sk-local')
+            }
+        }
+
+        # A 401 from a misconfigured alternative backend is a wrong API key, not
+        # an expired Session token, so it must fail loudly instead of triggering
+        # a pointless Copilot token exchange.
+        It 'Fails a 401 from an alternative backend without exchanging a Copilot token' {
+            InModuleScope $script:moduleName {
+                Clear-ShpContext
+                Set-ShpContext -ApiBase 'https://alt.example/v1' -ApiKey 'sk-wrong'
+                Mock Get-ShpSessionToken {
+                    [pscustomobject]@{ token = 't1'; expires_at = 0; endpoints = [pscustomobject]@{ api = 'https://api.example' } }
+                }
+                Mock Invoke-CopilotTurn {
+                    $script:turnCount++
+                    $detail = New-ShpHttpErrorDetail -StatusCode 401 -RequestUri 'https://alt.example/v1/chat/completions' `
+                        -Body '{"error":{"message":"unauthorized"}}'
+                    $exception = [System.Net.Http.HttpRequestException]::new('failed with status 401: unauthorized')
+                    throw [System.Management.Automation.ErrorRecord]::new(
+                        $exception, 'ShpStreamRequestFailed', [System.Management.Automation.ErrorCategory]::ProtocolError, $detail)
+                }
+
+                { Invoke-Shp -Prompt 'go' -Model 'claude-haiku-4.5' -DisableBrowsing -DisableFileAccess -DisableTerminal -DisableUserPrompts -DisableTodoList -ErrorAction Stop } |
+                    Should -Throw
+
+                $script:turnCount | Should -Be 1
+                Should -Invoke Get-ShpSessionToken -ParameterFilter { $Force.IsPresent } -Times 0 -Exactly
+            }
+        }
+    }
+
     Context 'Context guard exhausted' {
         BeforeEach {
             InModuleScope $script:moduleName {

@@ -4,6 +4,53 @@ Current working focus for ShellPilot. Overwrite this file as the focus shifts.
 
 ## Focus
 
+A long agentic Turn no longer dies with `401 IDE token expired`. The reported
+failure was at **iteration 41**, and the sign-in had been valid the whole time -
+the word "token" was covering two different things.
+
+**The bug in one line:** a credential resolved once per Turn, in a loop that can
+outlive it. `Invoke-Shp` called `Get-ShpSessionToken` before the loop, built one
+`$apiHeaders` hashtable from it, and passed that same hashtable to every one of
+up to `MaxToolIterations` round-trips. Nothing in the loop re-read the token, and
+nothing in the catch recognised a 401.
+
+**Two triggers, not one.** The long Turn is the obvious one. The second is more
+frequent: `$script:SessionTokenSafetyMarginSec` was 60, so a Turn that started
+with 61 seconds left was handed a token that died on iteration 2. The margin has
+to cover a whole *iteration*, not the handshake - a reasoning model chewing on a
+large tool result takes minutes - so it is now 300.
+
+**Fixed by removing the failure, then recovering from the remnant.** The primary
+fix is a per-iteration re-resolve, which is free by construction:
+`Get-ShpSessionToken` serves its cache with no network call while the token is
+comfortably valid and refreshes itself once inside the margin. The catch branch
+is only for the race between that check and the request.
+
+**Matched on the structured status, never on the prose.** The branch fires on
+`$_.TargetObject.StatusCode -eq 401` - the same idiom the file already uses for
+`ErrorCode -eq 'model_max_prompt_tokens_exceeded'`. Re-verified the premise this
+depends on: `Invoke-ShpWithRetry` reads `TargetObject.StatusCode` *before* the
+connection-level classifier, so a 401 is not mistaken for a network outage and
+hammered for the whole `NetworkOutageToleranceSec` budget with a credential that
+can never work. That premise now has a test of its own.
+
+**Bounded, and it refuses to guess.** One forced exchange per iteration, reset
+after an iteration succeeds - so a 40-minute Turn can recover more than once, but
+a revoked OAuth token fails after exactly two attempts with a message naming
+`Initialize-Shp` instead of spinning. An alternative backend authenticating with
+`$script:ShpContext.ApiKey` is excluded from both halves: its bearer is not a
+Session token, so its 401 means a wrong API key and must fail loudly rather than
+trigger a pointless Copilot token exchange.
+
+Red-first on all five behavioural tests, each failing for the stated reason
+(`Bearer t1` where `Bearer t2` was required; the 401 propagating; no
+`Initialize-Shp` in the warnings; one attempt where two were required; one token
+exchange where two were required). Verified: 1027 -> 1035 tests, 0 failures;
+coverage 86%; PSScriptAnalyzer clean on both changed source files; build 16
+tasks / 0 errors / 0 warnings. Committed on `ai/session-token-refresh`.
+
+## Superseded focus (2026-08-12) - encrypted token storage
+
 The OAuth token is protected at rest (spec 020), closing open decision #5 - the
 last thing blocking a stable release apart from the Gallery publish itself.
 

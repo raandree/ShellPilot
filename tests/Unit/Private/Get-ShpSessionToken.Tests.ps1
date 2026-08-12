@@ -171,10 +171,30 @@ Describe 'Get-ShpSessionToken' {
 
         InModuleScope $script:moduleName -Parameters @{ TokenPath = $tokenFile } {
             param($TokenPath)
-            # expires_at only ~10s ahead - inside the 60s safety margin - so the
+            # expires_at only ~10s ahead - well inside the safety margin - so the
             # cached entry is never served and every call refetches.
             Mock Invoke-RestMethod {
                 [pscustomobject]@{ token = 'near_tok'; expires_at = ([System.DateTimeOffset]::UtcNow.ToUnixTimeSeconds() + 10); endpoints = [pscustomobject]@{ api = 'https://api.example' } }
+            }
+            $null = Get-ShpSessionToken -TokenPath $TokenPath
+            $null = Get-ShpSessionToken -TokenPath $TokenPath
+            Should -Invoke Invoke-RestMethod -Times 2 -Exactly
+        }
+    }
+
+    # The margin has to cover a whole tool-calling iteration, not just the
+    # handshake: a Turn resolves the token and then sends requests with it for
+    # minutes. Two minutes of remaining validity is not enough for a reasoning
+    # model working through a large tool result, and serving it was the second
+    # way a Turn ended up holding a dead token.
+    It 'Refetches a cached token that cannot outlive a single tool iteration' {
+        $tokenFile = Join-Path $TestDrive 'margin.token'
+        Set-Content -LiteralPath $tokenFile -Value 'gho_margin' -NoNewline
+
+        InModuleScope $script:moduleName -Parameters @{ TokenPath = $tokenFile } {
+            param($TokenPath)
+            Mock Invoke-RestMethod {
+                [pscustomobject]@{ token = 'short_tok'; expires_at = ([System.DateTimeOffset]::UtcNow.ToUnixTimeSeconds() + 120); endpoints = [pscustomobject]@{ api = 'https://api.example' } }
             }
             $null = Get-ShpSessionToken -TokenPath $TokenPath
             $null = Get-ShpSessionToken -TokenPath $TokenPath

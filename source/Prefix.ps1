@@ -23,8 +23,14 @@ $script:ShpSessionTokenCache = @{}
 
 # Safety margin (seconds) subtracted from a cached session token's expires_at
 # before it is considered reusable, so a token that is about to expire is
-# refetched rather than used for a request that would outlive it.
-$script:SessionTokenSafetyMarginSec = 60
+# refetched rather than used for a request that would outlive it. The margin has
+# to cover a whole tool-calling ITERATION, not just the handshake: the token is
+# resolved and then used for a request that a reasoning model with a large tool
+# result can spend minutes answering. 60s covered neither, so a token with 61s
+# left was served and died on the next request; 300s covers a slow iteration
+# with room to spare. The cost is at most one extra exchange per five minutes of
+# an otherwise-cached session, and an exchange is a single cheap round-trip.
+$script:SessionTokenSafetyMarginSec = 300
 
 $script:EndpointMap = @{
     Enterprise = 'https://api.enterprise.githubcopilot.com'

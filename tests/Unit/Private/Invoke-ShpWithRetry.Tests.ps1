@@ -337,6 +337,33 @@ Describe 'Invoke-ShpWithRetry' {
             $err.TargetObject.StatusCode | Should -Be 400
         }
 
+        # An expired session token arrives as a 401 carrying no HTTP response on
+        # the exception, so only the structured detail keeps it out of the
+        # connection-level classifier. Without that it would be read as a network
+        # outage and hammered for the whole tolerance budget with a credential
+        # that can never work - and Invoke-Shp's own recovery would never see it.
+        It 'Does not retry a 401 raised by Invoke-ShpStreamRequest as a network outage' {
+            $responder = {
+                param($request)
+                $response = [System.Net.Http.HttpResponseMessage]::new([System.Net.HttpStatusCode]::Unauthorized)
+                $response.Content = [System.Net.Http.StringContent]::new('{"error":{"message":"IDE token expired: unauthorized: token expired"}}', [System.Text.Encoding]::UTF8, 'application/json')
+                $response
+            }
+            $client = New-ShpFakeHttpClient -Responder $responder
+
+            $err = InModuleScope $script:moduleName -Parameters @{ Client = $client } {
+                param($Client)
+                $script:ShpHttpClient = $Client
+                $options = @{ Uri = 'https://api.example/chat/completions'; Headers = @{}; Body = '{}' }
+                {
+                    Invoke-ShpWithRetry -MaxRetryCount 2 -RetryDelaySec 0 -NetworkOutageToleranceSec 30 -ArgumentList $options -ScriptBlock { param($p) Invoke-ShpStreamRequest @p }
+                } | Should -Throw -PassThru
+            }
+
+            $client.CallCount | Should -Be 1
+            $err.TargetObject.StatusCode | Should -Be 401
+        }
+
         It 'Preserves a 400 and disposes resources when reading the error body fails' {
             $content = [ShellPilot.Tests.ThrowingHttpContent]::new()
             $responder = {

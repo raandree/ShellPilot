@@ -699,7 +699,12 @@ function Invoke-Shp {
     $effectiveRetryDelay      = $connection.RetryDelaySec
     $effectiveOutageTolerance = $connection.NetworkOutageToleranceSec
 
-    $session = Get-ShpSessionToken -TokenPath $TokenPath -EditorVersion $EditorVersion -UserAgent $UserAgent @connectionParams
+    # Kept whole so the tool loop can re-resolve the Session token on the same
+    # terms the turn started on - a Turn is a loop that can outlive its own
+    # credential, so resolving it only here is not enough.
+    $sessionTokenParams = @{ TokenPath = $TokenPath; EditorVersion = $EditorVersion; UserAgent = $UserAgent }
+    foreach ($name in $connectionParams.Keys) { $sessionTokenParams[$name] = $connectionParams[$name] }
+    $session = Get-ShpSessionToken @sessionTokenParams
     Write-Verbose ("Session token valid until {0}" -f [DateTimeOffset]::FromUnixTimeSeconds($session.expires_at).LocalDateTime)
 
     # Resolve the API base and bearer token. An explicit -ApiBase, or an ApiBase
@@ -711,7 +716,10 @@ function Invoke-Shp {
     $apiBase = if ($PSBoundParameters.ContainsKey('ApiBase')) { $ApiBase }
                elseif ($script:ShpContext.ApiBase) { $script:ShpContext.ApiBase }
                else { $session.endpoints.api }
-    $bearer = if ($usingAltBackend -and $script:ShpContext.ApiKey) { $script:ShpContext.ApiKey } else { $session.token }
+    # The bearer is the caller's own API key here, not a Session token, so
+    # nothing below may refresh or overwrite it.
+    $usingAltApiKey = $usingAltBackend -and [bool]$script:ShpContext.ApiKey
+    $bearer = if ($usingAltApiKey) { $script:ShpContext.ApiKey } else { $session.token }
 
     # The context budget has a fourth level - the model's own advertised window -
     # so its whole order lives in one documented resolver. 0 disables the guard,
@@ -1079,6 +1087,12 @@ function Invoke-Shp {
     # second refusal surface.
     $apiShapeSwitched = $false
 
+    # One forced Session-token exchange per iteration. A revoked OAuth token
+    # refuses every token it is offered, so without this the 401 recovery below
+    # would decrement the iteration counter forever; reset after an iteration
+    # succeeds so a genuinely long Turn can recover again later.
+    $sessionTokenForced = $false
+
     # A Turn is a loop, so the exhausted-guard warning fires once for the turn
     # rather than once per tool iteration.
     $contextGuardExhaustedWarned = $false
@@ -1108,6 +1122,19 @@ function Invoke-Shp {
         }
         if ($ShowThinking) { Write-Host ("`n=== iteration {0} ({1}) ===" -f $iteration, $mode) -ForegroundColor DarkCyan }
         try {
+            # Re-resolve the Session token for THIS iteration. It is short-lived
+            # and a Turn is a loop, so the credential resolved before the loop is
+            # routinely dead by the time a long agentic Turn reaches iteration
+            # 40 - the "IDE token expired" failure. Get-ShpSessionToken serves
+            # its cache without a network call while the token is comfortably
+            # valid, so this costs nothing until it is genuinely needed.
+            if (-not $usingAltApiKey) {
+                $iterationToken = (Get-ShpSessionToken @sessionTokenParams).token
+                if ($iterationToken -and $apiHeaders.Authorization -ne "Bearer $iterationToken") {
+                    $apiHeaders.Authorization = "Bearer $iterationToken"
+                    Write-Verbose 'Session token refreshed mid-turn; this iteration carries the new bearer.'
+                }
+            }
             $conv = if ($mode -eq 'responses') { $respInput } else { $chatMessages }
             $tls  = if ($mode -eq 'responses') { $respTools } else { $tools }
             # Guard the context window (defence in depth): a Turn accumulates every
@@ -1131,6 +1158,34 @@ function Invoke-Shp {
         } catch {
             $errText = $_.ErrorDetails.Message
             if ([string]::IsNullOrWhiteSpace($errText)) { $errText = $_.Exception.Message }
+            # The Session token died between the per-iteration refresh above and
+            # this request. Recover the same way the other fallbacks do - retry
+            # this iteration - so a Turn that has already completed 40 iterations
+            # of work is not thrown away. Matched on the STRUCTURED status, never
+            # on the service's prose, and only when the bearer is a Session
+            # token: a 401 from an alternative backend is a wrong API key and
+            # must fail loudly rather than trigger a Copilot token exchange.
+            if (-not $usingAltApiKey -and $_.TargetObject -and $_.TargetObject.StatusCode -eq 401) {
+                if ($sessionTokenForced) {
+                    # A token this call exchanged seconds ago is not expired, so
+                    # the OAuth token behind it is the problem.
+                    Write-Warning 'The service refused a freshly exchanged Copilot session token (401). The GitHub OAuth token is most likely revoked or no longer authorized for Copilot - run Initialize-Shp to sign in again.'
+                } else {
+                    $sessionTokenForced = $true
+                    $refreshed = $null
+                    try {
+                        $refreshed = Get-ShpSessionToken @sessionTokenParams -Force
+                    } catch {
+                        Write-Warning ("The Copilot session token expired and a fresh one could not be exchanged: {0} Run Initialize-Shp to sign in again." -f $_.Exception.Message)
+                    }
+                    if ($refreshed -and $refreshed.token) {
+                        Write-Verbose 'The Copilot session token expired mid-turn; retrying this iteration with a freshly exchanged one.'
+                        $apiHeaders.Authorization = "Bearer $($refreshed.token)"
+                        $iteration--
+                        continue
+                    }
+                }
+            }
             # The prompt outgrew the model's window. The context guard cannot
             # rescue this: it elides tool results, and the usual cause is the
             # session conversation, which every -Prompt call seeds from and
@@ -1172,6 +1227,10 @@ function Invoke-Shp {
             $null = Add-ShpUsageRecord -RequestedModel $Model -ServerModel $(if ($turn) { $turn.ModelName } else { $null }) -Prompt $Prompt -RoundTrip $roundTrips.ToArray() -ContextTokens $peakPromptTokens -Iterations ($iteration - 1) -ToolCallCount (@($toolCallsExecuted).Count) -DurationMs ([int]$sw.Elapsed.TotalMilliseconds) -ErrorMessage $errText
             throw
         }
+
+        # This iteration completed, so the one-shot token refresh is available
+        # again for a later iteration of the same (possibly very long) Turn.
+        $sessionTokenForced = $false
 
         $totalPrompt += $turn.PromptTokens
         # Peak single-request prompt size = how full the model's context window

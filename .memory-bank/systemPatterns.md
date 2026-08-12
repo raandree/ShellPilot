@@ -404,10 +404,12 @@ API, result object, or the streaming/tool-loop behaviour:
 
 - Session-token cache ($script:ShpSessionTokenCache): Get-ShpSessionToken caches
   the token-exchange response keyed by a SHA-256 hash of the OAuth token plus the
-  Editor-Version, and returns it while more than a 60s safety margin
-  ($script:SessionTokenSafetyMarginSec) remains before its expires_at. -Force
-  bypasses the cache; Initialize-Shp clears it on re-auth. A partial/expired entry
-  is refetched.
+  Editor-Version, and returns it while more than the safety margin
+  ($script:SessionTokenSafetyMarginSec, 300s) remains before its expires_at.
+  -Force bypasses the cache; Initialize-Shp clears it on re-auth. A
+  partial/expired entry is refetched. The margin is sized to cover a whole tool
+  ITERATION rather than the handshake: it was 60s, and a Turn that started with
+  61s left was handed a token that died on the next request.
 - Shared HttpClient ($script:ShpHttpClient, built lazily by Get-ShpHttpClient):
   one connection-pooling client on a SocketsHttpHandler (2-min
   PooledConnectionLifetime, HTTP/2 preferred) is reused for every request, so the
@@ -425,6 +427,42 @@ API, result object, or the streaming/tool-loop behaviour:
   code on the buffered path. Invoke-ShpStreamRequest keeps its own message shape
   (it throws HttpRequestException, which carries no response, so its URI and
   status only exist in the text) and bounds its quoted body with the same cap.
+
+### A credential resolved once per Turn is a bug in a loop that outlives it
+
+Caching a credential and resolving a credential are different decisions, and the
+session-token cache above made it easy to conflate them. Invoke-Shp resolved the
+Session token once, built ONE $apiHeaders hashtable from it, and passed that same
+hashtable to every iteration of a loop bounded only by MaxToolIterations - which
+callers raise into the hundreds. The token is short-lived, so a long agentic Turn
+routinely outlived its own credential and died at iteration 41 with "IDE token
+expired", throwing away every completed iteration; resending the prompt is not a
+recovery, because that starts a new Turn at iteration 1.
+
+The rule: anything that expires must be RE-RESOLVED inside the loop that uses it,
+never hoisted above it. The cache is what makes that free - a still-valid token is
+served with no network call, so the per-iteration call costs nothing until the
+moment it is needed. Removing the failure this way is the primary fix; the catch
+branch that force-exchanges after a 401 only covers the race between the check and
+the request.
+
+Three properties keep the recovery honest, and each was a way to get it wrong:
+
+- It matches the STRUCTURED status ($_.TargetObject.StatusCode -eq 401), not the
+  service's prose, for the same reason every other branch does. It depends on
+  Invoke-ShpWithRetry reading that status BEFORE the connection-level classifier -
+  otherwise a 401 is ridden out as a network outage for the whole
+  NetworkOutageToleranceSec budget with a credential that can never work. That
+  premise now has its own test rather than being assumed.
+- It is one-shot per iteration, reset after an iteration succeeds. The retry shape
+  is $iteration--; continue, so an unbounded retry would spin forever on a revoked
+  OAuth token; resetting on success still lets a 40-minute Turn recover more than
+  once. A second 401 with a token exchanged seconds ago is not expiry, and says so
+  by naming Initialize-Shp.
+- It excludes the alternative-backend API key. That bearer is the caller's own
+  credential, not a Session token, so its 401 means a wrong key: rewriting the
+  header or exchanging a Copilot token would turn a clear misconfiguration into a
+  confusing one.
 
 ### A failed response is data, not just text
 

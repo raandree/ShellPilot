@@ -37,6 +37,27 @@ Chronological record of shipped changes and remaining work. Latest first.
 
 ## Log
 
+- 2026-08-12 - A long Turn no longer dies with `401 IDE token expired`. Reported
+  at iteration 41 with a valid sign-in throughout: the OAuth token was fine, the
+  short-lived SESSION token had expired. `Invoke-Shp` resolved it once before the
+  tool loop and reused one `$apiHeaders` hashtable for every iteration, so the
+  Turn outlived its own credential and no catch branch recognised a 401.
+  Two triggers: the genuinely long Turn, and a 60s safety margin that served a
+  token with 61s left to a Turn whose SECOND iteration would outlive it. The
+  margin has to cover an ITERATION, not the handshake, so it is now 300s.
+  Fixed by removing the failure first - a per-iteration re-resolve, free because
+  the still-valid token is served from cache with no round-trip - and only then
+  recovering the race with a one-shot forced exchange that retries the same
+  iteration (`$iteration--; continue`), so no answer text is duplicated, the
+  counter does not advance and usage is not double-counted.
+  Matched on `TargetObject.StatusCode -eq 401`, never on the service's prose,
+  and re-verified the premise it rests on: `Invoke-ShpWithRetry` reads the
+  structured status BEFORE the connection-level classifier, so a 401 is not
+  ridden out as a network outage - now pinned by its own test.
+  The alternative-backend API key is excluded from both halves: its 401 is a
+  wrong key, not expiry, and must fail loudly. Verified: 1027 -> 1035 tests, 0
+  failures, 86% coverage, PSScriptAnalyzer clean on both changed source files,
+  16 tasks / 0 errors / 0 warnings.
 - 2026-08-12 - Token protected at rest (spec 020), closing open decision #5.
   Measured first: the real file was 40 bytes of clear text with the profile's
   INHERITED ACL, so `BUILTIN\Administrators` was on it too - the gap was not
