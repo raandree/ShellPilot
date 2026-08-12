@@ -33,6 +33,24 @@ function Request-ShpEmbedding {
     .PARAMETER IntegrationId
         Copilot-Integration-Id header value sent with the request.
 
+    .PARAMETER TimeoutSec
+        Per-request HTTP timeout in seconds. Falls back to the session context
+        (Set-ShpContext) and then to the built-in default of 0, meaning no
+        explicit timeout.
+
+    .PARAMETER MaxRetryCount
+        Maximum retries on a transient (429/5xx) HTTP failure. Falls back to the
+        session context and then the built-in default.
+
+    .PARAMETER RetryDelaySec
+        Base delay in seconds for the exponential backoff between retries. Falls
+        back to the session context and then the built-in default.
+
+    .PARAMETER NetworkOutageToleranceSec
+        Wall-clock budget, in seconds, for riding out a connection-level network
+        outage. Falls back to the session context and then the built-in default.
+        0 disables outage tolerance.
+
     .EXAMPLE
         Request-ShpEmbedding -Text 'PowerShell is a shell and scripting language.'
 
@@ -65,7 +83,19 @@ function Request-ShpEmbedding {
         [string]$EditorVersion = $script:DefaultEditorVersion,
         [string]$PluginVersion = $script:DefaultPluginVersion,
         [string]$UserAgent     = $script:DefaultUserAgent,
-        [string]$IntegrationId = $script:DefaultIntegrationId
+        [string]$IntegrationId = $script:DefaultIntegrationId,
+
+        [ValidateRange(0, [int]::MaxValue)]
+        [int]$TimeoutSec,
+
+        [ValidateRange(0, [int]::MaxValue)]
+        [int]$MaxRetryCount,
+
+        [ValidateRange(0, [int]::MaxValue)]
+        [int]$RetryDelaySec,
+
+        [ValidateRange(0, [int]::MaxValue)]
+        [int]$NetworkOutageToleranceSec
     )
 
     begin {
@@ -77,7 +107,13 @@ function Request-ShpEmbedding {
     end {
         if ($inputs.Count -eq 0) { return }
 
-        $session = Get-ShpSessionToken -TokenPath $TokenPath -EditorVersion $EditorVersion -UserAgent $UserAgent
+        $connectionParams = @{}
+        foreach ($name in 'TimeoutSec', 'MaxRetryCount', 'RetryDelaySec', 'NetworkOutageToleranceSec') {
+            if ($PSBoundParameters.ContainsKey($name)) { $connectionParams[$name] = $PSBoundParameters[$name] }
+        }
+        $connection = Resolve-ShpConnectionOption @connectionParams
+
+        $session = Get-ShpSessionToken -TokenPath $TokenPath -EditorVersion $EditorVersion -UserAgent $UserAgent @connectionParams
         $apiBase = if ($script:ShpContext.ApiBase) { $script:ShpContext.ApiBase } else { $session.endpoints.api }
         $bearer  = if ($script:ShpContext.ApiBase -and $script:ShpContext.ApiKey) { $script:ShpContext.ApiKey } else { $session.token }
 
@@ -92,8 +128,8 @@ function Request-ShpEmbedding {
         $body = @{ model = $Model; input = @($inputs) } | ConvertTo-Json -Depth 6
 
         try {
-            $embeddingRequest = @{ Method = 'Post'; Uri = "$apiBase/embeddings"; SkipHeaderValidation = $true; Headers = $headers; Body = $body; ErrorAction = 'Stop' }
-            $response = Invoke-ShpWithRetry -ArgumentList $embeddingRequest -ScriptBlock { param($p) Invoke-WebRequest @p }
+            $embeddingRequest = @{ Method = 'Post'; Uri = "$apiBase/embeddings"; SkipHeaderValidation = $true; Headers = $headers; Body = $body; ErrorAction = 'Stop'; TimeoutSec = $connection.TimeoutSec }
+            $response = Invoke-ShpWithRetry -ArgumentList $embeddingRequest -ScriptBlock { param($p) Invoke-WebRequest @p } -MaxRetryCount $connection.MaxRetryCount -RetryDelaySec $connection.RetryDelaySec -NetworkOutageToleranceSec $connection.NetworkOutageToleranceSec
         } catch {
             throw "Embedding request to '$apiBase/embeddings' failed: $($_.Exception.Message). The Copilot backend may not expose an embeddings endpoint."
         }

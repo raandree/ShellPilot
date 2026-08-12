@@ -1031,7 +1031,7 @@ Describe 'Invoke-Shp' {
                 Mock Invoke-CopilotTurn {
                     $script:capturedArgs = @{
                         ApiBase = $ApiBase; Mode = $Mode; ResponseFormat = $ResponseFormat; JsonSchema = $JsonSchema
-                        TimeoutSec = $TimeoutSec; MaxRetryCount = $MaxRetryCount; NetworkOutageToleranceSec = $NetworkOutageToleranceSec; Store = $Store.IsPresent
+                        TimeoutSec = $TimeoutSec; MaxRetryCount = $MaxRetryCount; RetryDelaySec = $RetryDelaySec; NetworkOutageToleranceSec = $NetworkOutageToleranceSec; Store = $Store.IsPresent
                         PreviousResponseId = $PreviousResponseId; Conversation = @($Conversation)
                     }
                     [pscustomobject]@{
@@ -1139,6 +1139,34 @@ Describe 'Invoke-Shp' {
                     $script:capturedArgs.TimeoutSec    | Should -Be 22
                     $script:capturedArgs.MaxRetryCount | Should -Be 6
                 } finally { Clear-ShpContext }
+            }
+        }
+
+        It 'Threads -RetryDelaySec to the turn' {
+            InModuleScope $script:moduleName {
+                # RetryDelaySec existed on the context and on the retry wrapper
+                # but had no parameter here, so it was the one connection option
+                # a caller could not set per call.
+                $null = Invoke-Shp -Prompt 'hi' -RetryDelaySec 7 -DisableBrowsing -DisableFileAccess -DisableTerminal -DisableUserPrompts
+                $script:capturedArgs.RetryDelaySec | Should -Be 7
+            }
+        }
+
+        It 'Applies the call connection options to the token exchange it triggers' {
+            InModuleScope $script:moduleName {
+                # The token exchange ran BEFORE the connection options were
+                # resolved, so an explicit -TimeoutSec never reached the one
+                # request that gates every other one.
+                $script:tokenArgs = $null
+                Mock Get-ShpSessionToken {
+                    $script:tokenArgs = [pscustomobject]@{ TimeoutSec = $TimeoutSec; MaxRetryCount = $MaxRetryCount }
+                    [pscustomobject]@{ token = 't'; expires_at = 0; endpoints = [pscustomobject]@{ api = 'https://session.example' } }
+                }
+
+                $null = Invoke-Shp -Prompt 'hi' -TimeoutSec 13 -MaxRetryCount 1 -DisableBrowsing -DisableFileAccess -DisableTerminal -DisableUserPrompts
+
+                $script:tokenArgs.TimeoutSec    | Should -Be 13
+                $script:tokenArgs.MaxRetryCount | Should -Be 1
             }
         }
 

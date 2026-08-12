@@ -129,4 +129,51 @@ Describe 'Get-ShpModel' {
             }
         }
     }
+
+    Context 'Connection options' {
+        BeforeEach {
+            InModuleScope $script:moduleName {
+                Clear-ShpContext
+                $script:captured = $null
+                Mock Get-ShpSessionToken {
+                    [pscustomobject]@{ token = 't'; endpoints = [pscustomobject]@{ api = 'https://sess.example' } }
+                }
+                Mock Invoke-ShpWithRetry {
+                    $script:captured = [pscustomobject]@{
+                        TimeoutSec = $ArgumentList[0].TimeoutSec; MaxRetryCount = $MaxRetryCount
+                        RetryDelaySec = $RetryDelaySec; NetworkOutageToleranceSec = $NetworkOutageToleranceSec
+                    }
+                    [pscustomobject]@{ Content = (@{ data = @() } | ConvertTo-Json) }
+                }
+            }
+        }
+
+        AfterEach { InModuleScope $script:moduleName { Clear-ShpContext } }
+
+        It 'Applies the session context instead of the built-in defaults' {
+            InModuleScope $script:moduleName {
+                # Set-ShpContext is documented as the session-wide home for these
+                # options; /models used to ignore it entirely.
+                Set-ShpContext -TimeoutSec 10 -MaxRetryCount 0 -RetryDelaySec 0 -NetworkOutageToleranceSec 0
+
+                $null = Get-ShpModel -Endpoint Default
+
+                $script:captured.TimeoutSec                | Should -Be 10
+                $script:captured.MaxRetryCount             | Should -Be 0
+                $script:captured.RetryDelaySec             | Should -Be 0
+                $script:captured.NetworkOutageToleranceSec | Should -Be 0
+            }
+        }
+
+        It 'Lets an explicit parameter win over the session context' {
+            InModuleScope $script:moduleName {
+                Set-ShpContext -TimeoutSec 10 -MaxRetryCount 5
+
+                $null = Get-ShpModel -Endpoint Default -TimeoutSec 3 -MaxRetryCount 1
+
+                $script:captured.TimeoutSec    | Should -Be 3
+                $script:captured.MaxRetryCount | Should -Be 1
+            }
+        }
+    }
 }

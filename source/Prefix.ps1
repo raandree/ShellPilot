@@ -102,9 +102,11 @@ $script:ShpContext = @{
     ApiKey                    = $null
 }
 
-# Built-in fallbacks for the HTTP retry/timeout behaviour, used when neither an
-# explicit parameter nor the session context supplies a value.
-$script:DefaultTimeoutSec    = 100
+# Built-in fallbacks for the HTTP retry behaviour, used when neither an explicit
+# parameter nor the session context supplies a value. There is deliberately no
+# default timeout: 0 means "no explicit timeout", because the shared HttpClient
+# is built with an infinite timeout so a long streamed turn is not cut off
+# mid-response.
 $script:DefaultMaxRetryCount = 3
 $script:DefaultRetryDelaySec = 2
 

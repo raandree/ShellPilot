@@ -147,6 +147,38 @@ before each chat turn and elides the OLDEST tool-role message content to a short
 marker (keeping role + tool_call_id so the sequence stays valid) once the estimate
 exceeds the resolved context budget (0 disables).
 
+### One resolver per option family, and no exemptions
+
+Every option family that has more than one source resolves through a single
+private function that owns the documented order: Resolve-ShpContextBudget for
+the context budget, Resolve-ShpConnectionOption for timeout/retry/backoff/outage
+tolerance. The order is explicit parameter, then Session context, then built-in
+default, and every level is tested by BINDING rather than truthiness because 0
+is a meaningful value for most of them.
+
+The reason it is one function and not an inline chain per call site is that the
+inline version was wrong in three of four places: the token exchange, /models
+and embeddings all called Invoke-ShpWithRetry with built-in defaults while
+Set-ShpContext claimed to be the session-wide home for exactly those options.
+Invoke-Shp also resolved its options AFTER Get-ShpSessionToken had already run,
+so an explicit -TimeoutSec never reached the one request that gates every other
+one.
+
+There is deliberately NO exemption for the auth handshake, even though a
+zero-retry policy set for a cheap chat call also disables retry on the call
+whose failure makes everything else pointless. A hidden exemption is the same
+defect being fixed - a setting that silently does not apply in a path the caller
+cannot see. Two facts make honouring it cheap: the exchange is cached for the
+life of a session token, so MaxRetryCount 0 costs at most one un-retried attempt
+per session; and outage tolerance is a SEPARATE option, so disabling 429/5xx
+retry still leaves a dropped connection during auth to be ridden out.
+
+There is no default timeout. 0 means "no explicit timeout", because the shared
+HttpClient is built with an infinite timeout so a long streamed turn is not cut
+off mid-response. $script:DefaultTimeoutSec = 100 existed, was never read, and
+the help documented it as the default - a value that had never applied to
+anything.
+
 ### The estimate is a hint, never a gate
 
 ConvertTo-ShpTokenCount blends characters/4 with words x 1.3 and takes the

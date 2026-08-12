@@ -4,6 +4,47 @@ Current working focus for ShellPilot. Overwrite this file as the focus shifts.
 
 ## Focus
 
+Session-context propagation is finished, and the prompt's either/or was answered
+with **both**.
+
+Premise re-verified against current source: the token exchange, `/models` and
+embeddings all called `Invoke-ShpWithRetry` with built-in defaults, and
+`Invoke-Shp` resolved its connection options **after** `Get-ShpSessionToken` had
+already run - so an explicit `-TimeoutSec` never reached the one request that
+gates every other one.
+
+The prompt offered "public parameters on each cmdlet" *or* "consume the session
+context at each call site". Neither alone implements the module's documented
+rule, which is a **three-level** precedence: option 1 gives levels 1+3, option 2
+gives 2+3. So: one private `Resolve-ShpConnectionOption` owns the order (the
+same shape as `Resolve-ShpContextBudget` from spec 017), the public cmdlets
+gained the four parameters for discoverability, and every call site passes what
+it has. That also answers the prompt's objection that a helper reading module
+state is hard to test - the resolver takes parameters and is tested directly.
+
+**No exemption for the auth handshake**, and the argument for one is weaker than
+it looks. A hidden exemption *is* the defect being fixed. And two facts make
+honouring the caller cheap: the exchange is cached, so `MaxRetryCount 0` costs
+at most one un-retried attempt per session; and outage tolerance is a separate
+option, so disabling 429/5xx retry still leaves a dropped connection during auth
+to be ridden out.
+
+`-RetryDelaySec` was indeed unreachable - `Invoke-Shp` had no such parameter and
+its resolution had no binding branch. Now a parameter, forwarded by
+`Invoke-ShpBatch`.
+
+**Fourth finding, not in the prompt:** `$script:DefaultTimeoutSec = 100` was
+declared and **never read**, while `Set-ShpContext`'s help documented "Built-in
+default: 100". The real default is 0 - no explicit timeout, deliberately, so a
+long streamed turn is not cut off. Dead constant removed and the help corrected;
+no behaviour changed because the 100 had never applied to anything.
+
+Verified: 873 -> 893 tests, 0 failures; coverage 85.30% -> 85.52%;
+PSScriptAnalyzer clean on all 8 changed source files; build 16 tasks / 0 errors
+/ 0 warnings. Committed on `ai/session-context-propagation`.
+
+## Superseded focus (2026-08-12) - conversation-history overflow
+
 A session that outgrows the model's window is now recoverable from inside
 (spec 018), and the obvious design was rejected on measurement rather than
 taste.

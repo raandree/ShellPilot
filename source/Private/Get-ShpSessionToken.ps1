@@ -32,6 +32,29 @@ function Get-ShpSessionToken {
         Bypass the session-token cache and exchange a fresh token even when a
         still-valid one is cached. The refreshed response replaces the cache.
 
+    .PARAMETER TimeoutSec
+        Per-request HTTP timeout in seconds for the token exchange. Falls back to
+        the session context (Set-ShpContext) and then to the built-in default of
+        0, meaning no explicit timeout.
+
+    .PARAMETER MaxRetryCount
+        Maximum retries on a transient (429/5xx) failure of the exchange. Falls
+        back to the session context and then the built-in default. There is no
+        exemption for the handshake: a setting that applies to the chat turn but
+        not to the request that precedes it is one the caller cannot see failing,
+        and the exchange is cached, so honouring 0 costs at most one un-retried
+        attempt per session.
+
+    .PARAMETER RetryDelaySec
+        Base delay in seconds for the exponential backoff between retries. Falls
+        back to the session context and then the built-in default.
+
+    .PARAMETER NetworkOutageToleranceSec
+        Wall-clock budget, in seconds, for riding out a connection-level failure
+        of the exchange. Falls back to the session context and then the built-in
+        default, so disabling 429/5xx retry still leaves a dropped connection
+        during auth to be ridden out.
+
     .EXAMPLE
         Get-ShpSessionToken -TokenPath (Join-Path $HOME '.shellpilot-token')
 
@@ -55,6 +78,19 @@ function Get-ShpSessionToken {
         [string]$TokenPath     = $script:DefaultTokenPath,
         [string]$EditorVersion = $script:DefaultEditorVersion,
         [string]$UserAgent     = $script:DefaultUserAgent,
+
+        [ValidateRange(0, [int]::MaxValue)]
+        [int]$TimeoutSec,
+
+        [ValidateRange(0, [int]::MaxValue)]
+        [int]$MaxRetryCount,
+
+        [ValidateRange(0, [int]::MaxValue)]
+        [int]$RetryDelaySec,
+
+        [ValidateRange(0, [int]::MaxValue)]
+        [int]$NetworkOutageToleranceSec,
+
         [switch]$Force
     )
     if (-not (Test-Path -LiteralPath $TokenPath)) {
@@ -95,9 +131,14 @@ function Get-ShpSessionToken {
         'User-Agent'     = $UserAgent
     }
     $tokenUri = 'https://api.github.com/copilot_internal/v2/token'
+    $connectionParams = @{}
+    foreach ($name in 'TimeoutSec', 'MaxRetryCount', 'RetryDelaySec', 'NetworkOutageToleranceSec') {
+        if ($PSBoundParameters.ContainsKey($name)) { $connectionParams[$name] = $PSBoundParameters[$name] }
+    }
+    $connection = Resolve-ShpConnectionOption @connectionParams
     try {
-        $restRequest = @{ Uri = $tokenUri; Headers = $tokenHeaders }
-        $session = Invoke-ShpWithRetry -ArgumentList $restRequest -ScriptBlock { param($p) Invoke-RestMethod @p }
+        $restRequest = @{ Uri = $tokenUri; Headers = $tokenHeaders; TimeoutSec = $connection.TimeoutSec }
+        $session = Invoke-ShpWithRetry -ArgumentList $restRequest -ScriptBlock { param($p) Invoke-RestMethod @p } -MaxRetryCount $connection.MaxRetryCount -RetryDelaySec $connection.RetryDelaySec -NetworkOutageToleranceSec $connection.NetworkOutageToleranceSec
     } catch {
         throw "Session token exchange failed: $($_.Exception.Message)"
     }

@@ -37,6 +37,24 @@ function Get-ShpModel {
     .PARAMETER IntegrationId
         Copilot-Integration-Id header value sent with the request.
 
+    .PARAMETER TimeoutSec
+        Per-request HTTP timeout in seconds. Falls back to the session context
+        (Set-ShpContext) and then to the built-in default of 0, meaning no
+        explicit timeout.
+
+    .PARAMETER MaxRetryCount
+        Maximum retries on a transient (429/5xx) HTTP failure. Falls back to the
+        session context and then the built-in default.
+
+    .PARAMETER RetryDelaySec
+        Base delay in seconds for the exponential backoff between retries. Falls
+        back to the session context and then the built-in default.
+
+    .PARAMETER NetworkOutageToleranceSec
+        Wall-clock budget, in seconds, for riding out a connection-level network
+        outage. Falls back to the session context and then the built-in default.
+        0 disables outage tolerance.
+
     .EXAMPLE
         Get-ShpModel
 
@@ -70,10 +88,28 @@ function Get-ShpModel {
         [string]$EditorVersion = $script:DefaultEditorVersion,
         [string]$PluginVersion = $script:DefaultPluginVersion,
         [string]$UserAgent     = $script:DefaultUserAgent,
-        [string]$IntegrationId = $script:DefaultIntegrationId
+        [string]$IntegrationId = $script:DefaultIntegrationId,
+
+        [ValidateRange(0, [int]::MaxValue)]
+        [int]$TimeoutSec,
+
+        [ValidateRange(0, [int]::MaxValue)]
+        [int]$MaxRetryCount,
+
+        [ValidateRange(0, [int]::MaxValue)]
+        [int]$RetryDelaySec,
+
+        [ValidateRange(0, [int]::MaxValue)]
+        [int]$NetworkOutageToleranceSec
     )
 
-    $session = Get-ShpSessionToken -TokenPath $TokenPath -EditorVersion $EditorVersion -UserAgent $UserAgent
+    $connectionParams = @{}
+    foreach ($name in 'TimeoutSec', 'MaxRetryCount', 'RetryDelaySec', 'NetworkOutageToleranceSec') {
+        if ($PSBoundParameters.ContainsKey($name)) { $connectionParams[$name] = $PSBoundParameters[$name] }
+    }
+    $connection = Resolve-ShpConnectionOption @connectionParams
+
+    $session = Get-ShpSessionToken -TokenPath $TokenPath -EditorVersion $EditorVersion -UserAgent $UserAgent @connectionParams
 
     $headers = @{
         Authorization            = "Bearer $($session.token)"
@@ -91,8 +127,8 @@ function Get-ShpModel {
 
     foreach ($base in ($targets | Where-Object { $_ } | Select-Object -Unique)) {
         try {
-            $modelRequest = @{ Uri = "$base/models"; SkipHeaderValidation = $true; Headers = $headers; ErrorAction = 'Stop' }
-            $r = Invoke-ShpWithRetry -ArgumentList $modelRequest -ScriptBlock { param($p) Invoke-WebRequest @p }
+            $modelRequest = @{ Uri = "$base/models"; SkipHeaderValidation = $true; Headers = $headers; ErrorAction = 'Stop'; TimeoutSec = $connection.TimeoutSec }
+            $r = Invoke-ShpWithRetry -ArgumentList $modelRequest -ScriptBlock { param($p) Invoke-WebRequest @p } -MaxRetryCount $connection.MaxRetryCount -RetryDelaySec $connection.RetryDelaySec -NetworkOutageToleranceSec $connection.NetworkOutageToleranceSec
             $j = $r.Content | ConvertFrom-Json
             $items = if ($j.data) { $j.data } elseif ($j.models) { $j.models } else { @() }
             foreach ($m in $items) {

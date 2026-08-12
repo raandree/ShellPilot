@@ -20,16 +20,6 @@ Chronological record of shipped changes and remaining work. Latest first.
 
 - Encrypted token storage (open decision #5) before a stable release.
 - Publish to the PowerShell Gallery (open decision #7).
-- Session context propagation is incomplete outside the turn sender.
-  `Invoke-Shp` resolves retry controls only after `Get-ShpSessionToken`, while
-  the token exchange, `/models`, and embeddings invoke `Invoke-ShpWithRetry`
-  with built-in defaults. Decide whether those cmdlets need public connection
-  parameters or should consume Session context directly before changing them.
-- Conversation-history overflow is still unrecoverable. Compress-ShpChatContext
-  elides TOOL RESULTS only, so a turn whose bulk is user/assistant history
-  cannot be trimmed and the call simply fails. Invoke-Shp now warns and names
-  the remedy, but eliding old conversation turns changes call semantics and
-  needs its own decision.
 - Path-scoping / allow-listing for the unsandboxed tools. ShouldProcess now
   gates them interactively, but there is still no persisted allow/deny rule set
   (the Copilot CLI's Kind(argument) model is the reference).
@@ -49,6 +39,23 @@ Chronological record of shipped changes and remaining work. Latest first.
 
 ## Log
 
+- 2026-08-12 - Session-context propagation finished. Premise re-verified: the
+  token exchange, `/models` and embeddings all called `Invoke-ShpWithRetry`
+  with built-in defaults, and `Invoke-Shp` resolved its connection options
+  AFTER `Get-ShpSessionToken` had already run. Answered the prompt's either/or
+  with **both**, because the module's documented rule is a three-level
+  precedence and neither option alone implements it: one private
+  `Resolve-ShpConnectionOption` owns the order, public cmdlets gained the four
+  parameters, and `Invoke-Shp` now resolves before the exchange and passes them
+  in. **No exemption for the auth handshake** - it is cached, so honouring
+  `MaxRetryCount 0` costs at most one un-retried attempt per session, and
+  outage tolerance is a separate knob so a dropped connection during auth is
+  still ridden out. `-RetryDelaySec` was indeed unreachable and is now a
+  parameter. Fourth finding, not in the prompt: `$script:DefaultTimeoutSec =
+  100` was **never read** and the help documented a 100s default that did not
+  exist - the real default is 0 (no explicit timeout, so a streamed turn is not
+  cut off). Dead constant removed, help corrected. Verified: 873 -> 893 tests,
+  0 failures, 85.30% -> 85.52% coverage, 16 tasks / 0 errors / 0 warnings.
 - 2026-08-12 - Conversation-history overflow made recoverable (spec 018), and
   the obvious design rejected on measurement. Reproduced the death spiral live:
   calls 1-4 ok, call 5 refused, chat pinned at 8 entries, 3 identical retries

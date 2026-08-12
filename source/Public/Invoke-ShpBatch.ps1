@@ -186,6 +186,10 @@ function Invoke-ShpBatch {
         Backoff is jittered, so concurrent workers refused by the same 429 do not
         synchronise into a second burst.
 
+    .PARAMETER RetryDelaySec
+        Base delay in seconds for the exponential backoff between retries, per
+        request. 0 disables waiting.
+
     .PARAMETER NetworkOutageToleranceSec
         Wall-clock budget, in seconds, for riding out a connection-level network
         outage on any one request.
@@ -324,6 +328,9 @@ function Invoke-ShpBatch {
         [int]$MaxRetryCount,
 
         [ValidateRange(0, [int]::MaxValue)]
+        [int]$RetryDelaySec,
+
+        [ValidateRange(0, [int]::MaxValue)]
         [int]$NetworkOutageToleranceSec,
 
         [ValidateNotNullOrEmpty()]
@@ -372,7 +379,7 @@ function Invoke-ShpBatch {
                 'ResponseFormat', 'JsonSchema', 'DisableBrowsing', 'AllowPrivateNetwork',
                 'DisableFileAccess', 'DisableTerminal', 'DisableUserTools', 'DisableTodoList',
                 'MaxToolIterations', 'MaxContextWindowTokens', 'MaxBudgetUSD',
-                'ApiBase', 'TimeoutSec', 'MaxRetryCount', 'NetworkOutageToleranceSec', 'TokenPath')) {
+                'ApiBase', 'TimeoutSec', 'MaxRetryCount', 'RetryDelaySec', 'NetworkOutageToleranceSec', 'TokenPath')) {
             if ($PSBoundParameters.ContainsKey($name)) { $invokeParams[$name] = $PSBoundParameters[$name] }
         }
 

@@ -15,6 +15,60 @@ Describe 'Get-ShpSessionToken' {
         InModuleScope $script:moduleName { $script:ShpSessionTokenCache = @{} }
     }
 
+    Context 'Connection options' {
+        AfterEach { InModuleScope $script:moduleName { Clear-ShpContext; $script:ShpSessionTokenCache = @{} } }
+
+        It 'Applies the session context to the token exchange' {
+            $tokenFile = Join-Path $TestDrive 'ctx.token'
+            Set-Content -LiteralPath $tokenFile -Value 'gho_test' -NoNewline
+
+            InModuleScope $script:moduleName -Parameters @{ TokenPath = $tokenFile } {
+                param($TokenPath)
+                # The auth handshake is the one call whose failure makes every
+                # other call pointless, and it was the one ignoring the caller's
+                # settings entirely.
+                Clear-ShpContext
+                Set-ShpContext -TimeoutSec 9 -MaxRetryCount 0 -RetryDelaySec 0 -NetworkOutageToleranceSec 0
+                $script:captured = $null
+                Mock Invoke-ShpWithRetry {
+                    $script:captured = [pscustomobject]@{
+                        TimeoutSec = $ArgumentList[0].TimeoutSec; MaxRetryCount = $MaxRetryCount
+                        RetryDelaySec = $RetryDelaySec; NetworkOutageToleranceSec = $NetworkOutageToleranceSec
+                    }
+                    [pscustomobject]@{ token = 't'; expires_at = 0; endpoints = [pscustomobject]@{ api = 'https://sess.example' } }
+                }
+
+                $null = Get-ShpSessionToken -TokenPath $TokenPath
+
+                $script:captured.TimeoutSec                | Should -Be 9
+                $script:captured.MaxRetryCount             | Should -Be 0
+                $script:captured.RetryDelaySec             | Should -Be 0
+                $script:captured.NetworkOutageToleranceSec | Should -Be 0
+            }
+        }
+
+        It 'Lets a caller-supplied option win over the session context' {
+            $tokenFile = Join-Path $TestDrive 'ctx2.token'
+            Set-Content -LiteralPath $tokenFile -Value 'gho_test' -NoNewline
+
+            InModuleScope $script:moduleName -Parameters @{ TokenPath = $tokenFile } {
+                param($TokenPath)
+                Clear-ShpContext
+                Set-ShpContext -TimeoutSec 9 -MaxRetryCount 5
+                $script:captured = $null
+                Mock Invoke-ShpWithRetry {
+                    $script:captured = [pscustomobject]@{ TimeoutSec = $ArgumentList[0].TimeoutSec; MaxRetryCount = $MaxRetryCount }
+                    [pscustomobject]@{ token = 't'; expires_at = 0; endpoints = [pscustomobject]@{ api = 'https://sess.example' } }
+                }
+
+                $null = Get-ShpSessionToken -TokenPath $TokenPath -TimeoutSec 2 -MaxRetryCount 1
+
+                $script:captured.TimeoutSec    | Should -Be 2
+                $script:captured.MaxRetryCount | Should -Be 1
+            }
+        }
+    }
+
     It 'Throws when the token file is missing' {
         $missing = Join-Path $TestDrive 'no-such.token'
 

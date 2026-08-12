@@ -336,12 +336,20 @@ function Invoke-Shp {
 
     .PARAMETER TimeoutSec
         Per-request HTTP timeout in seconds. Falls back to the session context
-        and then the built-in default.
+        and then to the built-in default of 0, meaning no explicit timeout - the
+        shared HttpClient is deliberately built with an infinite timeout so a
+        long streamed turn is not cut off mid-response.
 
     .PARAMETER MaxRetryCount
         Maximum retries on a transient (429/5xx) HTTP failure, for buffered and
         streamed requests. Falls back to the session context and then the
         built-in default.
+
+    .PARAMETER RetryDelaySec
+        Base delay in seconds for the exponential backoff between retries
+        (attempt n waits RetryDelaySec * 2^(n-1) seconds, with equal jitter
+        under Invoke-ShpBatch). Falls back to the session context and then the
+        built-in default. 0 disables waiting.
 
     .PARAMETER NetworkOutageToleranceSec
         Wall-clock budget, in seconds, for riding out a connection-level network
@@ -350,6 +358,11 @@ function Invoke-Shp {
         failure, then the error is rethrown. Applies to buffered and streamed
         requests. Falls back to the session context and then the built-in
         default (30). 0 disables outage tolerance.
+
+        All four connection options resolve identically - explicit parameter,
+        then Set-ShpContext, then the built-in default - and apply to every
+        request this call makes, including the session-token exchange that
+        precedes it.
 
     .PARAMETER TokenPath
         Path to the cached OAuth token file.
@@ -632,6 +645,9 @@ function Invoke-Shp {
         [int]$MaxRetryCount,
 
         [ValidateRange(0, [int]::MaxValue)]
+        [int]$RetryDelaySec,
+
+        [ValidateRange(0, [int]::MaxValue)]
         [int]$NetworkOutageToleranceSec,
 
         [string]$TokenPath     = $script:DefaultTokenPath,
@@ -669,7 +685,21 @@ function Invoke-Shp {
         $priorHistory = @($script:ShpChat)
     }
 
-    $session = Get-ShpSessionToken -TokenPath $TokenPath -EditorVersion $EditorVersion -UserAgent $UserAgent
+    # Resolve the connection options BEFORE the token exchange: the exchange is
+    # part of this call, so an explicit -TimeoutSec has to reach it too. It ran
+    # first and got the built-in defaults, which is a setting silently not
+    # applying in a code path the caller cannot see.
+    $connectionParams = @{}
+    foreach ($name in 'TimeoutSec', 'MaxRetryCount', 'RetryDelaySec', 'NetworkOutageToleranceSec') {
+        if ($PSBoundParameters.ContainsKey($name)) { $connectionParams[$name] = $PSBoundParameters[$name] }
+    }
+    $connection = Resolve-ShpConnectionOption @connectionParams
+    $effectiveTimeoutSec      = $connection.TimeoutSec
+    $effectiveMaxRetry        = $connection.MaxRetryCount
+    $effectiveRetryDelay      = $connection.RetryDelaySec
+    $effectiveOutageTolerance = $connection.NetworkOutageToleranceSec
+
+    $session = Get-ShpSessionToken -TokenPath $TokenPath -EditorVersion $EditorVersion -UserAgent $UserAgent @connectionParams
     Write-Verbose ("Session token valid until {0}" -f [DateTimeOffset]::FromUnixTimeSeconds($session.expires_at).LocalDateTime)
 
     # Resolve the API base and bearer token. An explicit -ApiBase, or an ApiBase
@@ -683,19 +713,6 @@ function Invoke-Shp {
                else { $session.endpoints.api }
     $bearer = if ($usingAltBackend -and $script:ShpContext.ApiKey) { $script:ShpContext.ApiKey } else { $session.token }
 
-    # Resolve HTTP timeout/retry with the usual precedence: explicit parameter,
-    # then session context, then built-in default.
-    $effectiveTimeoutSec = if ($PSBoundParameters.ContainsKey('TimeoutSec')) { $TimeoutSec }
-                           elseif ($script:ShpContext.TimeoutSec) { [int]$script:ShpContext.TimeoutSec }
-                           else { 0 }
-    $effectiveMaxRetry   = if ($PSBoundParameters.ContainsKey('MaxRetryCount')) { $MaxRetryCount }
-                           elseif ($null -ne $script:ShpContext.MaxRetryCount) { [int]$script:ShpContext.MaxRetryCount }
-                           else { $script:DefaultMaxRetryCount }
-    $effectiveRetryDelay = if ($null -ne $script:ShpContext.RetryDelaySec) { [int]$script:ShpContext.RetryDelaySec }
-                           else { $script:DefaultRetryDelaySec }
-    $effectiveOutageTolerance = if ($PSBoundParameters.ContainsKey('NetworkOutageToleranceSec')) { $NetworkOutageToleranceSec }
-                                elseif ($null -ne $script:ShpContext.NetworkOutageToleranceSec) { [int]$script:ShpContext.NetworkOutageToleranceSec }
-                                else { $script:DefaultNetworkOutageToleranceSec }
     # The context budget has a fourth level - the model's own advertised window -
     # so its whole order lives in one documented resolver. 0 disables the guard,
     # so binding, not truthiness, is what gets passed through.

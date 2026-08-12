@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `Invoke-Shp -RetryDelaySec`, and `-TimeoutSec`, `-MaxRetryCount`,
+  `-RetryDelaySec` and `-NetworkOutageToleranceSec` on `Get-ShpModel` and
+  `Request-ShpEmbedding`. All four now resolve identically everywhere - explicit
+  parameter, then `Set-ShpContext`, then the built-in default - and apply to
+  **every** request the module makes, including the OAuth-to-session token
+  exchange, `/models` and embeddings. Those three previously called the retry
+  wrapper with the module's own defaults, so `Set-ShpContext -TimeoutSec 10
+  -MaxRetryCount 0` silently did not apply to them; and `Invoke-Shp` resolved
+  its options *after* the token exchange had already run, so an explicit
+  `-TimeoutSec` never reached the one request that gates every other one. There
+  is deliberately no exemption for the auth handshake: the exchange is cached,
+  so `-MaxRetryCount 0` costs at most one un-retried attempt per session, and
+  outage tolerance is a separate option, so a dropped connection during auth is
+  still ridden out.
+
 - `Compress-ShpChat` drops the oldest exchanges from the running session
   conversation so a session that has outgrown the model's context window becomes
   usable again **without discarding it**. Until now the only ways out were
@@ -171,6 +186,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the cost breakdown now reports `Tier` and `TiersUsed`.
 
 ### Changed
+
+- **`Set-ShpContext -TimeoutSec`'s documented built-in default was wrong.** The
+  help said 100 seconds; the module variable holding it was never read and the
+  real default is 0, meaning no explicit timeout - the shared `HttpClient` is
+  built with an infinite timeout so a long streamed turn is not cut off
+  mid-response. The documentation is corrected and the dead variable removed. No
+  behaviour changed, because the 100 had never applied to anything.
 
 - The `model_max_prompt_tokens_exceeded` warning now explains that a failed call
   is not written back, so the conversation stays pinned and every retry fails

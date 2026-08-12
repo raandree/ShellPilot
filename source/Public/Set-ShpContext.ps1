@@ -13,6 +13,15 @@ function Set-ShpContext {
         session and is never written to disk. Read it with Get-ShpContext and
         reset it with Clear-ShpContext.
 
+        Every HTTP request the module makes honours these options, including the
+        OAuth-to-session token exchange, /models and embeddings. There is no
+        exemption for the auth handshake: a setting that applies to the chat turn
+        but not to the request that precedes it is one the caller cannot see
+        failing. The exchange is cached for the life of a session token, so
+        MaxRetryCount 0 costs at most one un-retried attempt per session, and
+        outage tolerance is a separate option - so disabling 429/5xx retry still
+        leaves a dropped connection during auth to be ridden out.
+
         The ApiBase and ApiKey options enable an opt-in alternative,
         OpenAI-compatible backend (for example a self-hosted server). They are
         off unless you set them and are never a default; clear them to return to
@@ -20,7 +29,9 @@ function Set-ShpContext {
 
     .PARAMETER TimeoutSec
         Per-request HTTP timeout in seconds applied to API calls when a call does
-        not specify its own. Built-in default: 100.
+        not specify its own. Built-in default: 0, meaning no explicit timeout -
+        the shared HttpClient is built with an infinite timeout so a long
+        streamed turn is not cut off mid-response.
 
     .PARAMETER MaxRetryCount
         Number of additional attempts made when a request fails with a transient
