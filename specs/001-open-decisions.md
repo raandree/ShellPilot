@@ -90,6 +90,95 @@ Recommendation: B, after the core is on a build framework.
 
 Recommendation: A, gated behind tests and CHANGELOG discipline.
 
+## Raised 2026-08-12 by spec 021 (MCP server support)
+
+Each of these is deliberately unresolved in the v1 MCP design rather than
+guessed at. See [021-mcp-server-support.md](021-mcp-server-support.md).
+
+## 8. The Copilot endpoint's function-name constraint
+
+Spec 021 namespaces an MCP tool as `mcp_<alias>_<tool>` and sanitises it to
+`[A-Za-z0-9_-]` capped at 64 characters, because that is the documented OpenAI
+function-calling constraint. It has **not** been verified against the Copilot
+proxy, and MCP permits `.` and up to 128 characters in a tool name.
+
+- A. Verify empirically before implementing (recommended) - send a probe tool
+  with a dotted name and an over-length name and read the rejection.
+- B. Assume the OpenAI constraint and ship the sanitiser.
+
+Recommendation: A. A guessed limit either truncates names that were fine or
+passes names the service refuses, and the second failure mode takes down the
+whole Turn with an error that names no tool.
+
+## 9. An `Mcp()` kind for the tool policy
+
+`Set-ShpToolPolicy` cannot gate an MCP call: its rules match resolved
+filesystem paths and leading command tokens, and a `tools/call` has neither.
+
+- A. Leave it, and state the limit (v1 behaviour) - reach is reduced at
+  attachment time instead, with `Register-ShpMcpServer -ToolName`.
+- B. Add an `Mcp(server/tool)` rule kind so one policy covers every tool class.
+- C. Add `Mcp(server/tool)` *and* argument matching, so a rule can say which
+  paths an MCP filesystem tool may touch.
+
+Recommendation: B eventually, not in v1, and C probably never - matching a
+path out of an arbitrary tool's JSON arguments means guessing which property
+is a path, which is the "pattern language that looks strict and is not" that
+spec 019 rejected for command lines.
+
+## 10. MCP inside `Invoke-ShpBatch`
+
+A worker runspace inherits no module state, so replaying an MCP registration
+would start one copy of every server per worker.
+
+- A. Not available in a batch; warn once (v1 behaviour).
+- B. One server process per worker, bounded by `-ThrottleLimit`.
+- C. One shared process, with a lock serialising the stdio channel.
+
+Recommendation: A now. C is the right shape but needs a fair lock and a
+starvation answer; B multiplies third-party processes by a number the caller
+chose for API concurrency, which is not the same budget.
+
+## 11. Restarting a server that exits
+
+The specification says a client **SHOULD** restart a server that terminates
+unexpectedly, since the protocol is stateless and in-flight requests can be
+retried.
+
+- A. Mark it `Faulted`; restart only on explicit `-Force` (v1 behaviour).
+- B. Restart automatically, with a bounded attempt count and backoff.
+
+Recommendation: A now, B later with a cap. Automatic respawn of third-party
+code inside an unattended loop turns one crash into a crash loop nobody is
+watching, and the caller learns nothing.
+
+## 12. Streamable HTTP transport
+
+v1 is stdio only. HTTP brings the MCP Authorization framework (OAuth 2.1,
+protected-resource metadata, audience-bound tokens), SSE parsing, header
+mirroring, and an SSRF surface that needs the answer `Test-ShpUrlSafe` already
+gives `fetch_url`.
+
+- A. Defer until stdio has shipped and been measured (recommended).
+- B. Build both together.
+
+Recommendation: A. A half-authorised HTTP client is worse than none.
+
+## 13. Pinning a tool list across sessions
+
+v1 freezes a server's tool list for the life of the attachment, which makes a
+mid-session rug-pull impossible. Registration in a *later* session silently
+accepts whatever the server now offers.
+
+- A. Per-session freeze only (v1 behaviour).
+- B. Record a hash of the (name, description, schema) set and warn on
+  re-registration when it differs.
+- C. As B, and refuse until the caller confirms.
+
+Recommendation: B, once there is somewhere to persist it. Nothing in the
+module writes to disk today except the token file, so this needs a decision
+about module state on disk first.
+
 ## See also
 
 - [Overview and feature map](000-overview.md)

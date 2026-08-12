@@ -54,7 +54,7 @@ proof of concept, what is partial, and what is still to be decided.
 | Inline completions | none | Out |
 | Chat participants (@) | none | TBD |
 | Context variables (#) | parameters and instruction files | TBD |
-| MCP server tools | none | Planned |
+| MCP server tools | none | Specified (spec 021), not implemented |
 | Prompt files | none | TBD |
 | Session persistence / resume | none | TBD |
 | Hooks (PreToolUse / PostToolUse) | none | TBD |
@@ -69,7 +69,11 @@ the open decisions.
 > A 2026-07-28 web gap analysis moved **MCP server tools** from TBD to Planned:
 > the Gallery carries a dozen PowerShell MCP *servers* but no established MCP
 > *client*, and ShellPilot already has the two prerequisites (a tool-calling
-> loop and a tool-registration layer). Target protocol revision 2025-11-25.
+> loop and a tool-registration layer). That analysis recorded a target of
+> revision 2025-11-25, which is now **out of date**: re-verified on 2026-08-12,
+> the current revision is **2026-07-28**, and it replaced the `initialize`
+> handshake with per-request metadata. [Spec 021](021-mcp-server-support.md)
+> targets 2026-07-28 with a documented fallback to the older handshake era.
 > The same analysis added session persistence, hooks, subagents, the headless
 > event stream and the job model as the next tier of gaps.
 

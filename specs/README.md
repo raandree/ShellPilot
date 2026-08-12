@@ -13,11 +13,13 @@ Design and scope documents for ShellPilot. Start with the overview, then the
 open decisions. The numbered specs that follow each describe a single pattern,
 its design, and its source hook points.
 
-> **Status:** every numbered pattern below (002-020) is **implemented**. Each
-> spec's own `## Status` section records the current state, including any
-> backend caveat (for example server-side state, which the Copilot proxy does
-> not support and which falls back to client-side history). The tiers below
-> record the original prioritisation for context.
+> **Status:** every numbered pattern under *Implemented patterns* below
+> (002-020) is **implemented**. Each spec's own `## Status` section records the
+> current state, including any backend caveat (for example server-side state,
+> which the Copilot proxy does not support and which falls back to client-side
+> history). The tiers below record the original prioritisation for context.
+> Specs listed under *Specified, not yet implemented* have a reviewed design
+> and no code.
 
 ## Orientation
 
@@ -54,3 +56,7 @@ its design, and its source hook points.
 
 - [Server-side conversation state](011-server-side-conversation-state.md)
 - [Alternative model backends](012-alternative-model-backends.md)
+
+## Specified, not yet implemented
+
+- [MCP (Model Context Protocol) server support](021-mcp-server-support.md)

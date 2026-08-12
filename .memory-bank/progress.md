@@ -21,8 +21,12 @@ Chronological record of shipped changes and remaining work. Latest first.
 - Publish to the PowerShell Gallery (open decision #7).
 - Path-scoping / allow-listing for the unsandboxed tools. ShouldProcess now  gates them interactively, but there is still no persisted allow/deny rule set
   (the Copilot CLI's Kind(argument) model is the reference).
-- MCP client (stdio + streamable HTTP) so the module can consume the wider tool
-  ecosystem. Target spec revision 2025-11-25. Would be the first PowerShell MCP
+- MCP client so the module can consume the wider tool ecosystem. **Designed:
+  see `specs/021-mcp-server-support.md`; no code yet.** Target revision is
+  **2026-07-28** (the current one), not 2025-11-25 as recorded here before -
+  the modern era dropped the `initialize` handshake for per-request `_meta`,
+  so v1 is dual-era by `server/discover` probe. stdio only; Streamable HTTP is
+  deferred with the Authorization framework. Would be the first PowerShell MCP
   client.
 - Session persistence and resume; hooks engine; subagents; headless scripting
   surface (stdin, JSONL events, env-var config, exit codes).
@@ -36,6 +40,27 @@ Chronological record of shipped changes and remaining work. Latest first.
   `Invoke-ShpBatch` covers the concurrent case.
 
 ## Log
+
+- 2026-08-12 - Specified MCP server support (spec 021); no implementation, by
+  request. Verified the protocol from the specification rather than from
+  memory, which changed the design: **2026-07-28 is now the current revision**
+  (the repository still recorded 2025-11-25) and it removed the `initialize`
+  handshake entirely - modern requests are stateless and carry
+  `_meta.io.modelcontextprotocol/protocolVersion` plus `clientCapabilities`,
+  with `server/discover` as a mandatory RPC. v1 is therefore dual-era: probe
+  with `server/discover`, fall back to `initialize` on any other error or a
+  timeout, never keyed to one error code. Security posture: nothing is
+  discovered (a discovered configuration file starts a process, unlike a
+  discovered policy file, which only widens reach); the tool list is frozen at
+  registration, which makes a rug-pull impossible *because* the client opens no
+  `subscriptions/listen` stream; and the child environment is built from a
+  minimal base rather than inherited - the opposite of `Invoke-RunCommandTool`,
+  because that inheritance is a compatibility constraint and new surface has
+  none. Stated plainly rather than implied: `Set-ShpToolPolicy` **cannot** gate
+  an MCP call, since its rules match resolved paths and command tokens and a
+  `tools/call` has neither. Six open decisions raised (8-13) instead of
+  guessed, including the unverified Copilot function-name constraint. Branch
+  `ai/mcp-server-support`; documentation only.
 
 - 2026-08-12 - A long Turn no longer dies with `401 IDE token expired`. Reported
   at iteration 41 with a valid sign-in throughout: the OAuth token was fine, the

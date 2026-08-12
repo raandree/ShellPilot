@@ -4,6 +4,84 @@ Current working focus for ShellPilot. Overwrite this file as the focus shifts.
 
 ## Focus
 
+MCP client support is **specified** (spec 021) and deliberately not yet coded.
+Phase 1 of a two-phase request: design, review, then implement.
+
+**The protocol moved, and the repository did not notice.** `000-overview.md`
+and `progress.md` both recorded "target spec revision 2025-11-25", from the
+2026-07-28 gap analysis that read `2026-07-28` as a draft. Re-fetched from the
+specification rather than recalled: **2026-07-28 is now Current**, and it is
+not a point release. The `initialize` / `initialized` handshake is **gone** in
+the modern era - the protocol is stateless, every request carries
+`_meta.io.modelcontextprotocol/protocolVersion` and `clientCapabilities`, and
+`server/discover` is a mandatory RPC that replaces capability exchange. Had the
+design been written from memory it would have implemented a handshake the
+current revision does not have.
+
+**So v1 is dual-era, which is cheap and non-negotiable.** Probe with
+`server/discover`; a `DiscoverResult` means modern, `-32022` means modern with
+a different version, and *any other error or a timeout* means legacy - fall
+back to `initialize`. That is the specification's own stdio rule, and the
+fallback must not be keyed to one error code. Modern-only would be useless
+today (nearly every deployed server is legacy); legacy-only would be obsolete
+on arrival.
+
+**Three decisions carry the security weight, and each drops out of a protocol
+fact rather than being bolted on:**
+
+- **The tool list is frozen at registration.** In the current revision,
+  `notifications/tools/list_changed` is only delivered on a
+  `subscriptions/listen` stream the client opts into. Opening none means a
+  rug-pull cannot land: a server that changes its tools after approval simply
+  does not get them offered. Not honouring `list_changed` is the control, not
+  a gap.
+- **The child environment is built, not inherited.** `Invoke-RunCommandTool`
+  inherits the parent block, and `systemPatterns.md` records that as a
+  maintainer choice that must not change silently - but that is a
+  *compatibility* argument about existing callers. An MCP child has none, so
+  it can be strict at zero migration cost. `ProcessStartInfo.Environment` is
+  cleared (it is pre-populated with the parent's), then a minimal base plus
+  exactly what the caller named.
+- **Nothing is discovered.** No scan of `.vscode/`, `~/.copilot/`, or the
+  working directory. Spec 019 already refuses to discover a policy file
+  because a discovered file *widens* reach; a discovered MCP configuration
+  file *starts a process*.
+
+**The honest admission the spec leads with:** `Set-ShpToolPolicy` **cannot**
+gate an MCP call. Its rules match resolved paths and leading command tokens; a
+`tools/call` has neither. The counter-intuitive part is stated loudly because
+a caller will assume the opposite - a policy scoping `read_file` to one
+directory does nothing about an attached filesystem server. What v1 offers
+instead is reach reduction at attachment (`-ToolName`, `-MaxTool`), which is a
+real reduction and does not pretend to be path coverage. An `Mcp()` rule kind
+is open decision 9.
+
+**Also settled:** stdio only (Streamable HTTP drags in OAuth 2.1, SSE and a
+fresh SSRF surface); `inputSchema` passes through unchanged with structural
+bounds only, and never a `$ref` dereference; `isError` maps onto the existing
+`@{ error = ... }` envelope so the model can self-correct, while
+`resultType: 'input_required'` is refused explicitly rather than mistaken for
+a completed call; image and audio blocks become placeholders because the tool
+channel is a string that is re-sent every round-trip; MCP calls emit the same
+`ToolCall` progress record as everything else, because a tool class invisible
+in the host's live display is not shippable.
+
+**Deliberately not measured yet.** Spec 019 shipped with a before/after table;
+this one cannot, so the measurements are written into the spec as Phase 3
+deliverables: the injection run, `Get-Process` proof that no child survives
+(including a grandchild), and the environment diff.
+
+Six open decisions raised rather than guessed (8-13 in `001-open-decisions`):
+the Copilot function-name constraint (assumed to be OpenAI's 64-char
+`[A-Za-z0-9_-]` and **not verified against the proxy**), an `Mcp()` policy
+kind, MCP under `Invoke-ShpBatch` (a worker inherits nothing, so replay would
+start one server copy per worker), auto-restart, Streamable HTTP, and pinning
+a tool list across sessions.
+
+No source file changed. Documentation only, on `ai/mcp-server-support`.
+
+## Superseded focus (2026-08-12) - session-token refresh
+
 A long agentic Turn no longer dies with `401 IDE token expired`. The reported
 failure was at **iteration 41**, and the sign-in had been valid the whole time -
 the word "token" was covering two different things.
