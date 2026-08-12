@@ -71,6 +71,13 @@ $script:ShpDefaults = @{
 # not persisted to disk.
 $script:ShpChat = @()
 
+# Model that produced the session chat above, recorded by Invoke-Shp alongside
+# it. A conversation belongs to the model whose window it has to fit, and a
+# caller who passes -Model per call never sets a session default - without this,
+# Compress-ShpChat had no model to size itself from and silently trimmed
+# nothing. Reset by Clear-ShpChat. Session-scoped; not persisted to disk.
+$script:ShpChatModel = $null
+
 # Per-session usage log. Every Invoke-Shp call appends one record capturing the
 # prompt, the model, token counts, estimated cost and credits, tool activity and
 # timing, so the whole session's spend can be analysed afterwards. Read via
@@ -142,6 +149,13 @@ $script:DefaultMaxContextWindowTokens = 900000
 # not by a rounding error. Applied ONLY to a model-derived budget - a number the
 # caller stated is not an estimate and is used as given.
 $script:ContextWindowSafetyMarginPercent = 10
+
+# Fraction of the resolved context budget that Compress-ShpChat trims the stored
+# session conversation down to. Not 100: what is kept has to leave room for the
+# next prompt and its reply, so trimming to the full budget would hand back a
+# conversation that overflows again on the very next call. Half leaves room for
+# a next exchange as large as everything retained.
+$script:ChatCompressionTargetPercent = 50
 
 # Shared, connection-pooling HttpClient reused for every Copilot request. A Turn
 # is a loop - one API round-trip per tool iteration - so a fresh client (and its

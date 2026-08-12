@@ -169,8 +169,11 @@ function Invoke-Shp {
         result as ContextBudget and ContextBudgetSource.
 
         0 disables the guard. Note this bounds TOOL RESULTS only - the session
-        conversation itself is never elided, so a long-running loop of calls
-        still needs Clear-ShpChat or -History.
+        conversation itself is never elided, because a user turn is something
+        the user said rather than scaffolding the model produced for itself. A
+        long-running loop of calls therefore still needs Compress-ShpChat (which
+        drops the oldest exchanges and keeps the rest), Clear-ShpChat, or
+        -History.
 
     .PARAMETER MaxBudgetUSD
         Stop the tool-calling loop once this turn's estimated spend exceeds the
@@ -1055,6 +1058,10 @@ function Invoke-Shp {
     # second refusal surface.
     $apiShapeSwitched = $false
 
+    # A Turn is a loop, so the exhausted-guard warning fires once for the turn
+    # rather than once per tool iteration.
+    $contextGuardExhaustedWarned = $false
+
     # Static optional parameters shared by every turn in the loop.
     $structuredParams = @{}
     if (-not [string]::IsNullOrWhiteSpace($ResponseFormat)) { $structuredParams.ResponseFormat = $ResponseFormat }
@@ -1088,8 +1095,16 @@ function Invoke-Shp {
             # read_file / fetch_url / run_command results overflow the window
             # (the 413 / model_max_prompt_tokens_exceeded failure).
             if ($mode -ne 'responses') {
-                $trimmedContext = Compress-ShpChatContext -Messages $chatMessages -MaxTokens $effectiveContextBudget
-                if ($trimmedContext -gt 0) { Write-Verbose ("Context guard elided {0} old tool result(s) to stay within the window." -f $trimmedContext) }
+                $guard = Compress-ShpChatContext -Messages $chatMessages -MaxTokens $effectiveContextBudget
+                if ($guard.Trimmed -gt 0) { Write-Verbose ("Context guard elided {0} old tool result(s) to stay within the window." -f $guard.Trimmed) }
+                # The guard may only touch tool results, so a conversation-heavy
+                # turn exhausts it while still over budget. Say so BEFORE the
+                # round-trip that will probably be refused - and once per turn,
+                # because a Turn is a loop.
+                if (-not $guard.Fits -and -not $contextGuardExhaustedWarned) {
+                    $contextGuardExhaustedWarned = $true
+                    Write-Warning ("The context guard has elided every tool result it may and the conversation is still about {0} estimated tokens against a budget of {1}. The rest is user/assistant history, which it must not touch. Run Compress-ShpChat to drop the oldest exchanges and keep the rest, Clear-ShpChat to start over, or pass -History for a stateless call." -f $guard.EstimatedTokens, $effectiveContextBudget)
+                }
             }
             $turn = Invoke-CopilotTurn -Mode $mode -Model $Model -ApiBase $apiBase -Headers $apiHeaders -Conversation $conv -Tools $tls -RequestReasoningSummary:($mode -eq 'responses' -and $requestReasoning) -ReasoningEffort $ReasoningEffort -MaxOutputTokens $MaxOutputTokens -Stream:($streamingEnabled -and $mode -eq 'chat') -EchoReasoning:($ShowThinking -and $streamingEnabled -and $mode -eq 'chat') -Store:($serverSideActive -and $mode -eq 'responses') -PreviousResponseId $previousResponseId @structuredParams @samplingParams @connectionParams
         } catch {
@@ -1101,7 +1116,7 @@ function Invoke-Shp {
             # writes back to. Left undiagnosed this reads as a bare 400 and gets
             # mistaken for rate limiting, so name the cause and the remedy.
             if ($_.TargetObject -and $_.TargetObject.ErrorCode -eq 'model_max_prompt_tokens_exceeded') {
-                Write-Warning ("The request exceeded the model's context window ({0}). The context guard was set to {1} estimated tokens, resolved from '{2}'. Every -Prompt call continues the session conversation, so a loop of calls grows until it no longer fits: run Clear-ShpChat between calls, or pass -History for a stateless call. -MaxContextWindowTokens only bounds tool results." -f $_.TargetObject.Message, $effectiveContextBudget, $contextBudget.Source)
+                Write-Warning ("The request exceeded the model's context window ({0}). The context guard was set to {1} estimated tokens, resolved from '{2}'. Every -Prompt call continues the session conversation, so a loop of calls grows until it no longer fits - and a failed call is not written back, so the conversation stays pinned and every retry fails identically. Run Compress-ShpChat to drop the oldest exchanges and keep the rest, Clear-ShpChat to discard it, or pass -History for a stateless call. -MaxContextWindowTokens only bounds tool results." -f $_.TargetObject.Message, $effectiveContextBudget, $contextBudget.Source)
             }
             # Server-side state requested but the backend rejects the store
             # parameter (the Copilot proxy is stateless). Fall back to ordinary
@@ -1410,7 +1425,10 @@ function Invoke-Shp {
         [pscustomobject]@{ role = 'user';      content = $Prompt }
         [pscustomobject]@{ role = 'assistant'; content = $finalContent }
     )
-    if (-not $PSBoundParameters.ContainsKey('History')) { $script:ShpChat = $newHistory }
+    if (-not $PSBoundParameters.ContainsKey('History')) {
+        $script:ShpChat = $newHistory
+        $script:ShpChatModel = $Model
+    }
 
     $result = [pscustomobject]@{
         PSTypeName='ShellPilot.Result'

@@ -9,6 +9,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `Compress-ShpChat` drops the oldest exchanges from the running session
+  conversation so a session that has outgrown the model's context window becomes
+  usable again **without discarding it**. Until now the only ways out were
+  `Clear-ShpChat` and a stateless `-History` call, and both throw the whole
+  conversation away. `Invoke-Shp` writes the conversation back only when a call
+  succeeds, so a refusal leaves it pinned and every later call is refused
+  identically - measured at 0 successes in 108 retries. Measured against the
+  live service, dropping the single oldest exchange was enough to restore a
+  pinned session, so discarding all of it was never necessary. The first
+  exchange (usually the task definition) and the newest exchange are kept,
+  exchanges are dropped as whole user/assistant pairs, `-WhatIf` reports the
+  plan without changing anything, and the returned report says exactly what
+  went. Conversation turns are **never** elided automatically: a tool result is
+  scaffolding the model produced for itself, but a user turn is something the
+  user said, and a model answering from a silently truncated history can
+  confidently contradict it.
+  See [specs/018-conversation-history-overflow.md](specs/018-conversation-history-overflow.md).
+- `Invoke-Shp` now warns **before** sending once the context guard has elided
+  every tool result it may and the conversation is still over budget, naming
+  `Compress-ShpChat`. It is phrased as a fact about the guard rather than a
+  prediction about the service, because `ConvertTo-ShpTokenCount` was measured
+  at +30% / -12% against the service's own token count and is not accurate
+  enough to refuse a call on. The warning fires once per turn, not once per tool
+  iteration.
+
 - The context-window guard now sizes itself from the model in use. Left unset,
   `-MaxContextWindowTokens` resolves in four steps - the parameter, then
   `Set-ShpContext -MaxContextWindowTokens`, then the model's own advertised
@@ -146,6 +171,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the cost breakdown now reports `Tier` and `TiersUsed`.
 
 ### Changed
+
+- The `model_max_prompt_tokens_exceeded` warning now explains that a failed call
+  is not written back, so the conversation stays pinned and every retry fails
+  identically, and it names `Compress-ShpChat` alongside `Clear-ShpChat` and
+  `-History`.
 
 - **`Get-ShpUsage -Summary`'s `Calls` and `CostUSD` will report different
   numbers for a session in which something failed.** `Calls` now counts calls

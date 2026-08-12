@@ -147,6 +147,50 @@ before each chat turn and elides the OLDEST tool-role message content to a short
 marker (keeping role + tool_call_id so the sequence stays valid) once the estimate
 exceeds the resolved context budget (0 disables).
 
+### The estimate is a hint, never a gate
+
+ConvertTo-ShpTokenCount blends characters/4 with words x 1.3 and takes the
+larger. Measured against the token count the service itself reports, that is
+0.88x on ordinary prose and 1.30x on word-dense text - wrong by up to 30% in
+BOTH directions. So it may size a conservative budget and it may raise a
+warning, but nothing may REFUSE a call on it: a gate would reject calls that
+would have succeeded and wave through calls that will fail.
+
+Where a pre-send signal is wanted, phrase it as a fact about the module rather
+than a prediction about the service. "The guard has elided everything it may and
+the conversation is still over budget" is exactly true and costs nothing;
+"this request will be refused" is a guess.
+
+### Scaffolding may be elided silently; what the user said may not
+
+A tool result is scaffolding the model produced for itself, and the user never
+saw it - so Compress-ShpChatContext elides it automatically. A user turn is
+something the user SAID, and a model answering from a silently truncated history
+can confidently contradict what was established earlier, with the caller unable
+to tell that the conversation they think they are in is not the one that was
+sent. Conversation elision is therefore an explicit cmdlet (Compress-ShpChat)
+with ShouldProcess and a report, never something a call does on its own. Same
+line the module already draws for sampling, and for the same reason.
+
+The pinned state is what makes this necessary at all: Invoke-Shp writes the
+conversation back only when a call SUCCEEDS, so a refusal leaves the stored
+conversation at its oversized state and every later call is refused identically
+(0 of 108 retries). Recovery needs the STORED conversation trimmed, not just the
+outbound request - trimming only the request leaves the pin in place.
+
+What is kept is two anchors and whole pairs: the newest exchange (still in play)
+and the first (usually the task definition, so plain oldest-first is the wrong
+rule), dropping whole user/assistant pairs because an answer whose question was
+dropped describes something the model can no longer see. Nothing empties the
+conversation to satisfy a budget - that would be Clear-ShpChat under another
+name - it reports Fits false instead.
+
+A conversation belongs to the model whose window it must fit, so
+$script:ShpChatModel records the model that produced it. Without that, a caller
+who passes -Model per call has no session default, the budget falls back to
+900000, and Compress-ShpChat silently trims nothing - found by a live run, not
+by the unit suite.
+
 ### The budget is resolved, and the advertised window is not the budget
 
 Resolve-ShpContextBudget owns the whole order in one place - Parameter >

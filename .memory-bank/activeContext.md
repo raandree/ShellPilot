@@ -4,6 +4,67 @@ Current working focus for ShellPilot. Overwrite this file as the focus shifts.
 
 ## Focus
 
+A session that outgrows the model's window is now recoverable from inside
+(spec 018), and the obvious design was rejected on measurement rather than
+taste.
+
+**The death spiral, reproduced live** on `claude-haiku-4.5`, one moderate prompt
+repeated:
+
+```text
+call 1-4: ok            | chat grew 2 -> 8 entries
+call 5:   REFUSED       | chat still 8 entries
+retry 1-3: all refused  | chat still 8 entries
+```
+
+`Invoke-Shp` writes the conversation back only when a call **succeeds**, so a
+refusal pins it and every retry fails identically. The guard cannot help:
+measured `trimmed 0 message(s); 234328 -> 234328 against a budget of 122400`,
+because nothing in a conversation-heavy turn is a tool result.
+
+**Fail-fast rejected on evidence.** The prompt suggested detecting the failure
+before the round-trip, and "that alone might be most of the value". Measured
+`ConvertTo-ShpTokenCount` against the count the service itself reports:
+
+| Content | Estimated | Service counted | Ratio |
+| --- | ---: | ---: | ---: |
+| Ordinary prose | 39768 | 45289 | **0.88x** |
+| Word-dense filler | 78000 | 60027 | **1.30x** |
+
+Wrong by up to 30% **in both directions**. A gate on that number would refuse
+calls that work *and* wave through calls that fail. It is a hint, not a gate. So
+the pre-send warning states a fact about the module - *the guard has elided
+everything it may and is still over budget* - not a prediction about the
+service.
+
+**Automatic elision rejected on principle.** A tool result is scaffolding the
+model produced for itself; a user turn is something the user said. The module
+already draws that line for sampling. Shipped the narrow thing instead:
+`Compress-ShpChat`, anchored on the first exchange (task definition) and the
+newest, dropping whole user/assistant pairs, with `-WhatIf` and a report. It
+never empties the conversation to satisfy a budget - that would be
+`Clear-ShpChat` under another name - it reports `Fits false`.
+
+**The live run caught a defect the unit suite could not.** With no `-Model`, the
+budget fell back to 900000 and the cmdlet trimmed *nothing* while reporting
+success - the exact silent-no-op class this prompt series exists to remove. Now
+`$script:ShpChatModel` records the model that produced the conversation, and the
+report carries `MaxTokensSource`.
+
+Live proof after the fix: pinned at 12 entries, `-WhatIf` previewed 4 exchanges,
+the real run took 172011 -> 57337 tokens keeping the task definition, and **the
+same call that had been refused succeeded**.
+
+Also confirmed, not assumed: `-UseServerSideState` is still rejected by the
+Copilot proxy, so it is not a route out; and `Invoke-ShpBatch` is stateless per
+item, so the exposure is interactive long-running use only.
+
+Verified: 845 -> 873 tests, 0 failures; coverage 84.78% -> 85.30%;
+PSScriptAnalyzer clean on all 5 changed source files; build 16 tasks / 0 errors
+/ 0 warnings. Committed on `ai/conversation-history-overflow`.
+
+## Superseded focus (2026-08-11) - context-window budget from the model
+
 The context-window guard now sizes itself from the model in use (spec 017), and
 re-measuring the premise changed the design.
 

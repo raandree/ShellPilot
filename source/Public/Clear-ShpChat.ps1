@@ -14,7 +14,8 @@ function Clear-ShpChat {
         questions, before a one-off prompt that should not see prior context,
         or whenever a long conversation has drifted off topic. To bypass the
         running conversation for a single call without resetting it, pass an
-        explicit -History to Invoke-Shp instead (it is stateless).
+        explicit -History to Invoke-Shp instead (it is stateless). To keep the
+        conversation but make it small enough to continue, use Compress-ShpChat.
 
     .EXAMPLE
         Clear-ShpChat
@@ -29,6 +30,9 @@ function Clear-ShpChat {
         Get-ShpChat
 
     .LINK
+        Compress-ShpChat
+
+    .LINK
         Invoke-Shp
     #>
     [CmdletBinding(SupportsShouldProcess)]
@@ -37,6 +41,7 @@ function Clear-ShpChat {
 
     if ($PSCmdlet.ShouldProcess('ShellPilot session conversation', 'Clear')) {
         $script:ShpChat = @()
+        $script:ShpChatModel = $null
         $script:ShpLastResponseId = $null
     }
 }

@@ -13,7 +13,7 @@ Design and scope documents for ShellPilot. Start with the overview, then the
 open decisions. The numbered specs that follow each describe a single pattern,
 its design, and its source hook points.
 
-> **Status:** every numbered pattern below (002-017) is **implemented**. Each
+> **Status:** every numbered pattern below (002-018) is **implemented**. Each
 > spec's own `## Status` section records the current state, including any
 > backend caveat (for example server-side state, which the Copilot proxy does
 > not support and which falls back to client-side history). The tiers below
@@ -39,6 +39,7 @@ its design, and its source hook points.
 - [Batched, throttled prompt execution](015-batch-execution.md)
 - [Failed-call usage accounting](016-failed-call-usage-accounting.md)
 - [Context-window budget resolved from the model](017-context-window-budget-from-model.md)
+- [Conversation-history overflow](018-conversation-history-overflow.md)
 
 ### Tier 2
 

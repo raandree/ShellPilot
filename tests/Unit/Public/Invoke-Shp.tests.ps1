@@ -409,6 +409,113 @@ Describe 'Invoke-Shp' {
             ($warnings -join ' ') | Should -BeLike '*Clear-ShpChat*'
             ($warnings -join ' ') | Should -BeLike '*136000*'
         }
+
+        It 'Names the recovery that keeps the conversation, not only the ones that discard it' {
+            # Measured: from the pinned state, dropping the single oldest
+            # exchange restored service. Naming only Clear-ShpChat and -History
+            # tells the caller to throw the whole session away.
+            $responder = {
+                param($request)
+                $response = [System.Net.Http.HttpResponseMessage]::new([System.Net.HttpStatusCode]::BadRequest)
+                $response.Content = [System.Net.Http.StringContent]::new(
+                    '{"error":{"message":"prompt token count of 176372 exceeds the limit of 136000","code":"model_max_prompt_tokens_exceeded"}}',
+                    [System.Text.Encoding]::UTF8, 'application/json')
+                $response
+            }
+            $client = New-ShpFakeHttpClient -Responder $responder
+
+            $warnings = InModuleScope $script:moduleName -Parameters @{ Client = $client } {
+                param($Client)
+                $script:ShpChat = @()
+                $script:ShpHttpClient = $Client
+                Mock Get-ShpSessionToken { [pscustomobject]@{ token = 't'; expires_at = 0; endpoints = [pscustomobject]@{ api = 'https://api.example' } } }
+
+                $captured = $null
+                try {
+                    Invoke-Shp -Prompt 'hi' -DisableStreaming -DisableBrowsing -DisableFileAccess -DisableTerminal -DisableUserPrompts -DisableTodoList -MaxRetryCount 0 -NetworkOutageToleranceSec 0 -WarningVariable captured -ErrorAction Stop
+                } catch { }
+                @($captured | ForEach-Object { [string]$_ })
+            }
+
+            ($warnings -join ' ') | Should -BeLike '*Compress-ShpChat*'
+        }
+    }
+
+    Context 'Context guard exhausted' {
+        BeforeEach {
+            InModuleScope $script:moduleName {
+                Clear-ShpContext
+                $script:ShpChat = @()
+                Mock Get-ShpSessionToken { [pscustomobject]@{ token = 't'; expires_at = 0; endpoints = [pscustomobject]@{ api = 'https://session.example' } } }
+                Mock Invoke-CopilotTurn {
+                    [pscustomobject]@{
+                        Mode = $Mode; Content = 'ok'; FinishReason = 'stop'; ToolCalls = @()
+                        AssistantMessage = [pscustomobject]@{ content = 'ok' }; AssistantItems = @(); Reasoning = ''
+                        PromptTokens = 1; CompletionTokens = 1; CachedTokens = 0; CacheWriteTokens = 0
+                        ModelName = $Model; ResponseId = $null; CopilotUsage = $null; Raw = @{}; Response = [pscustomobject]@{ Headers = @{} }
+                    }
+                }
+            }
+        }
+
+        AfterEach {
+            InModuleScope $script:moduleName { Clear-ShpContext; $script:ShpChat = @() }
+        }
+
+        It 'Warns before sending when it has elided everything it may and is still over budget' {
+            InModuleScope $script:moduleName {
+                $script:ShpChat = @(
+                    [pscustomobject]@{ role = 'user'; content = ('A' * 200000) }
+                    [pscustomobject]@{ role = 'assistant'; content = ('B' * 200000) }
+                )
+
+                $warnings = @()
+                $null = Invoke-Shp -Prompt 'hi' -MaxContextWindowTokens 5000 -DisableBrowsing -DisableFileAccess `
+                    -DisableTerminal -DisableUserPrompts -DisableTodoList -WarningVariable warnings -WarningAction SilentlyContinue
+
+                ($warnings -join ' ') | Should -BeLike '*Compress-ShpChat*'
+            }
+        }
+
+        It 'Stays silent for a conversation that fits' {
+            InModuleScope $script:moduleName {
+                $script:ShpChat = @()
+
+                $warnings = @()
+                $null = Invoke-Shp -Prompt 'hi' -DisableBrowsing -DisableFileAccess `
+                    -DisableTerminal -DisableUserPrompts -DisableTodoList -WarningVariable warnings -WarningAction SilentlyContinue
+
+                ($warnings -join ' ') | Should -Not -BeLike '*Compress-ShpChat*'
+            }
+        }
+
+        It 'Warns once per turn, not once per tool iteration' {
+            InModuleScope $script:moduleName {
+                # A Turn is a loop, so a per-iteration warning would be noise -
+                # the same rule as the unpriced-model warning.
+                $script:ShpChat = @(
+                    [pscustomobject]@{ role = 'user'; content = ('A' * 200000) }
+                    [pscustomobject]@{ role = 'assistant'; content = ('B' * 200000) }
+                )
+                $script:turnCount = 0
+                Mock Invoke-CopilotTurn {
+                    $script:turnCount++
+                    $toolCalls = if ($script:turnCount -lt 3) { @([pscustomobject]@{ Id = "c$script:turnCount"; Name = 'list_directory'; Arguments = '{"path":"."}' }) } else { @() }
+                    [pscustomobject]@{
+                        Mode = $Mode; Content = 'ok'; FinishReason = 'stop'; ToolCalls = $toolCalls
+                        AssistantMessage = [pscustomobject]@{ content = 'ok'; tool_calls = @() }; AssistantItems = @(); Reasoning = ''
+                        PromptTokens = 1; CompletionTokens = 1; CachedTokens = 0; CacheWriteTokens = 0
+                        ModelName = $Model; ResponseId = $null; CopilotUsage = $null; Raw = @{}; Response = [pscustomobject]@{ Headers = @{} }
+                    }
+                }
+
+                $warnings = @()
+                $null = Invoke-Shp -Prompt 'hi' -MaxContextWindowTokens 5000 -DisableBrowsing -DisableTerminal `
+                    -DisableUserPrompts -DisableTodoList -WarningVariable warnings -WarningAction SilentlyContinue
+
+                @($warnings | Where-Object { "$_" -like '*Compress-ShpChat*' }).Count | Should -Be 1
+            }
+        }
     }
 
     Context 'Session default resolution' {

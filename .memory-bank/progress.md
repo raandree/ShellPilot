@@ -49,6 +49,29 @@ Chronological record of shipped changes and remaining work. Latest first.
 
 ## Log
 
+- 2026-08-12 - Conversation-history overflow made recoverable (spec 018), and
+  the obvious design rejected on measurement. Reproduced the death spiral live:
+  calls 1-4 ok, call 5 refused, chat pinned at 8 entries, 3 identical retries
+  all refused. `Invoke-Shp` writes the conversation back only on SUCCESS, so a
+  refusal pins it. The guard cannot help - measured `trimmed 0 message(s),
+  234328 -> 234328 against a budget of 122400` - because nothing in a
+  conversation-heavy turn is a tool result.
+  **Fail-fast was rejected on evidence**: `ConvertTo-ShpTokenCount` measured
+  0.88x on prose and 1.30x on word-dense text against the service's own count,
+  so a gate would both refuse working calls and wave through failing ones. It is
+  a hint, not a gate. **Automatic elision was rejected on principle**: a tool
+  result is scaffolding the model made for itself, a user turn is something the
+  user said - the same line the module already draws for sampling. Shipped the
+  narrow thing instead: `Compress-ShpChat` drops oldest exchanges on request,
+  anchored on the first (task definition) and newest exchange, in whole
+  user/assistant pairs, with `-WhatIf` and a report.
+  The live run caught a real defect the unit tests could not: with no `-Model`
+  the budget fell back to 900000 and the cmdlet silently trimmed nothing, so
+  `$script:ShpChatModel` now records the model that produced the conversation
+  and the report carries `MaxTokensSource`. Live proof: pinned at 12 entries,
+  172011 -> 57337 tokens, first exchange kept, and the previously refused call
+  succeeded. Verified: 845 -> 873 tests, 0 failures, 84.78% -> 85.30% coverage,
+  16 tasks / 0 errors / 0 warnings.
 - 2026-08-11 - Context-window guard now sizes itself from the model (spec 017).
   Re-measured the premise: `/models` says `claude-haiku-4.5` is **200000**, not
   the 136000 the prompt carried, and **22 of the 36** models that advertise a
