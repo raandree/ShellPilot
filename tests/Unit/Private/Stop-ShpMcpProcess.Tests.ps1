@@ -73,6 +73,14 @@ Describe 'Stop-ShpMcpProcess' {
             Stop-ShpMcpProcess -Record $Record -TimeoutSec 1
         }
 
+        # Termination is not synchronous everywhere: on Unix the signal is
+        # delivered and the process reaped asynchronously, so it can still be
+        # listed for a moment after the tree has been killed.
+        $gone = [datetime]::UtcNow.AddSeconds(20)
+        while ((Get-Process -Id $grandchildId -ErrorAction SilentlyContinue) -and [datetime]::UtcNow -lt $gone) {
+            Start-Sleep -Milliseconds 200
+        }
+
         Get-Process -Id $grandchildId -ErrorAction SilentlyContinue | Should -BeNullOrEmpty
     }
 

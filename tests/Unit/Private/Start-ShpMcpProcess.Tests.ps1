@@ -76,14 +76,17 @@ Describe 'Start-ShpMcpProcess' {
     Context 'Arguments reach the child as argv' {
         It 'Does not let a quoted argument be re-parsed away' {
             $script = Join-Path $TestDrive 'echo-args.ps1'
-            Set-Content -LiteralPath $script -Value '[Console]::Out.WriteLine(($args -join "|"))' -Encoding utf8NoBOM
+            # Raw argv, not $args: pwsh -File reshapes $args, and differently per
+            # platform, so a test that reads $args measures PowerShell rather than
+            # what the child was actually handed.
+            Set-Content -LiteralPath $script -Value "[Console]::Out.WriteLine([Environment]::GetCommandLineArgs() -join '||')" -Encoding utf8NoBOM
 
             $started = InModuleScope $script:moduleName -Parameters @{ Pwsh = $script:pwshPath; Script = $script } {
                 param($Pwsh, $Script)
                 Start-ShpMcpProcess -Command $Pwsh -Argument @('-NoProfile', '-NonInteractive', '-File', $Script, 'a b', 'c"d')
             }
             try {
-                $started.Reader.ReadLine() | Should -Be 'a b|c"d'
+                $started.Reader.ReadLine() | Should -BeLike '*||a b||c"d'
             } finally {
                 InModuleScope $script:moduleName -Parameters @{ Started = $started } {
                     param($Started)
@@ -125,6 +128,16 @@ Describe 'Start-ShpMcpProcess' {
             try {
                 $started.Reader.ReadLine() | Should -Be 'DONE'
                 $null = $started.Process.WaitForExit(5000)
+
+                # The drain is event-driven, so the log is still filling when the
+                # child exits. Wait for it to arrive before asserting it is bounded,
+                # otherwise an empty log would pass the bound and prove nothing.
+                $deadline = [datetime]::UtcNow.AddSeconds(15)
+                while ($started.StderrLog.Count -eq 0 -and [datetime]::UtcNow -lt $deadline) {
+                    Start-Sleep -Milliseconds 100
+                }
+
+                $started.StderrLog.Count | Should -BeGreaterThan 0
                 $started.StderrLog.Count | Should -BeLessOrEqual 20
             } finally {
                 InModuleScope $script:moduleName -Parameters @{ Started = $started } {

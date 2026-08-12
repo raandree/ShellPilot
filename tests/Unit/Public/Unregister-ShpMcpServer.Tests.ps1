@@ -5,6 +5,18 @@ BeforeAll {
     Import-Module -Name $script:moduleName -Force -ErrorAction Stop
 
     $script:pwshPath = [System.Environment]::ProcessPath
+
+    # Termination is not synchronous everywhere: on Unix the process is reaped
+    # asynchronously, so it can still be listed for a moment after it is gone.
+    function Wait-ShpTestProcessGone {
+        param([int[]]$Id, [int]$TimeoutSec = 20)
+        $deadline = [datetime]::UtcNow.AddSeconds($TimeoutSec)
+        foreach ($processId in $Id) {
+            while ((Get-Process -Id $processId -ErrorAction SilentlyContinue) -and [datetime]::UtcNow -lt $deadline) {
+                Start-Sleep -Milliseconds 200
+            }
+        }
+    }
 }
 
 AfterAll {
@@ -46,6 +58,7 @@ Describe 'Unregister-ShpMcpServer' {
         Unregister-ShpMcpServer -Name 'one'
 
         Get-ShpMcpServer -Name 'one' | Should -BeNullOrEmpty
+        Wait-ShpTestProcessGone -Id $processId
         Get-Process -Id $processId -ErrorAction SilentlyContinue | Should -BeNullOrEmpty
     }
 
@@ -62,6 +75,7 @@ Describe 'Unregister-ShpMcpServer' {
         Unregister-ShpMcpServer -All
 
         @(Get-ShpMcpServer).Count | Should -Be 0
+        Wait-ShpTestProcessGone -Id $ids
         foreach ($id in $ids) { Get-Process -Id $id -ErrorAction SilentlyContinue | Should -BeNullOrEmpty }
     }
 

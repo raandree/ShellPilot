@@ -218,9 +218,11 @@ $script:ShpMcpLegacyProtocolVersion = '2025-11-25'
 # find its own package cache), not a convenience list.
 $script:ShpMcpBaseEnvironmentVariable = if ($IsWindows -or $null -eq $IsWindows) {
     @('PATH', 'PATHEXT', 'COMSPEC', 'SystemRoot', 'SystemDrive', 'windir', 'TEMP', 'TMP',
-      'USERPROFILE', 'APPDATA', 'LOCALAPPDATA', 'PROCESSOR_ARCHITECTURE', 'NUMBER_OF_PROCESSORS')
+      'USERPROFILE', 'APPDATA', 'LOCALAPPDATA', 'PROCESSOR_ARCHITECTURE', 'NUMBER_OF_PROCESSORS',
+      'DOTNET_ROOT')
 } else {
-    @('PATH', 'HOME', 'TMPDIR', 'LANG', 'LC_ALL', 'SHELL', 'USER')
+    @('PATH', 'HOME', 'TMPDIR', 'LANG', 'LC_ALL', 'LC_CTYPE', 'SHELL', 'USER', 'LOGNAME',
+      'DOTNET_ROOT')
 }
 
 # Built-in bounds for an attached MCP server. Every one of them bounds input the
