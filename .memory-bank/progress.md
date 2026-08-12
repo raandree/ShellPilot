@@ -40,6 +40,23 @@ Chronological record of shipped changes and remaining work. Latest first.
 
 ## Log
 
+- 2026-08-12 - MCP verified against a REAL third-party server, closing the gap
+  the stub suite could not: a stub implements the author's own reading of the
+  specification and cannot falsify it. Azure MCP Server 2.0.5
+  (`azmcp server start`, already installed by a VS Code extension) attached
+  first try - **legacy era**, so Microsoft's own current server settles whether
+  dual-era support earned its place. 61 tools accepted, none dropped, none
+  outside the endpoint's name pattern, `instructions` captured, stderr silent,
+  the model called `mcp_az_get_azure_bestpractices` and its content reached the
+  answer, no orphaned process. Two findings a stub could not produce: the tool
+  is a ROUTER whose first reply is a catalogue rather than an answer (the model
+  recovered by calling again with command/parameters), and 10,166 prompt tokens
+  with only 2 of 61 tools offered - which reframes -MaxTool as a guard against
+  a pathological server rather than a cost control, with -ToolName being the
+  actual cost control. The configuration parser was also run against the
+  machine's real `%APPDATA%\Code\User\mcp.json` and refused its entry for
+  carrying `${input:api_key}`, starting nothing.
+
 - 2026-08-12 - MCP client support shipped (spec 021): `Register-ShpMcpServer` /
   `Get-ShpMcpServer` / `Unregister-ShpMcpServer`, stdio, **both protocol eras**.
   The revision the repository had recorded was stale - 2026-07-28 is Current and

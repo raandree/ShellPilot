@@ -77,6 +77,28 @@ justifications, both on the private process helpers); build 9 tasks / 0 errors
 the answer, the progress record, `-DisableMcp`, no orphaned child, and the
 batch warning. Committed on `ai/mcp-server-support`.
 
+**Then tested against a server nobody here wrote**, which was the gap worth
+closing - a stub implements the author's own reading of the specification and
+cannot falsify it. The Azure MCP Server 2.0.5 (`azmcp server start`, already
+installed by a VS Code extension): attached first try, **legacy era**, 61 tools
+accepted with none dropped and none needing sanitising, `instructions`
+captured, silent stderr, the model called `mcp_az_get_azure_bestpractices` and
+its content reached the answer, no orphan. Microsoft's own current server being
+legacy settles whether dual-era support earned its place.
+
+Two things the stub could never have shown. The tool is a **router** - the
+first call returns a catalogue of sub-commands rather than an answer, and the
+model recovered by calling again with `command`/`parameters`, so the result
+mapping has to carry a reply that is *about* the tool rather than *from* it.
+And **10,166 prompt tokens with 2 of 61 tools offered**, which reframes
+`-MaxTool` honestly: at a default of 64 it never bites for a server like this,
+so it guards against a pathological server rather than controlling cost.
+`-ToolName` is the cost control.
+
+The configuration parser was also pointed at a real file nobody here wrote -
+the machine's own `%APPDATA%\Code\User\mcp.json` - and refused its single entry
+for carrying `${input:api_key}`, starting nothing.
+
 ## Superseded focus (2026-08-12) - session-token refresh
 
 A long agentic Turn no longer dies with `401 IDE token expired`. The reported

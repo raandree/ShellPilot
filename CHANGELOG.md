@@ -21,7 +21,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   in `_meta`, with `server/discover` as a mandatory RPC - while nearly every
   server in the field still expects the handshake. The client therefore probes
   with `server/discover` and falls back to `initialize` on any other error or a
-  timeout, never keyed to one error code. Both eras were negotiated live.
+  timeout, never keyed to one error code. Both eras were negotiated live, and
+  the real Azure MCP Server 2.0.5 turned out to be a **legacy** server - which
+  settles whether supporting both was worth it.
   See [specs/021-mcp-server-support.md](specs/021-mcp-server-support.md).
 - Tool names are namespaced `mcp_<alias>_<tool>` using the alias **you** chose,
   not the server's self-reported name, which the protocol says nothing
