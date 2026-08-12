@@ -247,6 +247,8 @@ Describe 'Invoke-Shp' {
             InModuleScope $script:moduleName {
                 $script:ShpChat = @()
                 $script:capturedMaxTokens = $null
+                $script:ShpModelLimitCache = $null
+                $script:ShpUnknownLimitModelWarned.Clear()
                 Mock Get-ShpSessionToken { [pscustomobject]@{ token = 't'; expires_at = 0; endpoints = [pscustomobject]@{ api = 'https://session.example' } } }
                 Mock Compress-ShpChatContext { $script:capturedMaxTokens = $MaxTokens; 0 }
                 Mock Invoke-CopilotTurn {
@@ -261,7 +263,12 @@ Describe 'Invoke-Shp' {
         }
 
         AfterEach {
-            InModuleScope $script:moduleName { Clear-ShpContext; $script:ShpChat = @() }
+            InModuleScope $script:moduleName {
+                Clear-ShpContext
+                $script:ShpChat = @()
+                $script:ShpModelLimitCache = $null
+                $script:ShpUnknownLimitModelWarned.Clear()
+            }
         }
 
         It 'Resolves MaxContextWindowTokens as explicit > context > default' {
@@ -278,6 +285,46 @@ Describe 'Invoke-Shp' {
                 $script:capturedMaxTokens | Should -Be 50000
 
                 Clear-ShpContext
+            }
+        }
+
+        It 'Uses the model own reported limits when neither is set' {
+            InModuleScope $script:moduleName {
+                Clear-ShpContext
+                $script:ShpModelLimitCache = @{ 'claude-haiku-4.5' = [pscustomobject]@{ ContextWindowTokens = 200000; MaxOutputTokens = 64000 } }
+
+                $result = Invoke-Shp -Prompt 'hi' -Model 'claude-haiku-4.5' -DisableBrowsing -DisableFileAccess -DisableTerminal -DisableUserPrompts
+
+                # Under the 136000 the service was measured to enforce for this
+                # model, not merely under the 200000 it advertises.
+                $script:capturedMaxTokens   | Should -BeLessThan 136000
+                $script:capturedMaxTokens   | Should -BeGreaterThan 0
+                $result.ContextBudget       | Should -Be $script:capturedMaxTokens
+                $result.ContextBudgetSource | Should -Be 'Model'
+            }
+        }
+
+        It 'Issues no request of its own to learn the window' {
+            InModuleScope $script:moduleName {
+                Clear-ShpContext
+                Mock Get-ShpModel { throw 'the context guard must never reach out' }
+                $script:ShpModelLimitCache = @{ 'claude-haiku-4.5' = [pscustomobject]@{ ContextWindowTokens = 200000; MaxOutputTokens = 64000 } }
+
+                $null = Invoke-Shp -Prompt 'hi' -Model 'claude-haiku-4.5' -DisableBrowsing -DisableFileAccess -DisableTerminal -DisableUserPrompts
+
+                Should -Invoke Get-ShpModel -Times 0 -Exactly
+            }
+        }
+
+        It 'Reports the fallback as a fallback on the result' {
+            InModuleScope $script:moduleName {
+                Clear-ShpContext
+                $script:ShpModelLimitCache = $null
+
+                $result = Invoke-Shp -Prompt 'hi' -Model 'claude-haiku-4.5' -DisableBrowsing -DisableFileAccess -DisableTerminal -DisableUserPrompts
+
+                $result.ContextBudget       | Should -Be $script:DefaultMaxContextWindowTokens
+                $result.ContextBudgetSource | Should -Be 'Fallback'
             }
         }
 

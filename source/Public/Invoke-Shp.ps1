@@ -137,14 +137,40 @@ function Invoke-Shp {
         Estimated-token budget for the accumulated conversation of this turn.
         Before each chat request, the oldest tool results are elided until the
         estimate fits, so a few large read_file, fetch_url or run_command results
-        cannot overflow the model's context window. Precedence is the usual one:
-        this parameter, then Set-ShpContext -MaxContextWindowTokens, then the
-        built-in 900000. That default is a fallback, not any model's real window
-        (claude-haiku-4.5 is 136000), so set it to the model's own
-        MaxContextWindowTokens from Get-ShpModel to make the guard fire when it
-        should. 0 disables the guard. Note this bounds TOOL RESULTS only - the
-        session conversation itself is never elided, so a long-running loop of
-        calls still needs Clear-ShpChat or -History.
+        cannot overflow the model's context window.
+
+        The budget resolves in four steps, first match wins:
+
+        1. This parameter.
+        2. Set-ShpContext -MaxContextWindowTokens.
+        3. The model's own advertised limits, if Get-ShpModel has been called at
+           least once this session.
+        4. The built-in 900000.
+
+        Step 3 is not simply the advertised window. That figure covers prompt
+        plus completion - claude-haiku-4.5 advertises 200000 with a 64000 output
+        cap and refuses a prompt at 136000, which is 200000 - 64000 exactly - so
+        the output allowance is reserved first and a 10% margin is taken from
+        what remains. The margin is there because the estimate counts message
+        text only: the tool schemas and the JSON envelope are billed as prompt
+        tokens too, so a guard set to the reported figure fires late. No pair on
+        offer resolves above 900000, so step 3 can only tighten the guard.
+
+        Step 3 needs no request of its own: Get-ShpModel records every limit it
+        reports, and this cmdlet only reads that cache, so no call is ever made
+        slower to learn a window. Until something fills it, the guard runs on
+        the fallback, which is no model's real window (claude-haiku-4.5 is
+        200000, gpt-4o is 128000) and is therefore too permissive for most
+        models. Run Get-ShpModel once, or set this parameter, to fix that.
+        Step 3 is skipped for an alternative backend (-ApiBase), where a Copilot
+        window would be a wrong answer rather than a missing one.
+
+        The resolved figure and which step produced it are reported on the
+        result as ContextBudget and ContextBudgetSource.
+
+        0 disables the guard. Note this bounds TOOL RESULTS only - the session
+        conversation itself is never elided, so a long-running loop of calls
+        still needs Clear-ShpChat or -History.
 
     .PARAMETER MaxBudgetUSD
         Stop the tool-calling loop once this turn's estimated spend exceeds the
@@ -472,7 +498,10 @@ function Invoke-Shp {
         System.Management.Automation.PSCustomObject
 
         The response with Content, Usage, CostUSD, Credits, whether a rate was
-        found at all and under which key (Priced / PriceTableKey), ToolCalls,
+        found at all and under which key (Priced / PriceTableKey), the
+        context-window budget the guard actually used and which of the four
+        resolution steps produced it (ContextBudget / ContextBudgetSource),
+        ToolCalls,
         timing,
         the customisation files that shaped the system prompt
         (InstructionsApplied), the skills offered and the subset the model
@@ -664,10 +693,13 @@ function Invoke-Shp {
     $effectiveOutageTolerance = if ($PSBoundParameters.ContainsKey('NetworkOutageToleranceSec')) { $NetworkOutageToleranceSec }
                                 elseif ($null -ne $script:ShpContext.NetworkOutageToleranceSec) { [int]$script:ShpContext.NetworkOutageToleranceSec }
                                 else { $script:DefaultNetworkOutageToleranceSec }
-    # 0 disables the context guard, so binding - not truthiness - is the test.
-    $effectiveContextBudget = if ($PSBoundParameters.ContainsKey('MaxContextWindowTokens')) { $MaxContextWindowTokens }
-                              elseif ($null -ne $script:ShpContext.MaxContextWindowTokens) { [int]$script:ShpContext.MaxContextWindowTokens }
-                              else { $script:DefaultMaxContextWindowTokens }
+    # The context budget has a fourth level - the model's own advertised window -
+    # so its whole order lives in one documented resolver. 0 disables the guard,
+    # so binding, not truthiness, is what gets passed through.
+    $budgetParams = @{ Model = $Model; AlternativeBackend = $usingAltBackend }
+    if ($PSBoundParameters.ContainsKey('MaxContextWindowTokens')) { $budgetParams.RequestedTokens = $MaxContextWindowTokens }
+    $contextBudget = Resolve-ShpContextBudget @budgetParams
+    $effectiveContextBudget = $contextBudget.MaxTokens
 
     $browsingEnabled = -not $DisableBrowsing
     $fileAccessEnabled = -not $DisableFileAccess
@@ -1069,7 +1101,7 @@ function Invoke-Shp {
             # writes back to. Left undiagnosed this reads as a bare 400 and gets
             # mistaken for rate limiting, so name the cause and the remedy.
             if ($_.TargetObject -and $_.TargetObject.ErrorCode -eq 'model_max_prompt_tokens_exceeded') {
-                Write-Warning ("The request exceeded the model's context window ({0}). Every -Prompt call continues the session conversation, so a loop of calls grows until it no longer fits: run Clear-ShpChat between calls, or pass -History for a stateless call. -MaxContextWindowTokens only bounds tool results." -f $_.TargetObject.Message)
+                Write-Warning ("The request exceeded the model's context window ({0}). The context guard was set to {1} estimated tokens, resolved from '{2}'. Every -Prompt call continues the session conversation, so a loop of calls grows until it no longer fits: run Clear-ShpChat between calls, or pass -History for a stateless call. -MaxContextWindowTokens only bounds tool results." -f $_.TargetObject.Message, $effectiveContextBudget, $contextBudget.Source)
             }
             # Server-side state requested but the backend rejects the store
             # parameter (the Copilot proxy is stateless). Fall back to ordinary
@@ -1389,6 +1421,7 @@ function Invoke-Shp {
         Usage = [pscustomobject]@{ PromptTokens=$totalPrompt; CompletionTokens=$totalCompletion; TotalTokens=$totalPrompt+$totalCompletion; ContextTokens=$peakPromptTokens }
         Credits=$credits; CostUSD=$costUSD; CostBreakdown=$breakdown
         Priced=$price.Priced; PriceTableKey=$priceKey
+        ContextBudget=$effectiveContextBudget; ContextBudgetSource=$contextBudget.Source
         BudgetExceeded=[bool]$budgetStopped
         Iterations=$iteration; ToolCalls=$toolCallsExecuted
         ReasoningEffort=$(if ([string]::IsNullOrWhiteSpace($ReasoningEffort)) { $null } else { $ReasoningEffort })

@@ -23,14 +23,15 @@ function Compress-ShpChatContext {
         content) to bound in place. Tool-role entries are elided oldest-first.
 
     .PARAMETER MaxTokens
-        The estimated-token budget the conversation is trimmed down toward. When
-        it is zero or negative the guard is disabled and nothing is trimmed.
+        The estimated-token budget the conversation is trimmed down toward,
+        as resolved by Resolve-ShpContextBudget. When it is zero or negative the
+        guard is disabled and nothing is trimmed.
 
     .EXAMPLE
-        Compress-ShpChatContext -Messages $chatMessages -MaxTokens 900000
+        Compress-ShpChatContext -Messages $chatMessages -MaxTokens 180000
 
         Elides the oldest tool results in $chatMessages until the estimated token
-        count is within 900000, returning how many messages were trimmed.
+        count is within 180000, returning how many messages were trimmed.
 
     .OUTPUTS
         System.Int32

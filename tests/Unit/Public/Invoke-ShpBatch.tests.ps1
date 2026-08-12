@@ -197,6 +197,27 @@ Describe 'Invoke-ShpBatch' {
                 $script:capturedWorkItem[0].ModulePath | Should -BeLike '*ShellPilot.psd1'
             }
         }
+
+        It 'Should carry the model-limit cache to the workers so the guard is not blind' {
+            InModuleScope $script:moduleName {
+                $script:ShpModelLimitCache = @{ 'claude-haiku-4.5' = [pscustomobject]@{ ContextWindowTokens = 200000; MaxOutputTokens = 64000 } }
+            }
+            try {
+                $null = Invoke-ShpBatch -Prompt 'a', 'b'
+                InModuleScope $script:moduleName {
+                    # A worker runspace gets its own module instance and never
+                    # calls Get-ShpModel, so without this every batch item would
+                    # silently fall back to the built-in budget.
+                    $script:capturedWorkItem[0].ModelLimit['claude-haiku-4.5'].ContextWindowTokens | Should -Be 200000
+                    # A copy, not the caller's live hashtable: workers run
+                    # concurrently and nothing may write to shared state.
+                    [object]::ReferenceEquals($script:capturedWorkItem[0].ModelLimit, $script:ShpModelLimitCache) |
+                        Should -BeFalse
+                }
+            } finally {
+                InModuleScope $script:moduleName { $script:ShpModelLimitCache = $null }
+            }
+        }
     }
 
     Context 'Malformed input' {

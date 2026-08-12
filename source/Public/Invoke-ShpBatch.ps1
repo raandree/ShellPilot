@@ -154,8 +154,11 @@ function Invoke-ShpBatch {
 
     .PARAMETER MaxContextWindowTokens
         Estimated-token budget for the accumulated tool results of each item.
-        Set it to the model's own MaxContextWindowTokens from Get-ShpModel to
-        make the guard fire when it should.
+        Left unset it resolves per item exactly as it does for Invoke-Shp:
+        session context, then the model's own advertised limits, then the
+        built-in fallback. The caller's cached model limits travel to every
+        worker, so calling Get-ShpModel once before the batch is enough - a
+        worker never fetches them itself. 0 disables the guard.
 
     .PARAMETER MaxBudgetUSD
         Per-item ceiling in USD: stops one item's tool-calling loop once that
@@ -386,6 +389,16 @@ function Invoke-ShpBatch {
         foreach ($key in @('TimeoutSec', 'MaxRetryCount', 'RetryDelaySec', 'NetworkOutageToleranceSec', 'MaxContextWindowTokens', 'ApiBase', 'ApiKey')) {
             if ($null -ne $script:ShpContext[$key]) { $context[$key] = $script:ShpContext[$key] }
         }
+        # The cached model limits travel too, or every worker would resolve the
+        # context guard to the built-in fallback: a worker gets its own module
+        # instance and never calls Get-ShpModel. Copied, not shared - objects
+        # cross the runspace boundary by reference, and this is the one batch
+        # workload where shared mutable state would be a race.
+        $modelLimit = $null
+        if ($null -ne $script:ShpModelLimitCache) {
+            $modelLimit = @{}
+            foreach ($key in $script:ShpModelLimitCache.Keys) { $modelLimit[$key] = $script:ShpModelLimitCache[$key] }
+        }
         $toolCommand = @()
         if (-not $DisableUserTools) { $toolCommand = @($script:ShpUserTools.Values | ForEach-Object { $_.Command }) }
 
@@ -431,6 +444,7 @@ function Invoke-ShpBatch {
                     InvokeParams = $invokeParams
                     Context      = $context
                     ToolCommand  = $toolCommand
+                    ModelLimit   = $modelLimit
                     SpendBag     = $spendBag
                     BudgetLimit  = $budgetLimit
                 })

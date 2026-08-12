@@ -139,6 +139,12 @@ function Initialize-Shp {
     # previous OAuth token is stale - drop the whole cache so the next
     # Get-ShpSessionToken exchanges against the new OAuth token.
     $script:ShpSessionTokenCache.Clear()
+    # Same reasoning for the model limits: a different account sees a different
+    # model list, so a window cached under the previous identity is not evidence
+    # about this one. Back to $null, not empty - an empty table would claim a
+    # lookup happened.
+    $script:ShpModelLimitCache = $null
+    $script:ShpUnknownLimitModelWarned.Clear()
     Write-Host ''
     Write-Host "Token written to: $TokenPath" -ForegroundColor Green
     # -Force so a hidden dot-file token path is returned rather than throwing.

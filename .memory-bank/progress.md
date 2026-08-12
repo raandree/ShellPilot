@@ -7,10 +7,11 @@ Chronological record of shipped changes and remaining work. Latest first.
 - ShellPilot is a Sampler-built PowerShell module (cmdlet prefix Shp) with 23
   public cmdlets, Pester 5 tests, QA gates (TestQuality, helpQuality),
   GitVersion, and a GitHub Actions CI. main builds at 0.2.0-preview0001.
-- All 13 migration specs (002-014) are implemented, plus 015 (batch execution)
-  and 016 (failed-call usage accounting); the backend-dependent ones are
-  live-verified. Server-side state (011) is implemented but the Copilot proxy
-  does not support it, so it falls back to client-side history.
+- All 13 migration specs (002-014) are implemented, plus 015 (batch execution),
+  016 (failed-call usage accounting) and 017 (context-window budget resolved
+  from the model); the backend-dependent ones are live-verified. Server-side
+  state (011) is implemented but the Copilot proxy does not support it, so it
+  falls back to client-side history.
 - The full Pester run crashes locally on a .NET 10 native access violation
   (see techContext); changes are verified out-of-band and the full suite runs
   on CI.
@@ -29,20 +30,6 @@ Chronological record of shipped changes and remaining work. Latest first.
   cannot be trimmed and the call simply fails. Invoke-Shp now warns and names
   the remedy, but eliding old conversation turns changes call semantics and
   needs its own decision.
-- Context-window guard budget. $script:DefaultMaxContextWindowTokens is 900000,
-  but real windows are far smaller - claude-haiku-4.5 is 136000 - so
-  Compress-ShpChatContext never fires for a small model and a caller looping
-  Invoke-Shp in one process walks into a permanent 400
-  (model_max_prompt_tokens_exceeded) instead of having the oldest tool results
-  elided. Get-ShpModel already reports the per-model MaxContextWindowTokens, so
-  the guard could resolve the real window and keep 900000 only as a fallback.
-  Measured, not theorised - see the 2026-08-11 sweep entry below.
-  PARTLY DONE: the budget is now settable per call and per session
-  (-MaxContextWindowTokens). Resolving it AUTOMATICALLY from the model is still
-  open, and needs a no-network design - Get-ShpModel issues a live /models call,
-  so consulting it inside the turn loop would add network I/O to every call and
-  to the unit suite. Caching what Get-ShpModel already returns is the obvious
-  route.
 - Path-scoping / allow-listing for the unsandboxed tools. ShouldProcess now
   gates them interactively, but there is still no persisted allow/deny rule set
   (the Copilot CLI's Kind(argument) model is the reference).
@@ -62,6 +49,22 @@ Chronological record of shipped changes and remaining work. Latest first.
 
 ## Log
 
+- 2026-08-11 - Context-window guard now sizes itself from the model (spec 017).
+  Re-measured the premise: `/models` says `claude-haiku-4.5` is **200000**, not
+  the 136000 the prompt carried, and **22 of the 36** models that advertise a
+  window sit below the 900000 fallback (smallest 16384, 55x). The 136000 turned
+  out to be the *enforced* prompt limit, and 200000 - 64000 = 136000 exactly -
+  so the advertised window covers prompt PLUS completion. Confirmed by probe:
+  `claude-haiku-4.5` refused at 136000, `grok-4.5` at its full 500000 (no
+  reservation), `gpt-4o-mini` at 12288 (not derivable from `/models` at all).
+  Design consequence: reserve the output allowance first, then a 10% margin -
+  a margin on the advertised window alone gives 180000 and still would not have
+  fired. New private `Resolve-ShpContextBudget` owns a four-step order
+  (Parameter > SessionContext > Model > Fallback), `Get-ShpModel` fills a lazy
+  limits cache as a side effect, and no turn ever reaches out. Pinned by test:
+  no advertised pair resolves above 900000, so this can only tighten a caller's
+  guard. Verified: 26 red first, then green; 812 -> 845 tests, 0 failures,
+  83.02% -> 84.78% coverage, 16 tasks / 0 errors / 0 warnings.
 - 2026-08-11 - Fixed `run_command` running a different command than the one it
   was given. Measured against `HEAD`: `Write-Output "double quoted works"` ran
   as three bare arguments (stdout `double`/`quoted`/`works`, exit **0**),

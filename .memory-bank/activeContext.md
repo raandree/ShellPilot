@@ -4,6 +4,69 @@ Current working focus for ShellPilot. Overwrite this file as the focus shifts.
 
 ## Focus
 
+The context-window guard now sizes itself from the model in use (spec 017), and
+re-measuring the premise changed the design.
+
+**The prompt's number was wrong, and the way it was wrong is the design.** It
+said `claude-haiku-4.5`'s window is 136000. `/models` says **200000**. Both are
+real:
+
+```text
+200000 advertised context window
+-  64000 advertised max output tokens
+= 136000 prompt limit the service enforces
+```
+
+Probed live rather than assumed, by sending an oversized prompt and reading the
+limit out of the rejection:
+
+| Model | Advertised | Max output | Enforced | Relationship |
+| --- | ---: | ---: | ---: | --- |
+| `claude-haiku-4.5` | 200000 | 64000 | 136000 | window - output, **exactly** |
+| `grok-4.5` | 500000 | 128000 | 500000 | no reservation |
+| `gpt-4o-mini` | 128000 | 4096 | 12288 | neither |
+
+A third confirmation was already in the repo: the old constant's comment
+recorded a `~936k` refusal, and 1000000 - 64000 = 936000.
+
+So the advertised window covers **prompt plus completion**, and the naive fix -
+take a margin off `MaxContextWindowTokens` - resolves `claude-haiku-4.5` to
+180000, still above the 136000 that actually failed. The guard would have
+shipped looking fixed and still not fired. The output allowance is reserved
+first; the 10% margin comes off what remains, landing at 122400.
+
+`gpt-4o-mini` at 12288 is not derivable from anything `/models` reports and is
+deliberately not worked around. **This makes the guard much better, not
+perfect**, and the spec says so rather than implying coverage it does not have.
+
+**Scale of the original problem, re-measured:** 22 of the 36 models that
+advertise a window sit below the 900000 fallback, the smallest by 55x.
+
+**Lazy, not eager.** `Get-ShpModel` writes the limits cache as a side effect of
+a call the caller already made; `Invoke-Shp` only reads it and never reaches
+out. Eager (one `/models` at first use) was rejected on three grounds beyond
+latency: under `Invoke-ShpBatch` "once per session" becomes once per *runspace*;
+`Get-ShpModel` degrades to `Write-Warning`, so a blocked `/models` would warn on
+every first call; and it routes through `Invoke-ShpWithRetry`, so a slow
+`/models` would burn the network-outage budget before the chat request was sent.
+The cost of lazy - inertness - is answered by making it **visible** rather than
+by reaching out: every result carries `ContextBudget` / `ContextBudgetSource`.
+
+**Bounded blast radius, pinned by a test:** the largest budget the model level
+can produce is `(1000000 - 64000) x 0.9 = 842400`, below the 900000 fallback. So
+enabling it can only ever tighten an existing caller's guard, never loosen it.
+
+Three cache states are kept distinct on purpose: `$null` (no lookup - the
+default, quiet), populated-but-missing (warns once per model per session), and
+populated-with-null-limits (same as missing). Collapsing the first two would
+warn on the first call of every session.
+
+Verified: 26 tests red first, then green. Full suite 812 -> 845, 0 failures;
+coverage 83.02% -> 84.78%; PSScriptAnalyzer clean on all 9 changed source files;
+build 16 tasks / 0 errors / 0 warnings. Not committed - diff shown to the user.
+
+## Superseded focus (2026-08-11) - run_command argument handling
+
 `run_command` was silently rewriting the model's command before running it, and
 that blocked publishing. Fixed, with the argument-passing layer removed rather
 than patched.

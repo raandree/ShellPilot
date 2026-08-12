@@ -145,7 +145,50 @@ the dispatch no longer passes -MaxChars 0); (3) defence in depth -
 Compress-ShpChatContext estimates the accumulated messages (ConvertTo-ShpTokenCount)
 before each chat turn and elides the OLDEST tool-role message content to a short
 marker (keeping role + tool_call_id so the sequence stays valid) once the estimate
-exceeds $script:DefaultMaxContextWindowTokens (900000; 0 disables).
+exceeds the resolved context budget (0 disables).
+
+### The budget is resolved, and the advertised window is not the budget
+
+Resolve-ShpContextBudget owns the whole order in one place - Parameter >
+SessionContext > Model > Fallback - so it is stated rather than implied by
+scattered fallbacks. The first two levels test BINDING, not truthiness, because
+0 is meaningful here: it disables the guard.
+
+The model level is NOT the advertised max_context_window_tokens. That figure
+covers prompt plus completion: claude-haiku-4.5 advertises 200000 with a 64000
+output cap and the service refuses a prompt at 136000, which is 200000 - 64000
+exactly, and a 1M/64k model was previously seen refusing at ~936000. So the
+output allowance is reserved first and the safety margin taken from what
+remains. A margin on the advertised window alone would have resolved 180000 and
+still never fired. Measurement, not derivation: grok-4.5 reserves nothing
+(enforced = advertised 500000) and gpt-4o-mini is enforced at 12288, which
+nothing in /models predicts - so this makes the guard much better, not perfect.
+
+The margin exists because ConvertTo-ShpTokenCount walks message content only,
+while the tool schemas, the per-message JSON envelope and the assistant
+tool_calls arguments are all sent and billed as prompt tokens. The estimate
+undershoots by whole FIELDS, not by a rounding error. The margin is applied only
+to a model-derived figure - a number the caller stated is not an estimate.
+
+No turn ever reaches out to learn a window. Get-ShpModel writes the limits cache
+as a side effect of a call the caller already made; Invoke-Shp only reads it.
+Consulting /models per turn would add a round-trip to otherwise-local calls, put
+a network dependency in the offline unit suite, and burn the network-outage
+budget before the chat request was even sent. Lazy therefore beats eager, and
+the resulting inertness is answered by making it visible rather than by
+reaching out: every result carries ContextBudget and ContextBudgetSource, the
+same way Priced/PriceTableKey make an unpriced call observable.
+
+$null cache and empty cache mean different things. $null is "no lookup has
+happened" - the default state of every session, and quiet. A populated cache
+missing this model is evidence, and warns once per model per session (the same
+rule as $script:ShpUnpricedModelWarned). The model level is skipped entirely for
+an alternative backend, where a cached Copilot window would be a WRONG answer
+rather than a missing one - the price table's rule again.
+
+Bounded blast radius, pinned by test: no advertised pair on offer resolves above
+the 900000 fallback (the largest is (1000000 - 64000) x 0.9 = 842400), so
+turning the model level on can only ever tighten an existing caller's guard.
 
 ### A child process is given argv, never a joined command line
 

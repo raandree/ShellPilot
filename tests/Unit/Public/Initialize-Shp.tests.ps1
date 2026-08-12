@@ -39,4 +39,33 @@ Describe 'Initialize-Shp' {
         $result | Should -BeOfType ([System.IO.FileInfo])
         $result.FullName | Should -Be (Get-Item -LiteralPath $tokenFile -Force).FullName
     }
+
+    It 'Discards the cached model limits on re-auth' {
+        # A different account sees a different model list, so a window cached
+        # under the previous identity is not evidence about this one.
+        $tokenFile = Join-Path $TestDrive 'reauth-token'
+
+        InModuleScope $script:moduleName -Parameters @{ TokenFile = $tokenFile } {
+            param($TokenFile)
+
+            $script:ShpModelLimitCache = @{ 'claude-haiku-4.5' = [pscustomobject]@{ ContextWindowTokens = 200000; MaxOutputTokens = 64000 } }
+            $null = $script:ShpUnknownLimitModelWarned.Add('no-such-model')
+
+            Mock Invoke-RestMethod {
+                [pscustomobject]@{
+                    device_code = 'd'; user_code = 'u'; verification_uri = 'https://example'
+                    interval = 5; expires_in = 300; access_token = 'gho_new'
+                }
+            }
+            Mock Start-Sleep { }
+            Mock Start-Process { }
+            Mock Set-Clipboard { }
+            Mock Write-Host { }
+
+            $null = Initialize-Shp -TokenPath $TokenFile -Force
+
+            $script:ShpModelLimitCache               | Should -BeNullOrEmpty
+            $script:ShpUnknownLimitModelWarned.Count | Should -Be 0
+        }
+    }
 }

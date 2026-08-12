@@ -36,6 +36,23 @@ $script:EndpointMap = @{
 # from Get-ShpModel on first tab-completion and reused for the module session.
 $script:ModelNameCache = $null
 
+# Cache of each model's advertised limits (model id -> an object carrying
+# ContextWindowTokens and MaxOutputTokens, either of which may be $null for a
+# model that advertises none). Written only by Get-ShpModel, which already has
+# both figures in hand, and read by Resolve-ShpContextBudget so the context
+# guard can size itself from the model in use WITHOUT a request of its own - a
+# Turn is a loop, and consulting /models per turn would put network I/O on every
+# call. $null means no lookup has happened yet, which is not the same as an
+# empty table: only a model missing from a list that WAS fetched is evidence
+# that the model is unknown. Cleared by Initialize-Shp on re-auth (a different
+# account sees a different model list). Session-scoped; not persisted to disk.
+$script:ShpModelLimitCache = $null
+
+# Models already reported as having no known context window, so the warning
+# fires once per model per session rather than once per round-trip - the same
+# rule as $script:ShpUnpricedModelWarned, and for the same reason.
+$script:ShpUnknownLimitModelWarned = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+
 # Session defaults applied by Invoke-Shp when the matching parameter is not
 # supplied explicitly. Set via Select-ShpModel, read via Get-ShpDefault, and
 # reset via Select-ShpModel -Clear. Scoped to the module (the current
@@ -105,12 +122,26 @@ $script:MaxHttpErrorBodyChars = 2000
 # messages of a single Turn, used by the context-window guard in Invoke-Shp
 # (Compress-ShpChatContext). A Turn is a loop and every tool result rides along
 # on the next request, so a few large file/page/command results could otherwise
-# overflow the model's real context window (for example the ~936k-token limit
-# behind the reported 413 / model_max_prompt_tokens_exceeded failure). When the
-# estimate exceeds this budget the oldest tool results are elided before the
-# next request. It is a fallback, not the per-model MaxContextWindowTokens from
-# Get-ShpModel; kept below the smallest windows in common use. 0 disables the guard.
+# overflow the model's real context window (the 413 /
+# model_max_prompt_tokens_exceeded failure). When the estimate exceeds this
+# budget the oldest tool results are elided before the next request.
+#
+# This is the LAST resort in Resolve-ShpContextBudget's order and is no model's
+# real window: measured against the live /models document, 22 of the 36 models
+# that advertise a window sit below it, the smallest (gpt-3.5-turbo) 55x below.
+# It is only what the guard uses when nothing better is known.
+# 0 disables the guard.
 $script:DefaultMaxContextWindowTokens = 900000
+
+# Percentage of a model's remaining prompt allowance held back by
+# Resolve-ShpContextBudget, so the guard fires before the real limit rather than
+# at it. ConvertTo-ShpTokenCount is an estimate over message content only: the
+# tool schemas, the per-message JSON envelope and the assistant tool_calls
+# arguments are all sent and billed as prompt tokens, and none of them are
+# counted. The estimate therefore undershoots the real prompt by whole fields,
+# not by a rounding error. Applied ONLY to a model-derived budget - a number the
+# caller stated is not an estimate and is used as given.
+$script:ContextWindowSafetyMarginPercent = 10
 
 # Shared, connection-pooling HttpClient reused for every Copilot request. A Turn
 # is a loop - one API round-trip per tool iteration - so a fresh client (and its

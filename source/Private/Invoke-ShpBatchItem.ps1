@@ -21,17 +21,17 @@ function Invoke-ShpBatchItem {
         accumulation that makes a serial loop overflow the model's context
         window, just at 1/ThrottleLimit the rate. The worker's own usage log is
         cleared before the call and read after it, so exactly this item's usage
-        record travels home. And the caller's session context and registered
-        tools are replayed once per runspace, because a fresh runspace inherits
-        neither.
+        record travels home. And the caller's session context, cached model
+        limits and registered tools are replayed once per runspace, because a
+        fresh runspace inherits none of them.
 
         Intended to be called only from the Invoke-ShpBatch worker script block.
         It clears the usage log of the module instance it runs in.
 
     .PARAMETER WorkItem
         The work item built by Invoke-ShpBatch: Index, Id, Prompt, InputObject,
-        ModulePath, InvokeParams, Context, ToolCommand, and the batch-wide
-        SpendBag and BudgetLimit.
+        ModulePath, InvokeParams, Context, ToolCommand, ModelLimit, and the
+        batch-wide SpendBag and BudgetLimit.
 
     .EXAMPLE
         Invoke-ShpBatchItem -WorkItem $item
@@ -73,6 +73,11 @@ function Invoke-ShpBatchItem {
             $contextParams = $WorkItem.Context
             Set-ShpContext @contextParams
         }
+
+        # Without this every item would resolve the context guard to the
+        # built-in fallback: a worker never calls Get-ShpModel, so its own
+        # limit cache would stay empty for the life of the batch.
+        if ($null -ne $WorkItem.ModelLimit) { $script:ShpModelLimitCache = $WorkItem.ModelLimit }
 
         foreach ($command in @($WorkItem.ToolCommand)) {
             try {

@@ -9,6 +9,14 @@ function Get-ShpModel {
         ServiceType, and the Raw model record). Endpoints that fail to respond
         produce a warning rather than terminating the call.
 
+        Each model's advertised context window and output cap are also recorded
+        in a module-scoped cache as a side effect. That cache is what lets the
+        context-window guard in Invoke-Shp size itself from the model in use
+        without issuing a request of its own, so calling this cmdlet once per
+        session makes every later turn's guard fire at the right point instead
+        of at the built-in fallback. The cache is discarded by Initialize-Shp on
+        re-auth and is never persisted to disk.
+
     .PARAMETER Endpoint
         Which endpoint(s) to query: Enterprise, Individual, Default, Session
         (the per-account endpoint from the session token), or All.
@@ -89,10 +97,21 @@ function Get-ShpModel {
             $items = if ($j.data) { $j.data } elseif ($j.models) { $j.models } else { @() }
             foreach ($m in $items) {
                 $caps = $m.capabilities
+                $modelId = if ($m.id) { $m.id } else { $m.name }
+                # Record the advertised limits so the context guard in Invoke-Shp
+                # can size itself from the model without a request of its own.
+                # Assigned rather than initialised up front, so a run in which
+                # every endpoint failed leaves the cache $null - "never looked
+                # up" and "looked up and absent" must stay distinguishable.
+                if ($null -eq $script:ShpModelLimitCache) { $script:ShpModelLimitCache = @{} }
+                $script:ShpModelLimitCache[$modelId] = [pscustomobject]@{
+                    ContextWindowTokens = $caps.limits.max_context_window_tokens
+                    MaxOutputTokens     = $caps.limits.max_output_tokens
+                }
                 [pscustomobject]@{
                     PSTypeName              = 'ShellPilot.Model'
                     Endpoint                = $base
-                    Id                      = if ($m.id) { $m.id } else { $m.name }
+                    Id                      = $modelId
                     ServiceType             = $m.serviceType
                     MaxContextWindowTokens  = $caps.limits.max_context_window_tokens
                     MaxOutputTokens         = $caps.limits.max_output_tokens

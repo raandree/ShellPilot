@@ -9,6 +9,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- The context-window guard now sizes itself from the model in use. Left unset,
+  `-MaxContextWindowTokens` resolves in four steps - the parameter, then
+  `Set-ShpContext -MaxContextWindowTokens`, then the model's own advertised
+  limits, then the built-in 900000 - and the resolved figure and the step that
+  produced it are reported on the result as `ContextBudget` and
+  `ContextBudgetSource`. The third step is not simply the advertised context
+  window: that figure covers prompt *plus* completion, so the model's output
+  allowance is reserved first and a 10% margin taken from what remains.
+  Measured against the live service, `claude-haiku-4.5` advertises a 200000
+  window with a 64000 output cap and refuses a prompt at 136000 - exactly
+  200000 - 64000 - so a margin on the advertised window alone would still have
+  missed it. No advertised pair on offer resolves above 900000, so this can only
+  ever tighten an existing caller's guard, never loosen it.
+  See [specs/017-context-window-budget-from-model.md](specs/017-context-window-budget-from-model.md).
+- `Get-ShpModel` records each model's advertised context window and output cap
+  in a session cache as a side effect. That cache is what lets the guard resolve
+  a real window with **no** request of its own: a turn is a loop, so consulting
+  `/models` per turn would add a round-trip to calls that are otherwise local.
+  Until something fills it - `Get-ShpModel`, or `Get-ShpModelName`, which calls
+  it - the guard uses the fallback, which is no model's real window and is too
+  permissive for 22 of the 36 models that advertise one. Run `Get-ShpModel` once
+  per session to fix that. `Invoke-ShpBatch` copies the cache to every worker,
+  and `Initialize-Shp` discards it on re-auth.
+- A model that is absent from a model list that *was* fetched now warns once per
+  model per session that the guard is running on the fallback, in the same
+  spirit as `Priced` / `PriceTableKey` making an unpriced call observable. A
+  cache that has simply never been populated - the default state of every
+  session - stays quiet.
+
 - `Get-ShpUsage` now records calls that **failed**, not only the ones that
   succeeded. A failed call carries `Success` `$false` and the failure message on
   `Error`, plus whatever spend its completed round-trips had already incurred.

@@ -40,10 +40,14 @@ function Set-ShpContext {
     .PARAMETER MaxContextWindowTokens
         Estimated-token budget for the accumulated conversation of a single
         turn, above which Invoke-Shp elides the oldest tool results before the
-        next request. Built-in default: 900000, which is a fallback rather than
-        any model's real window - set this to the model's own
-        MaxContextWindowTokens (see Get-ShpModel) to make the guard fire when it
-        should. 0 disables the guard.
+        next request. This is step 2 of four: an explicit
+        Invoke-Shp -MaxContextWindowTokens wins over it, and it wins over both
+        the model's own advertised limits (step 3, available once Get-ShpModel
+        has run this session) and the built-in 900000 (step 4). Setting it here
+        therefore pins the budget for every model, which is what you want for a
+        fixed-model workload and not what you want for a mixed one - leave it
+        unset and call Get-ShpModel once to let each turn size itself. 0
+        disables the guard.
 
     .PARAMETER ApiBase
         Opt-in base URL of an alternative, OpenAI-compatible endpoint to use
