@@ -192,6 +192,60 @@ $script:ShpUserTools = [ordered]@{}
 # the caller names one.
 $script:ShpToolPolicy = $null
 
+# Attached MCP servers (see Register-ShpMcpServer). Maps a caller-chosen alias
+# to a record carrying the child process, its stdio streams, the negotiated
+# protocol era and version, and the tool list captured at registration.
+# Ordered so tools are offered in attachment order. Session-scoped; never
+# persisted, and never populated by discovery - a configuration file is a
+# command line, so one is read only when the caller names it.
+$script:ShpMcpServers = [ordered]@{}
+
+# The protocol revision ShellPilot prefers, and the handshake-era revision it
+# falls back to. 2026-07-28 removed the initialize/initialized handshake: a
+# modern request is stateless and carries its protocol version and client
+# capabilities in _meta. Nearly every server in the field is still on the older
+# era, so both are supported and the era is decided by a server/discover probe.
+$script:ShpMcpModernProtocolVersion = '2026-07-28'
+$script:ShpMcpLegacyProtocolVersion = '2025-11-25'
+
+# The environment an MCP child process starts from. ProcessStartInfo.Environment
+# is pre-populated with the parent's whole block, so it is cleared and rebuilt
+# from this list plus whatever the caller named. Invoke-RunCommandTool inherits
+# the parent block deliberately, but that is a compatibility argument about
+# callers who already depend on it; an MCP child is new surface with none, so it
+# can be strict at no migration cost. The entries here are what an interpreter
+# needs to run at all (and, on Windows, what a Node or Python launcher needs to
+# find its own package cache), not a convenience list.
+$script:ShpMcpBaseEnvironmentVariable = if ($IsWindows -or $null -eq $IsWindows) {
+    @('PATH', 'PATHEXT', 'COMSPEC', 'SystemRoot', 'SystemDrive', 'windir', 'TEMP', 'TMP',
+      'USERPROFILE', 'APPDATA', 'LOCALAPPDATA', 'PROCESSOR_ARCHITECTURE', 'NUMBER_OF_PROCESSORS')
+} else {
+    @('PATH', 'HOME', 'TMPDIR', 'LANG', 'LC_ALL', 'SHELL', 'USER')
+}
+
+# Built-in bounds for an attached MCP server. Every one of them bounds input the
+# module did not author: the endpoint refuses a tool name outside
+# ^[a-zA-Z0-9_-]{1,128}$ (measured, not assumed), a tool description is read by
+# the model on every round-trip, and each tool schema is re-sent and billed on
+# every round-trip while ConvertTo-ShpTokenCount does not count it - so an
+# unbounded tool list would silently defeat the context budget.
+$script:ShpMcpMaxToolNameLength = 128
+$script:ShpMcpDefaultMaxTool = 64
+$script:ShpMcpDefaultMaxPage = 20
+$script:ShpMcpDefaultMaxDescriptionChars = 1024
+$script:ShpMcpDefaultConnectTimeoutSec = 10
+$script:ShpMcpDefaultRequestTimeoutSec = 30
+$script:ShpMcpDefaultStopTimeoutSec = 5
+
+# Every tool name Invoke-Shp can offer on its own. Registration checks a
+# namespaced MCP name against this list so an attached server can never shadow
+# a built-in - a collision that silently redirected read_file would be the worst
+# possible failure, and it fails at attachment time instead.
+$script:ShpBuiltInToolName = @(
+    'fetch_url', 'read_file', 'list_directory', 'write_file', 'create_directory',
+    'run_command', 'ask_user', 'load_skill', 'load_instruction', 'manage_todo_list'
+)
+
 # Most recent /responses response id, retained only when a call opts into
 # server-side conversation state (Invoke-Shp -UseServerSideState). Lets the next
 # such call continue by reference instead of replaying the whole history.

@@ -336,8 +336,58 @@ but -UseNewEnvironment-style blunting would drop GIT_*, proxy settings and
 deliberate PATH edits, so it stays a maintainer decision rather than a silent
 change.
 
-### Progressive disclosure for skills
+### An attached process is a trust boundary the module drew itself
 
+An MCP server is somebody else's code that this module starts. Three rules fall
+out, and each of them is a protocol fact rather than a policy bolted on top.
+
+NOTHING IS DISCOVERED. Set-ShpToolPolicy already refuses to find a policy file
+on its own because a discovered file WIDENS reach; a discovered MCP
+configuration file STARTS A PROCESS, so the rule is stronger here.
+Register-ShpMcpServer -Path reads a file the caller named and nothing else.
+
+THE TOOL LIST IS FROZEN AT REGISTRATION. In revision 2026-07-28,
+notifications/tools/list_changed is delivered only on a subscriptions/listen
+stream the client opens. Opening none means a rug-pull cannot land: a server
+that changes its tools after approval does not get them offered. Not honouring
+list_changed is the control, not a gap. It also keeps the schemas - which are
+re-sent and billed on every round-trip while ConvertTo-ShpTokenCount does not
+count them - from growing behind the caller's back.
+
+THE CHILD ENVIRONMENT IS BUILT, NOT INHERITED. Invoke-RunCommandTool inherits
+the parent block deliberately, and that decision stands - but it is a
+COMPATIBILITY argument about callers who already depend on GIT_*, proxy
+settings and PATH edits. New surface has no such callers, so it costs nothing
+to start from a minimal base plus exactly what the caller named.
+ProcessStartInfo.Environment is pre-populated with the parent's block, so
+clearing it is a required step rather than a no-op.
+
+The limits are stated rather than implied, because this guard is the kind
+people over-trust. Set-ShpToolPolicy CANNOT gate an MCP call: its rules match a
+resolved path or a leading command token and a tools/call has neither. Shown in
+one live Turn under Read(<repo>/**) - read_file denied with a reason, the MCP
+call ran. Freezing the list says nothing about a server that changes its
+BEHAVIOUR. And the description is untrusted input the model reads before any
+tool is called: measured live, an instruction in a description alone made the
+model read a decoy credential file and pass it to the server as an argument.
+The answer to that is to break the path (-DisableFileAccess, -ToolName), never
+to filter the text.
+
+### A limit that is guessed is a limit that fails at the worst moment
+
+The MCP tool-name sanitiser was designed against the OpenAI function-calling
+constraint from memory - ^[a-zA-Z0-9_-]{1,64}$ - and probed before it was
+written. The character set was right and the length was wrong: the Copilot
+endpoint enforces 1..128. Two things found in the probe are why guessing was
+not an option. A rejection identifies the offending tool only by its INDEX in
+the request (tools.0.custom.name), an index into an array the caller never
+built. And the 400 is MASKED: a schema rejection on /chat/completions sends
+Invoke-Shp down its /responses fallback, so the error the caller sees is "model
+... does not support Responses API" - true, and about a different problem
+entirely. A bad name would therefore have failed a whole Turn while pointing at
+the wrong cause.
+
+### Progressive disclosure for skills
 Get-ShpSkillCatalog injects only skill names and descriptions; the model
 pulls a full SKILL.md body on demand through the load_skill tool - mirroring
 how VS Code selects skills.

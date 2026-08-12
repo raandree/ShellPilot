@@ -131,6 +131,16 @@ whole Turn with an error that names no tool.
 **ACCEPTED 2026-08-12: A.** The probe is a Phase 2 prerequisite, not a
 follow-up - the sanitiser cannot be written to an unverified limit.
 
+**CLOSED 2026-08-12 by measurement.** The endpoint enforces
+`^[a-zA-Z0-9_-]{1,128}$`. The assumed character set was right and the assumed
+length was wrong: 128, not 64. A dot, colon, slash, space or non-ASCII letter
+is refused; a leading digit is fine. Two findings justified insisting on the
+probe: the rejection names the offending tool only by its **index** in the
+request (`tools.0.custom.name`), and the 400 is *masked* - it sends
+`Invoke-Shp` down its `/responses` fallback, so the caller sees
+"model ... does not support Responses API", a true statement about a different
+problem.
+
 ## 9. An `Mcp()` kind for the tool policy
 
 `Set-ShpToolPolicy` cannot gate an MCP call: its rules match resolved
@@ -150,6 +160,9 @@ spec 019 rejected for command lines.
 **ACCEPTED 2026-08-12: A for v1**, with B kept open. The limit is stated in
 the spec and must also appear in the cmdlet help, because a caller will assume
 the opposite.
+
+**Demonstrated 2026-08-12**, in one live Turn under `Read(<repo>/**)`: the
+built-in `read_file` was denied with a reason, and the MCP tool call ran.
 
 ## 10. MCP inside `Invoke-ShpBatch`
 

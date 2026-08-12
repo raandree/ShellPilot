@@ -9,6 +9,90 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `Register-ShpMcpServer`, `Get-ShpMcpServer` and `Unregister-ShpMcpServer`
+  attach MCP (Model Context Protocol) servers so their tools are offered to the
+  model alongside the built-ins and any registered user tools. Opt out for one
+  call with `Invoke-Shp -DisableMcp`; nothing is offered until you attach a
+  server, so the default posture is unchanged.
+  **Both protocol eras are supported over stdio.** Verified from the
+  specification rather than from memory, which changed the design: the current
+  revision **2026-07-28** removed the `initialize` handshake entirely - a modern
+  request is stateless and carries its protocol version and client capabilities
+  in `_meta`, with `server/discover` as a mandatory RPC - while nearly every
+  server in the field still expects the handshake. The client therefore probes
+  with `server/discover` and falls back to `initialize` on any other error or a
+  timeout, never keyed to one error code. Both eras were negotiated live.
+  See [specs/021-mcp-server-support.md](specs/021-mcp-server-support.md).
+- Tool names are namespaced `mcp_<alias>_<tool>` using the alias **you** chose,
+  not the server's self-reported name, which the protocol says nothing
+  verifies. The sanitiser is written to a measured constraint, not a guessed
+  one: the Copilot endpoint enforces `^[a-zA-Z0-9_-]{1,128}$`, so a dot - which
+  MCP explicitly permits in a tool name - becomes `_`. This matters because a
+  rejected name identifies the offending tool only by its **index** in the
+  request, and the resulting 400 is masked by the chat-to-responses fallback,
+  surfacing as "model ... does not support Responses API" - a true statement
+  about an entirely different problem.
+- `Get-ShpTool` now lists MCP tools next to user tools, with a new `Origin`
+  column (`User` or `Mcp`) and the contributing `Server`. `Invoke-Shp` reports
+  `McpEnabled`, `McpServersAvailable`, `McpToolsAvailable` and `McpToolsCalled`,
+  and an MCP call emits the same `ToolCall` progress record as every other tool,
+  so a host renders it identically.
+
+### Security
+
+- **An MCP server is a third-party process running with your privileges, and
+  there is no sandbox.** Its tool names and descriptions are untrusted input the
+  model reads on every round-trip, and its results are untrusted content. Three
+  controls follow, each stated with its limits:
+  - **Nothing is discovered.** No scan of the working directory, `.vscode` or a
+    user profile. `Register-ShpMcpServer -Path` reads a file you name. A
+    configuration file is a command line, and a command line is arbitrary code.
+  - **The tool list is frozen at registration.** The client opens no
+    `subscriptions/listen` stream, so it receives no
+    `notifications/tools/list_changed` and a server cannot add or alter tools
+    after you approved them. Refreshing is an explicit `-Force`. This does not
+    stop a server changing its *behaviour*.
+  - **The child environment is built, not inherited.** Unlike `run_command`,
+    which deliberately inherits the whole block for compatibility, an MCP child
+    starts from a minimal base plus exactly the variables you name in
+    `-Environment`, so an ambient `$env:` credential is not handed to somebody
+    else's process.
+- **`Set-ShpToolPolicy` cannot gate an MCP call, and this is stated rather than
+  implied.** Its rules match resolved filesystem paths and leading command
+  tokens; a tool call has neither. Demonstrated in one live Turn under
+  `Read(<repo>/**)`: the built-in `read_file` was denied with a reason and the
+  MCP tool call ran. A policy that scopes `read_file` to one directory does
+  nothing about an attached filesystem server. Reduce reach at attachment
+  instead, with `-ToolName`.
+- The injection path was measured, not asserted. With a hostile instruction in a
+  tool *description* only, the model read a decoy credentials file and passed
+  its contents to the third-party server as a tool argument - the server's own
+  log confirms receipt. The same run with `-DisableFileAccess` read nothing and
+  leaked nothing.
+- A configuration entry asking for `sandboxEnabled` **warns and still starts**:
+  a configuration written for a sandboxing host is exactly the one you want to
+  reuse. The gap is surfaced twice rather than being fatal once - a warning that
+  says the server is starting unsandboxed, plus `SandboxRequested` on the server
+  record, because a warning scrolls away and a property does not. An entry
+  carrying an unresolved `${...}` variable is refused, because starting the
+  literal text would run a different command than the file describes.
+- `Get-ShpMcpServer` reports environment variable **names** only, never values.
+
+### Known limits
+
+- stdio transport only. Streamable HTTP is deferred with the MCP Authorization
+  framework; a half-authorised HTTP client would be worse than none.
+- `Invoke-ShpBatch` does not use attached servers and warns once. A worker
+  runspace inherits nothing, so replaying an attachment would start one copy of
+  every server per worker.
+- A server that exits is marked `Faulted` rather than restarted automatically.
+  The specification says a client SHOULD restart one; automatic respawn of
+  third-party code inside an unattended loop turns one crash into a crash loop
+  nobody is watching. Re-attach with `Register-ShpMcpServer -Force`.
+- Resources, prompts, sampling, elicitation and roots are out of scope for this
+  version. Client capabilities are declared empty, so a modern server needing
+  one gets a protocol error naming it rather than hanging.
+
 - The cached OAuth token is now protected at rest, closing open decision #5.
   On Windows it is DPAPI-encrypted for your account; on every platform the file
   is restricted to the current user. Measured before the change, the real file

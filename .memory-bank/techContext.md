@@ -75,6 +75,17 @@ ShellPilot talks to the same HTTP services as the Copilot Chat extension.
   -DisableTerminal), and Set-ShpToolPolicy scopes them to named paths and
   commands for an unattended run (spec 019). A permitted command still inherits
   the whole environment block.
+- An attached MCP server (spec 021) is a third-party process with the caller's
+  privileges and no sandbox. Set-ShpToolPolicy CANNOT gate an MCP call - its
+  rules match resolved paths and leading command tokens, and a tools/call has
+  neither - so a policy scoping read_file says nothing about an attached
+  filesystem server. Reach is reduced at attachment instead
+  (Register-ShpMcpServer -ToolName). Unlike run_command, the MCP child does NOT
+  inherit the environment block.
+- The Copilot endpoint enforces ^[a-zA-Z0-9_-]{1,128}$ on a tool (function)
+  name, measured 2026-08-12. A violation returns invalid_request_body naming
+  the tool only by its index, and Invoke-Shp's chat-to-responses fallback then
+  masks it as "model ... does not support Responses API".
 - Pricing in data/PriceTable.psd1 is illustrative and must be kept current.
 - The full local Pester run crashes with a .NET 10 native access violation
   (exit 0xC0000005) on the local runtime (PowerShell 7.6.1 / .NET 10.0.6). It is

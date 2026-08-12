@@ -54,7 +54,7 @@ proof of concept, what is partial, and what is still to be decided.
 | Inline completions | none | Out |
 | Chat participants (@) | none | TBD |
 | Context variables (#) | parameters and instruction files | TBD |
-| MCP server tools | none | Specified and reviewed (spec 021), not implemented |
+| MCP server tools | Register-ShpMcpServer, Get-ShpMcpServer, Unregister-ShpMcpServer | Done (stdio; both protocol eras) |
 | Prompt files | none | TBD |
 | Session persistence / resume | none | TBD |
 | Hooks (PreToolUse / PostToolUse) | none | TBD |
@@ -70,10 +70,10 @@ the open decisions.
 > the Gallery carries a dozen PowerShell MCP *servers* but no established MCP
 > *client*, and ShellPilot already has the two prerequisites (a tool-calling
 > loop and a tool-registration layer). That analysis recorded a target of
-> revision 2025-11-25, which is now **out of date**: re-verified on 2026-08-12,
-> the current revision is **2026-07-28**, and it replaced the `initialize`
-> handshake with per-request metadata. [Spec 021](021-mcp-server-support.md)
-> targets 2026-07-28 with a documented fallback to the older handshake era.
+> revision 2025-11-25, which was already out of date when the work started:
+> re-verified on 2026-08-12, the current revision is **2026-07-28**, and it
+> replaced the `initialize` handshake with per-request metadata.
+> [Spec 021](021-mcp-server-support.md) implements both eras over stdio.
 > The same analysis added session persistence, hooks, subagents, the headless
 > event stream and the job model as the next tier of gaps.
 

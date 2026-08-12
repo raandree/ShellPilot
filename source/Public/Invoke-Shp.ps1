@@ -305,6 +305,13 @@ function Invoke-Shp {
         Do not offer the user-defined tools registered with Register-ShpTool for
         this call. By default any registered tool is exposed to the model.
 
+    .PARAMETER DisableMcp
+        Do not offer the tools of MCP servers attached with
+        Register-ShpMcpServer for this call. MCP tools appear only after a
+        server is attached, so the default posture is already "no MCP"; this
+        switch suppresses attached servers for one call, the same way
+        -DisableUserTools does for registered commands.
+
     .PARAMETER DisableTodoList
         Do not offer the model the built-in manage_todo_list tool. By default the
         tool is offered so the model can maintain a short ordered checklist of
@@ -629,6 +636,8 @@ function Invoke-Shp {
 
         [switch]$DisableUserTools,
 
+        [switch]$DisableMcp,
+
         [switch]$DisableTodoList,
 
         [switch]$DisableProgressEvents,
@@ -894,6 +903,28 @@ function Invoke-Shp {
         }
         Write-Verbose ("Offering {0} user tool(s): {1}" -f $userToolCommands.Count, (($userToolCommands.Keys) -join ', '))
     }
+
+    # MCP tools (Register-ShpMcpServer): offer the tool list captured when each
+    # server was attached. Nothing is re-listed here - the frozen list is what
+    # makes a mid-session change to a server's tools impossible, and re-listing
+    # per turn would add network I/O to a loop.
+    $mcpEnabled = (-not $DisableMcp) -and ($script:ShpMcpServers.Count -gt 0)
+    $mcpToolMap = @{}
+    if ($mcpEnabled) {
+        foreach ($server in $script:ShpMcpServers.Values) {
+            if ($server.State -ne 'Ready') {
+                Write-Warning ("Skipping MCP server '{0}': {1}" -f $server.Name, $server.FaultReason)
+                continue
+            }
+            foreach ($mcpTool in $server.Tools) {
+                $null = $tools.Add($mcpTool.Schema)
+                $mcpToolMap[$mcpTool.Name] = @{ Server = $server.Name; Tool = $mcpTool.OriginalName }
+            }
+        }
+        if ($mcpToolMap.Count -gt 0) {
+            Write-Verbose ("Offering {0} MCP tool(s): {1}" -f $mcpToolMap.Count, (($mcpToolMap.Keys) -join ', '))
+        }
+    }
     if ($tools.Count -eq 0) { $tools = $null }
 
     $apiHeaders = @{
@@ -1032,6 +1063,7 @@ function Invoke-Shp {
     $toolCallsDenied = New-Object System.Collections.Generic.List[string]
     $questionsAsked = New-Object System.Collections.Generic.List[string]
     $userToolsCalled = New-Object System.Collections.Generic.List[string]
+    $mcpToolsCalled = New-Object System.Collections.Generic.List[string]
     $reasoningLog = New-Object System.Collections.Generic.List[string]
     # Todo list (manage_todo_list, on by default; opt out via -DisableTodoList):
     # the model's current normalised checklist for this turn. Empty unless the
@@ -1393,12 +1425,27 @@ function Invoke-Shp {
                             } | ConvertTo-Json -Compress
                         }
                         default {
+                            # An MCP tool (Register-ShpMcpServer) is dispatched
+                            # over the protocol, never as a PowerShell command.
+                            # Test-ShpToolAccess cannot gate it - the policy
+                            # matches resolved paths and command tokens, and a
+                            # tool call has neither - so ShouldProcess is the
+                            # only gate, and it is interactive only.
+                            if ($mcpToolMap.ContainsKey($tc.Name)) {
+                                $mcpTarget = $mcpToolMap[$tc.Name]
+                                if ($PSCmdlet.ShouldProcess(('{0}/{1} {2}' -f $mcpTarget.Server, $mcpTarget.Tool, $tc.Arguments), 'MCP tool')) {
+                                    $toolResult = Invoke-ShpMcpTool -ServerName $mcpTarget.Server -ToolName $mcpTarget.Tool -Argument $fargs
+                                    if (-not $mcpToolsCalled.Contains($tc.Name)) { $null = $mcpToolsCalled.Add($tc.Name) }
+                                } else {
+                                    $toolResult = @{ skipped = ("The user did not approve calling '{0}'." -f $tc.Name) } | ConvertTo-Json -Compress
+                                }
+                            }
                             # User-defined tool (Register-ShpTool): invoke the
                             # backing command with the model-supplied arguments
                             # and return its output. Runs real PowerShell with
                             # the caller's privileges - registration is the
                             # opt-in. Unknown names keep the default error.
-                            if ($userToolCommands.ContainsKey($tc.Name)) {
+                            elseif ($userToolCommands.ContainsKey($tc.Name)) {
                                 if ($PSCmdlet.ShouldProcess(('{0} {1}' -f $userToolCommands[$tc.Name], $tc.Arguments), 'user tool')) {
                                     $splat = @{}
                                     if ($fargs) {
@@ -1554,6 +1601,9 @@ function Invoke-Shp {
         ToolCallsDenied=@($toolCallsDenied)
         TodoList=@($todoList)
         UserToolsAvailable=@($userToolCommands.Keys); UserToolsCalled=@($userToolsCalled)
+        McpEnabled=[bool]$mcpEnabled
+        McpServersAvailable=@($script:ShpMcpServers.Keys)
+        McpToolsAvailable=@($mcpToolMap.Keys); McpToolsCalled=@($mcpToolsCalled)
         InstructionsApplied=@($instructionsApplied)
         InstructionsAvailable=@($instructionCatalog.Name)
         InstructionsLoaded=@($instructionsLoaded)

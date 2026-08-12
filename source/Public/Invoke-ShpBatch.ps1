@@ -415,6 +415,15 @@ function Invoke-ShpBatch {
         # not have, and the same class of bug the session context already had.
         $toolPolicy = $script:ShpToolPolicy
 
+        # MCP servers do not travel. Replaying an attachment into each worker
+        # would start one copy of every server per worker, turning a throttle
+        # chosen for API concurrency into unbounded third-party process fan-out;
+        # sharing one child instead needs a fair lock on its stdio channel.
+        # Neither is a small change, so the batch says what it is not doing.
+        if ($script:ShpMcpServers.Count -gt 0) {
+            Write-Warning ('Invoke-ShpBatch does not use attached MCP servers ({0}); a worker runspace cannot share their processes. Batch items run without MCP tools.' -f (($script:ShpMcpServers.Keys) -join ', '))
+        }
+
         $spendBag = [System.Collections.Concurrent.ConcurrentBag[double]]::new()
         $budgetLimit = if ($PSBoundParameters.ContainsKey('MaxBatchBudgetUSD')) { [double]$MaxBatchBudgetUSD } else { 0.0 }
 

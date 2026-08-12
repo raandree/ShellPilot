@@ -128,6 +128,34 @@ Get-ShpTool
 Unregister-ShpTool -All
 ```
 
+### MCP servers
+
+Attach an MCP (Model Context Protocol) server and its tools are offered to the
+model beside the built-ins, namespaced `mcp_<alias>_<tool>`. stdio transport;
+both the current `2026-07-28` revision and the older handshake-based era are
+supported, decided by a `server/discover` probe.
+
+```powershell
+Register-ShpMcpServer -Name files -Command npx -Argument '-y','@modelcontextprotocol/server-filesystem','C:\work'
+Invoke-Shp -Prompt 'List the markdown files in the work folder and summarise them.'
+Get-ShpMcpServer
+Unregister-ShpMcpServer -All
+```
+
+Attaching is always explicit - nothing is discovered, because a configuration
+file is a command line. `-Path` reads a file you name (both the VS Code
+`servers` shape and the Claude Desktop `mcpServers` shape). Opt out for one
+call with `Invoke-Shp -DisableMcp`.
+
+> **An MCP server is a third-party process running with your privileges, and
+> there is no sandbox.** Its tool descriptions are untrusted input that the
+> model reads on every round-trip, and its results are untrusted content.
+> `Set-ShpToolPolicy` **cannot** gate an MCP call - its rules match resolved
+> paths and command tokens, and a tool call has neither - so a policy scoping
+> `read_file` does nothing about an attached filesystem server. Reduce reach at
+> attachment with `-ToolName`, and see
+> [specs/021-mcp-server-support.md](specs/021-mcp-server-support.md).
+
 ### Todo list and live progress
 
 For multi-step work, the model uses the native `manage_todo_list` tool by
@@ -253,6 +281,7 @@ Start-ShpChat
 | Prompt | `Invoke-Shp`, `Start-ShpChat` |
 | Conversation | `Get-ShpChat`, `Clear-ShpChat` |
 | User tools | `Register-ShpTool`, `Get-ShpTool`, `Unregister-ShpTool` |
+| MCP servers | `Register-ShpMcpServer`, `Get-ShpMcpServer`, `Unregister-ShpMcpServer` |
 | Embeddings | `Request-ShpEmbedding`, `Get-ShpCosineSimilarity` |
 | Estimation | `ConvertTo-ShpTokenCount`, `Get-ShpCostEstimate` |
 | Usage | `Get-ShpUsage`, `Clear-ShpUsage` |
@@ -264,10 +293,11 @@ Every cmdlet has full comment-based help: `Get-Help Invoke-Shp -Full`.
 
 - **Internal endpoints.** ShellPilot calls the same private Copilot services as
   the editor extension. They can change or break without notice.
-- **Clear-text token.** The OAuth token is cached unencrypted as
-  `.shellpilot-token` in your home directory (`%USERPROFILE%` on Windows,
-  `$HOME` on Linux/macOS). Unsuitable for shared machines;
-  encrypted storage is planned.
+- **Protected token.** The OAuth token is cached as `.shellpilot-token` in your
+  home directory in a self-describing envelope: DPAPI-encrypted for your account
+  on Windows, and file permissions only (`SHPv1:NONE:`) on Linux and macOS,
+  which the file and `Initialize-Shp` both say. It protects against another
+  principal on the machine, not against code running as you.
 - **Unsandboxed tools.** `run_command` and the file tools run with your full
   privileges and no path sandboxing; user tools run arbitrary commands. They are
   opt-out (`-DisableTerminal`, `-DisableFileAccess`, `-DisableUserTools`).
