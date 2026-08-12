@@ -7,7 +7,8 @@ propose a new row instead of inventing a synonym.
 
 | Term | Means | Don't say |
 |------|-------|-----------|
-| OAuth token | The long-lived GitHub token from the device-code flow, cached on disk. | PAT, access token, auth token |
+| OAuth token | The long-lived GitHub token from the device-code flow, cached on disk in a protected envelope. | PAT, access token, auth token |
+| Token envelope | The self-describing `SHPv1:<scheme>:<payload>` format of the token file, where the scheme is DPAPI (Windows) or NONE (file permissions only); a file with no envelope is a legacy clear-text token and still reads. | token format, token blob |
 | Session token | The short-lived Copilot token exchanged from the OAuth token for each request. | bearer token, API key |
 | Device-code flow | The GitHub OAuth flow where the user types a code shown in the terminal into a browser. | login flow, sign-in flow |
 | Chat API | The /chat/completions request and response shape. | completions endpoint |

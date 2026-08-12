@@ -4,6 +4,58 @@ Current working focus for ShellPilot. Overwrite this file as the focus shifts.
 
 ## Focus
 
+The OAuth token is protected at rest (spec 020), closing open decision #5 - the
+last thing blocking a stable release apart from the Gallery publish itself.
+
+**Measured before designing.** The real file was 40 bytes of clear text, and its
+ACL was simply *inherited from the profile*:
+
+```text
+content: ghu_XMC6...
+acl    : NT AUTHORITY\SYSTEM, BUILTIN\Administrators, ExHost\install
+```
+
+So the gap was not only encryption - nothing had ever been done to the
+permissions either. Also verified it is the **only** secret at rest:
+`Initialize-Shp` holds the only `Set-Content` outside the `write_file` tool, and
+`Set-ShpContext -ApiKey` is session-only and masked.
+
+**Decision: DPAPI plus file permissions, not SecretManagement.** SecretStore
+prompts to unlock, and unattended-without-a-prompt is a *hard* constraint (the
+CopilotAtelier harness). Configuring it not to prompt reduces its protection to
+file permissions anyway *and* costs the module its empty runtime dependency
+list. `ConvertTo-SecureString` is built in, so **no dependency was added**.
+
+**Where DPAPI does not exist, it says so.** Linux and macOS get
+`SHPv1:NONE:<token>` at mode 600, with the scheme visible in the file and
+reported by `Initialize-Shp`. The governing rule was the prompt's own: a scheme
+that silently falls back to clear text is worse than clear text.
+
+**Threat bought:** another principal on the machine - another account, a backup,
+a share. **Not bought:** code running as this user. No candidate scheme changes
+that, SecretManagement included, and the spec states it rather than letting a
+reader assume it away.
+
+**Migration is by reading both formats**, plus `Initialize-Shp` upgrading a
+clear-text file *in place without re-authenticating* - re-running the
+device-code flow just to gain protection needs a browser, which the unattended
+case does not have. Live:
+
+```text
+before : ghu_XMC6...   acl: SYSTEM, Administrators, user
+after  : SHPv1:DPAPI:  acl: user      plain? False
+```
+
+and the next unattended call still returned `ok`, no prompt.
+
+Verified: 980 -> 1027 tests, 0 failures; coverage 85.73% -> 85.83%;
+PSScriptAnalyzer clean (two suppressions with justifications - the encryption
+entry point trips the plain-text SecureString rule, and a private permission
+helper trips the ShouldProcess rule); build 16 tasks / 0 errors / 0 warnings.
+Committed on `ai/encrypted-token-storage`.
+
+## Superseded focus (2026-08-12) - tool access policy
+
 The unsandboxed file and shell tools can now be scoped (spec 019), justified by
 a scenario rather than by symmetry with `fetch_url`.
 

@@ -15,6 +15,44 @@ Describe 'Get-ShpSessionToken' {
         InModuleScope $script:moduleName { $script:ShpSessionTokenCache = @{} }
     }
 
+    Context 'Token file formats' {
+        It 'Reads a protected token file' {
+            $tokenFile = Join-Path $TestDrive 'protected.token'
+
+            InModuleScope $script:moduleName -Parameters @{ TokenPath = $tokenFile } {
+                param($TokenPath)
+                Set-Content -LiteralPath $TokenPath -Value (Protect-ShpTokenValue -Token 'ghu_protected') -NoNewline
+                $script:captured = $null
+                Mock Invoke-ShpWithRetry {
+                    $script:captured = $ArgumentList[0].Headers.Authorization
+                    [pscustomobject]@{ token = 't'; expires_at = 0; endpoints = [pscustomobject]@{ api = 'https://sess.example' } }
+                }
+
+                $null = Get-ShpSessionToken -TokenPath $TokenPath
+
+                $script:captured | Should -Be 'token ghu_protected'
+            }
+        }
+
+        It 'Still reads a legacy clear-text token file' {
+            $tokenFile = Join-Path $TestDrive 'legacy-read.token'
+            Set-Content -LiteralPath $tokenFile -Value 'ghu_legacy_read' -NoNewline
+
+            InModuleScope $script:moduleName -Parameters @{ TokenPath = $tokenFile } {
+                param($TokenPath)
+                $script:captured = $null
+                Mock Invoke-ShpWithRetry {
+                    $script:captured = $ArgumentList[0].Headers.Authorization
+                    [pscustomobject]@{ token = 't'; expires_at = 0; endpoints = [pscustomobject]@{ api = 'https://sess.example' } }
+                }
+
+                $null = Get-ShpSessionToken -TokenPath $TokenPath
+
+                $script:captured | Should -Be 'token ghu_legacy_read'
+            }
+        }
+    }
+
     Context 'Connection options' {
         AfterEach { InModuleScope $script:moduleName { Clear-ShpContext; $script:ShpSessionTokenCache = @{} } }
 

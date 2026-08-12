@@ -63,6 +63,23 @@ function Initialize-Shp {
 
     if ((Test-Path -LiteralPath $TokenPath) -and -not $Force) {
         Write-Verbose "Token already present at $TokenPath. Use -Force to refresh."
+
+        # Upgrade a clear-text file from an earlier version in place. Re-running
+        # the device-code flow just to gain protection would need a browser, so
+        # a user who cannot do that interactively would stay unprotected;
+        # Initialize-Shp stays the only writer either way.
+        $existing = Get-Content -LiteralPath $TokenPath -Raw -ErrorAction SilentlyContinue
+        if ((Get-ShpTokenProtection -Content $existing) -like 'None*') {
+            try {
+                $upgraded = Protect-ShpTokenValue -Token (Unprotect-ShpTokenValue -Content $existing)
+                Set-Content -LiteralPath $TokenPath -Value $upgraded -NoNewline -Encoding ascii -ErrorAction Stop
+                Set-ShpTokenFilePermission -Path $TokenPath
+                Write-Verbose ("Upgraded the clear-text token file to {0} protection." -f (Get-ShpTokenProtection -Content $upgraded))
+            } catch {
+                Write-Warning ("Could not upgrade the clear-text token file '{0}': {1}" -f $TokenPath, $_.Exception.Message)
+            }
+        }
+
         # -Force so Get-Item returns the file even when it is hidden: the default
         # token path is a dot-file (~/.shellpilot-token), which .NET flags as
         # hidden on Linux/macOS, and Get-Item without -Force then fails with
@@ -134,7 +151,9 @@ function Initialize-Shp {
     }
     if (-not $token) { throw 'Timed out waiting for device authorization.' }
 
-    Set-Content -LiteralPath $TokenPath -Value $token -NoNewline -Encoding ascii
+    $protected = Protect-ShpTokenValue -Token $token
+    Set-Content -LiteralPath $TokenPath -Value $protected -NoNewline -Encoding ascii
+    Set-ShpTokenFilePermission -Path $TokenPath
     # A fresh OAuth token was written, so any session token cached from the
     # previous OAuth token is stale - drop the whole cache so the next
     # Get-ShpSessionToken exchanges against the new OAuth token.
@@ -147,6 +166,11 @@ function Initialize-Shp {
     $script:ShpUnknownLimitModelWarned.Clear()
     Write-Host ''
     Write-Host "Token written to: $TokenPath" -ForegroundColor Green
+    # State the protection actually applied. A scheme the user cannot see is one
+    # they cannot verify, and on a platform where it is NONE they need to know
+    # that file permissions are the only control.
+    Write-Host ("Protection at rest: {0}{1}" -f (Get-ShpTokenProtection -Content $protected),
+        $(if ($IsWindows) { ' (encrypted for your Windows account)' } else { ' - file permissions only (mode 600)' })) -ForegroundColor DarkGray
     # -Force so a hidden dot-file token path is returned rather than throwing.
     Get-Item -LiteralPath $TokenPath -Force
 }

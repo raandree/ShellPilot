@@ -96,7 +96,7 @@ function Get-ShpSessionToken {
     if (-not (Test-Path -LiteralPath $TokenPath)) {
         throw "Token file not found: $TokenPath. Run Initialize-Shp first."
     }
-    $ghToken = (Get-Content -LiteralPath $TokenPath -Raw).Trim()
+    $ghToken = Unprotect-ShpTokenValue -Content (Get-Content -LiteralPath $TokenPath -Raw)
 
     # Cache key: a SHA-256 hash of the OAuth token plus the Editor-Version. Both
     # influence the issued session token, and hashing keeps the raw OAuth secret

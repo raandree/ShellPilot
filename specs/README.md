@@ -13,7 +13,7 @@ Design and scope documents for ShellPilot. Start with the overview, then the
 open decisions. The numbered specs that follow each describe a single pattern,
 its design, and its source hook points.
 
-> **Status:** every numbered pattern below (002-019) is **implemented**. Each
+> **Status:** every numbered pattern below (002-020) is **implemented**. Each
 > spec's own `## Status` section records the current state, including any
 > backend caveat (for example server-side state, which the Copilot proxy does
 > not support and which falls back to client-side history). The tiers below
@@ -41,6 +41,7 @@ its design, and its source hook points.
 - [Context-window budget resolved from the model](017-context-window-budget-from-model.md)
 - [Conversation-history overflow](018-conversation-history-overflow.md)
 - [Tool access policy for the unsandboxed tools](019-tool-access-policy.md)
+- [Encrypted token storage](020-encrypted-token-storage.md)
 
 ### Tier 2
 

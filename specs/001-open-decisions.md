@@ -63,6 +63,17 @@ Recommendation: A. 7 and later only.
 
 Recommendation: B, with C as an opt-in source.
 
+**CLOSED 2026-08-12: B, as DPAPI plus file permissions - not
+SecretManagement.** SecretStore prompts to unlock by default, which would break
+every unattended run, and configuring it not to prompt reduces its protection to
+file permissions while adding the module's first runtime dependency. DPAPI is
+built in, needs no prompt, and is per-user. On Linux and macOS there is no
+equivalent without a dependency, so the file is unencrypted there and says so:
+the envelope names the scheme (`SHPv1:NONE:`) and `Initialize-Shp` reports it,
+because a scheme that silently degrades to clear text is worse than clear text.
+File permissions are the floor everywhere. C is not implemented and stays open.
+See [020-encrypted-token-storage.md](020-encrypted-token-storage.md).
+
 ## 6. Interactivity
 
 - A. One-shot only - Invoke-Shp per call (today).

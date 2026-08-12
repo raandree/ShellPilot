@@ -68,4 +68,64 @@ Describe 'Initialize-Shp' {
             $script:ShpUnknownLimitModelWarned.Count | Should -Be 0
         }
     }
+
+    Context 'Token protection' {
+        It 'Upgrades a legacy clear-text token file in place, without re-authenticating' {
+            $tokenFile = Join-Path $TestDrive 'legacy.token'
+            Set-Content -LiteralPath $tokenFile -Value 'ghu_legacy_value' -NoNewline
+
+            InModuleScope $script:moduleName -Parameters @{ TokenFile = $tokenFile } {
+                param($TokenFile)
+                # Re-running the device-code flow just to gain protection needs a
+                # browser, so a user who cannot do that would stay unprotected.
+                Mock Invoke-RestMethod { throw 'the upgrade path must not authenticate' }
+
+                $null = Initialize-Shp -TokenPath $TokenFile
+
+                $content = Get-Content -LiteralPath $TokenFile -Raw
+                $content | Should -Match '^SHPv1:'
+                Unprotect-ShpTokenValue -Content $content | Should -Be 'ghu_legacy_value'
+                Should -Invoke Invoke-RestMethod -Times 0 -Exactly
+            }
+        }
+
+        It 'Leaves an already protected file alone' {
+            $tokenFile = Join-Path $TestDrive 'already.token'
+
+            InModuleScope $script:moduleName -Parameters @{ TokenFile = $tokenFile } {
+                param($TokenFile)
+                $protected = Protect-ShpTokenValue -Token 'ghu_already'
+                Set-Content -LiteralPath $TokenFile -Value $protected -NoNewline
+
+                $null = Initialize-Shp -TokenPath $TokenFile
+
+                Get-Content -LiteralPath $TokenFile -Raw | Should -Be $protected
+            }
+        }
+
+        It 'Writes a protected file on a fresh authentication' {
+            $tokenFile = Join-Path $TestDrive 'fresh.token'
+
+            InModuleScope $script:moduleName -Parameters @{ TokenFile = $tokenFile } {
+                param($TokenFile)
+                Mock Invoke-RestMethod {
+                    [pscustomobject]@{
+                        device_code = 'd'; user_code = 'u'; verification_uri = 'https://example'
+                        interval = 5; expires_in = 300; access_token = 'ghu_brand_new'
+                    }
+                }
+                Mock Start-Sleep { }
+                Mock Start-Process { }
+                Mock Set-Clipboard { }
+                Mock Write-Host { }
+
+                $null = Initialize-Shp -TokenPath $TokenFile -Force
+
+                $content = Get-Content -LiteralPath $TokenFile -Raw
+                $content | Should -Match '^SHPv1:'
+                if ($IsWindows) { $content | Should -Not -Match 'ghu_brand_new' }
+                Unprotect-ShpTokenValue -Content $content | Should -Be 'ghu_brand_new'
+            }
+        }
+    }
 }

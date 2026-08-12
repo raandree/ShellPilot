@@ -35,11 +35,16 @@ ShellPilot talks to the same HTTP services as the Copilot Chat extension.
 
 - GitHub OAuth device-code flow using the public VS Code Copilot Chat
   client id.
-- The OAuth token is cached unencrypted at
-  $env:USERPROFILE\.shellpilot-token (a hardening/encryption decision is
-  still open).
+- The OAuth token is cached at $env:USERPROFILE\.shellpilot-token in a
+  self-describing envelope (SHPv1:<scheme>:<payload>). On Windows the scheme is
+  DPAPI, encrypted for the current user via the built-in SecureString
+  conversion, so no dependency is added and nothing prompts. On Linux/macOS the
+  scheme is NONE and file permissions (mode 600) are the only control; the file
+  and Initialize-Shp both say so. The file is restricted to the current user on
+  every platform. A legacy clear-text file still reads and is upgraded in place
+  by Initialize-Shp without re-authenticating. See spec 020.
 - A short-lived session token is exchanged on each call and carries the
-  per-account API endpoints.
+  per-account API endpoints. It is cached in memory only.
 
 ## Key request headers
 
@@ -62,11 +67,14 @@ ShellPilot talks to the same HTTP services as the Copilot Chat extension.
 
 - Uses internal Copilot endpoints intended for first-party editors; they can
   change without notice.
-- The token is stored in clear text today; unsuitable for shared machines.
-- No path sandboxing on the file tools, and the run_command terminal tool runs
-  arbitrary shell commands in a child PowerShell with the caller's full
-  privileges. Both are on by default (opt out with -DisableFileAccess /
-  -DisableTerminal); disable them for untrusted prompts.
+- The token file protects against another principal on the machine, not against
+  code running as the same user - no scheme available here changes that.
+- No path sandboxing on the file tools by default, and the run_command terminal
+  tool runs arbitrary shell commands in a child PowerShell with the caller's
+  full privileges. Both are on by default (opt out with -DisableFileAccess /
+  -DisableTerminal), and Set-ShpToolPolicy scopes them to named paths and
+  commands for an unattended run (spec 019). A permitted command still inherits
+  the whole environment block.
 - Pricing in data/PriceTable.psd1 is illustrative and must be kept current.
 - The full local Pester run crashes with a .NET 10 native access violation
   (exit 0xC0000005) on the local runtime (PowerShell 7.6.1 / .NET 10.0.6). It is

@@ -45,8 +45,13 @@ Describe 'Resolve-ShpRealPath' {
 
             $resolved = Resolve-ShpRealPath -Path (Join-Path $inside '../../escaped.txt')
 
-            $resolved | Should -Not -BeLike '*a*b*'
-            $resolved | Should -BeLike '*escaped.txt'
+            # Assert on the segments, not on a substring: a temp path can happen
+            # to contain the letters the directories are named after.
+            $segments = @($resolved -split '[\\/]')
+            $segments  | Should -Not -Contain 'a'
+            $segments  | Should -Not -Contain 'b'
+            $segments  | Should -Not -Contain '..'
+            $segments[-1] | Should -Be 'escaped.txt'
         }
     }
 

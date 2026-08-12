@@ -9,6 +9,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- The cached OAuth token is now protected at rest, closing open decision #5.
+  On Windows it is DPAPI-encrypted for your account; on every platform the file
+  is restricted to the current user. Measured before the change, the real file
+  was 40 bytes of clear text with the profile's inherited ACL, readable by
+  `BUILTIN\Administrators` as well as by you.
+  The file is self-describing - `SHPv1:DPAPI:...` or `SHPv1:NONE:...` - and
+  `Initialize-Shp` reports which protection it applied, because a scheme that
+  silently degrades to clear text is worse than clear text. On Linux and macOS
+  there is no DPAPI equivalent without a dependency, so the scheme is `NONE`
+  and file permissions (mode 600) are the only control; that is stated in the
+  file and on screen rather than implied.
+  **No runtime dependency was added** - `ConvertTo-SecureString` is built in.
+  SecretManagement was considered and rejected: SecretStore prompts to unlock,
+  which would break every unattended run, and configuring it not to prompt
+  reduces it to file permissions while costing this module its empty dependency
+  list. This buys protection against another principal on the machine; it does
+  **not** protect against code running as you, and no candidate scheme would.
+  See [specs/020-encrypted-token-storage.md](specs/020-encrypted-token-storage.md).
+- An existing clear-text token file keeps working and is **upgraded in place by
+  `Initialize-Shp` without re-authenticating**, so nobody needs a browser just
+  to gain protection. A protected file that cannot be decrypted - typically one
+  copied from another machine or account - throws with an actionable message
+  naming `Initialize-Shp -Force`, rather than sending a ciphertext to the
+  service as a bearer token.
+
 - `Set-ShpToolPolicy`, `Get-ShpToolPolicy` and `Clear-ShpToolPolicy` scope what
   the unsandboxed file and shell tools may reach, so an unattended run can be
   given the access it needs instead of the caller's entire filesystem and shell.

@@ -18,7 +18,6 @@ Chronological record of shipped changes and remaining work. Latest first.
 
 ## What is left
 
-- Encrypted token storage (open decision #5) before a stable release.
 - Publish to the PowerShell Gallery (open decision #7).
 - Path-scoping / allow-listing for the unsandboxed tools. ShouldProcess now  gates them interactively, but there is still no persisted allow/deny rule set
   (the Copilot CLI's Kind(argument) model is the reference).
@@ -38,6 +37,26 @@ Chronological record of shipped changes and remaining work. Latest first.
 
 ## Log
 
+- 2026-08-12 - Token protected at rest (spec 020), closing open decision #5.
+  Measured first: the real file was 40 bytes of clear text with the profile's
+  INHERITED ACL, so `BUILTIN\Administrators` was on it too - the gap was not
+  just encryption, nothing had ever been done to the permissions either. Also
+  verified it is the ONLY secret at rest: `Initialize-Shp` holds the only
+  `Set-Content` outside the write_file tool, and `-ApiKey` is session-only and
+  masked.
+  Chose DPAPI + permissions over SecretManagement: SecretStore prompts to
+  unlock, and unattended-without-a-prompt is a hard constraint, while
+  configuring it not to prompt reduces it to file permissions AND costs the
+  module its empty dependency list. `ConvertTo-SecureString` is built in, so no
+  dependency was added. Where DPAPI does not exist the scheme is named `NONE` in
+  the file and reported by `Initialize-Shp`, because silent degradation to clear
+  text is worse than clear text.
+  Threat bought: another principal on the machine. NOT code running as the same
+  user - no candidate scheme changes that, and the spec says so.
+  Live: `ghu_XMC6...` + (SYSTEM, Administrators, user) became `SHPv1:DPAPI:...`
+  + user-only, upgraded IN PLACE with no re-auth, and the next unattended call
+  still returned `ok` with no prompt. Verified: 980 -> 1027 tests, 0 failures,
+  85.73% -> 85.83% coverage, 16 tasks / 0 errors / 0 warnings.
 - 2026-08-12 - Tool access policy shipped (spec 019). Justified by a scenario,
   not by symmetry with `fetch_url`: an unattended `Invoke-ShpBatch` triage run
   where untrusted issue text steers the model into reading a credential file and
