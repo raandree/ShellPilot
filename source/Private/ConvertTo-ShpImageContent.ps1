@@ -12,6 +12,16 @@ function ConvertTo-ShpImageContent {
         https URL is passed through by reference. A path that is neither an
         existing file nor an absolute URL throws.
 
+        Two guards run before anything is read, because both failures are
+        otherwise only visible as a refusal from the service. A local file whose
+        extension is not a known image type is rejected rather than embedded as
+        application/octet-stream: no model can see it, and it still costs the
+        body its full base64 weight. And the encoded payload is measured against
+        the proxy's request-body ceiling, so an oversized attachment fails here
+        with the sizes named instead of as a bare 413 "Request Entity Too Large"
+        after the round-trip. An http(s) URL is exempt from the size guard - it
+        is sent by reference and adds only its own length to the body.
+
     .PARAMETER Text
         The text prompt that accompanies the images. Mandatory.
 
@@ -50,24 +60,59 @@ function ConvertTo-ShpImageContent {
         '.bmp'  = 'image/bmp'
     }
 
+    # Classify and measure every attachment before reading a single byte, so an
+    # oversized set is refused with all of its sizes named and without first
+    # loading megabytes into memory.
+    $localImages = New-Object System.Collections.Generic.List[object]
+    $plan = New-Object System.Collections.Generic.List[object]
+    foreach ($img in $Image) {
+        if ($img -match '^(?i)https?://') {
+            $null = $plan.Add([pscustomobject]@{ Kind = 'url'; Value = $img })
+            continue
+        }
+        if (-not (Test-Path -LiteralPath $img -PathType Leaf)) {
+            throw "Image '$img' is neither an existing file nor an http(s) URL."
+        }
+        $resolved = (Resolve-Path -LiteralPath $img).ProviderPath
+        $ext = [System.IO.Path]::GetExtension($resolved).ToLowerInvariant()
+        if (-not $mimeByExt.ContainsKey($ext)) {
+            $supported = ($mimeByExt.Keys | Sort-Object) -join ', '
+            throw "Image '$img' has extension '$ext', which is not an image type a vision model can read (supported: $supported). Attach image files here; any other file has to reach the model through the file tool or be pasted into the prompt."
+        }
+        $fileBytes = (Get-Item -LiteralPath $resolved).Length
+        $entry = [pscustomobject]@{
+            Kind  = 'file'
+            Value = $resolved
+            Mime  = $mimeByExt[$ext]
+            Bytes = $fileBytes
+            # Base64 is 4 characters per 3 bytes, padded up to the next multiple.
+            EncodedBytes = [long]([math]::Ceiling($fileBytes / 3.0) * 4)
+        }
+        $null = $localImages.Add($entry)
+        $null = $plan.Add($entry)
+    }
+
+    $budget = [long]$script:MaxRequestBodyBytes - [long]$script:RequestBodyImageReserveBytes
+    $encodedTotal = [long]($localImages | Measure-Object -Property EncodedBytes -Sum).Sum
+    if ($encodedTotal -gt $budget) {
+        $subject = if ($localImages.Count -eq 1) { 'The attached image comes' } else { "The $($localImages.Count) attached images come" }
+        $detail = ($localImages |
+                Sort-Object -Property EncodedBytes -Descending |
+                ForEach-Object { "'{0}' ({1:N0} bytes on disk, {2:N0} encoded)" -f $_.Value, $_.Bytes, $_.EncodedBytes }) -join '; '
+        throw ("{0} to {1:N0} bytes once base64-encoded, over the {2:N0}-byte budget this leaves for image content in a single request (the service refuses a whole body over {3:N0} bytes with a bare 413, and {4:N0} bytes are held back for the prompt, the conversation and the tool schemas): {5}. Re-compress or scale the image down, attach fewer per call, or pass an https URL instead - a URL is sent by reference and costs the body almost nothing." -f $subject, $encodedTotal, $budget, [long]$script:MaxRequestBodyBytes, [long]$script:RequestBodyImageReserveBytes, $detail)
+    }
+
     $blocks = New-Object System.Collections.Generic.List[hashtable]
     $null = $blocks.Add(@{ type = 'text'; text = $Text })
 
-    foreach ($img in $Image) {
-        if ($img -match '^(?i)https?://') {
-            $null = $blocks.Add(@{ type = 'image_url'; image_url = @{ url = $img } })
+    foreach ($item in $plan) {
+        if ($item.Kind -eq 'url') {
+            $null = $blocks.Add(@{ type = 'image_url'; image_url = @{ url = $item.Value } })
             continue
         }
-        if (Test-Path -LiteralPath $img -PathType Leaf) {
-            $resolved = (Resolve-Path -LiteralPath $img).ProviderPath
-            $ext = [System.IO.Path]::GetExtension($resolved).ToLowerInvariant()
-            $mime = if ($mimeByExt.ContainsKey($ext)) { $mimeByExt[$ext] } else { 'application/octet-stream' }
-            $bytes = [System.IO.File]::ReadAllBytes($resolved)
-            $b64 = [System.Convert]::ToBase64String($bytes)
-            $null = $blocks.Add(@{ type = 'image_url'; image_url = @{ url = "data:$mime;base64,$b64" } })
-            continue
-        }
-        throw "Image '$img' is neither an existing file nor an http(s) URL."
+        $bytes = [System.IO.File]::ReadAllBytes($item.Value)
+        $b64 = [System.Convert]::ToBase64String($bytes)
+        $null = $blocks.Add(@{ type = 'image_url'; image_url = @{ url = "data:$($item.Mime);base64,$b64" } })
     }
 
     , $blocks.ToArray()

@@ -108,6 +108,17 @@ function Invoke-ShpStreamRequest {
             $detail = $detail.Substring(0, $script:MaxHttpErrorBodyChars) + " ...[truncated, original $originalLen chars]"
         }
 
+        # A 413 from the gateway is a BYTE limit, not a token limit, and its body
+        # is the bare phrase "Request Entity Too Large" - which names neither the
+        # size sent nor the size allowed, so the caller has nothing to act on.
+        # Say both. The model never saw this request, so no context-window advice
+        # applies; a body the service itself explains (the token-overflow 413
+        # carries a JSON error object) is left to speak for itself.
+        if ($status -eq 413 -and $rawBody -notmatch '(?i)token') {
+            $sentBytes = [System.Text.Encoding]::UTF8.GetByteCount($Body)
+            $detail = ('{0} - the request body was {1:N0} bytes and this service refuses anything over about {2:N0}. Attached images dominate a body (base64 costs 4 bytes per 3), so scale them down or attach fewer; otherwise shorten the prompt or the conversation carried into this call.' -f $detail.Trim(), $sentBytes, [long]$script:MaxRequestBodyBytes)
+        }
+
         # Streaming is the Invoke-Shp default, so this is the path a caller hits
         # most: it gets the same structured members as the buffered sender. The
         # exception TYPE stays HttpRequestException to preserve caller-visible

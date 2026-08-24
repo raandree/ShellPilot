@@ -133,6 +133,22 @@ $script:DefaultNetworkOutageToleranceSec = 30
 # module's usual "...[truncated, original N chars]" marker.
 $script:MaxHttpErrorBodyChars = 2000
 
+# Measured ceiling (bytes) on a SINGLE request body at the Copilot proxy. This
+# is a gateway limit, not a model limit: a larger body is refused before the
+# model ever sees it, with a bare 413 "Request Entity Too Large" that no token
+# count explains. Binary-searched live on 2026-08-24 with a vision request -
+# 5,235,612 bytes of image plus prompt padding was accepted and 5,237,612 was
+# refused - which puts the boundary at exactly 5 MiB once the JSON scaffolding
+# around it is counted.
+$script:MaxRequestBodyBytes = 5MB
+
+# Share of that ceiling (bytes) held back from the image payload for everything
+# else a request carries: the system prompt, the replayed conversation, the tool
+# schemas and the JSON envelope. Base64 inflates an image by 4/3, so images
+# dominate a vision request's body - but they are never the whole of it, and a
+# guard that handed them the full ceiling would still 413.
+$script:RequestBodyImageReserveBytes = 256KB
+
 # Conservative fallback budget (estimated tokens) for the accumulated chat
 # messages of a single Turn, used by the context-window guard in Invoke-Shp
 # (Compress-ShpChatContext). A Turn is a loop and every tool result rides along

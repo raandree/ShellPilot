@@ -123,6 +123,47 @@ Describe 'Invoke-ShpHttpRequest' {
             $err.Exception.Message | Should -Match ([regex]::Escape('...[truncated, original 20000 chars]'))
         }
 
+        It 'Explains a gateway 413, which says only "Request Entity Too Large"' {
+            $responder = {
+                param($request)
+                $response = [System.Net.Http.HttpResponseMessage]::new([System.Net.HttpStatusCode]::RequestEntityTooLarge)
+                $response.Content = [System.Net.Http.StringContent]::new('Request Entity Too Large', [System.Text.Encoding]::UTF8, 'text/plain')
+                $response
+            }
+            $client = New-ShpFakeHttpClient -Responder $responder
+            $body = '{"x":"' + ('y' * 1000) + '"}'
+
+            $err = InModuleScope $script:moduleName -Parameters @{ Client = $client; Body = $body } {
+                param($Client, $Body)
+                $script:ShpHttpClient = $Client
+                { Invoke-ShpHttpRequest -Uri 'https://api.example/chat/completions' -Body $Body } | Should -Throw -PassThru
+            }
+
+            $err.ErrorDetails.Message | Should -BeLike '*1,008 bytes*'
+            $err.ErrorDetails.Message | Should -BeLike '*5,242,880*'
+            $err.TargetObject.StatusCode | Should -Be 413
+        }
+
+        It 'Leaves a token-overflow 413 to speak for itself' {
+            $body = '{"error":{"message":"prompt token count exceeds the limit","code":"model_max_prompt_tokens_exceeded"}}'
+            $responder = {
+                param($request)
+                $response = [System.Net.Http.HttpResponseMessage]::new([System.Net.HttpStatusCode]::RequestEntityTooLarge)
+                $response.Content = [System.Net.Http.StringContent]::new($body, [System.Text.Encoding]::UTF8, 'application/json')
+                $response
+            }.GetNewClosure()
+            $client = New-ShpFakeHttpClient -Responder $responder
+
+            $err = InModuleScope $script:moduleName -Parameters @{ Client = $client } {
+                param($Client)
+                $script:ShpHttpClient = $Client
+                { Invoke-ShpHttpRequest -Uri 'https://api.example/chat/completions' -Body '{}' } | Should -Throw -PassThru
+            }
+
+            $err.ErrorDetails.Message | Should -Not -BeLike '*base64*'
+            ($err.ErrorDetails.Message | ConvertFrom-Json).error.code | Should -Be 'model_max_prompt_tokens_exceeded'
+        }
+
         It 'Leaves the message unchanged when the service returns an empty body' {
             $responder = {
                 param($request)

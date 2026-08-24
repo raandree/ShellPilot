@@ -351,7 +351,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **A long Turn no longer dies with `401 IDE token expired`.** A tool-calling
+- **`Invoke-Shp -Image` no longer accepts a file that is not an image.** Any
+  path was read and embedded as a base64 data URI, with an unknown extension
+  falling back to `application/octet-stream` - so attaching a `.msg`, `.pdf` or
+  `.docx` alongside a screenshot sent a payload no vision model can see, at its
+  full base64 weight, and the only symptom was a refusal from the service. The
+  extension is now checked against the types a vision model reads (`.bmp`,
+  `.gif`, `.jpeg`, `.jpg`, `.png`, `.webp`) and anything else is rejected by
+  name before the call, pointing at the file tool for the other attachment.
+- **An oversized image is now refused locally instead of as a bare
+  `413 Request Entity Too Large`.** The ceiling is a *gateway* limit measured
+  live rather than assumed: binary-searched against the real endpoint, a body of
+  5,235,612 bytes was accepted and 5,237,612 was refused, putting it at exactly
+  5 MiB. Because base64 costs 4 bytes per 3, an image much over ~3.5 MB on disk
+  cannot fit, which is easy to hit with an unedited phone photo. `-Image` now
+  sums the encoded size of every local attachment - an `http(s)` URL is exempt,
+  being sent by reference - and throws before the round-trip with each file's
+  size on disk, its encoded size, the budget, and what to do about it.
+- **A `413` that does survive now says how large the request was and how large
+  it may be.** The gateway's body is the bare phrase `Request Entity Too Large`,
+  which names neither figure, and the model never saw the request - so the
+  existing context-window advice does not apply and no token count explains it.
+  Both HTTP senders now append the byte count actually sent and the ceiling. The
+  other 413, `model_max_prompt_tokens_exceeded`, carries its own JSON error
+  object and is left untouched.
+
+
   Turn resolved its short-lived Copilot session token once, before the loop, and
   then reused that one credential for every iteration - so an agentic Turn that
   ran longer than the token's lifetime failed part-way through (observed at

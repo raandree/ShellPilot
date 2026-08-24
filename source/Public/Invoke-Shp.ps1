@@ -290,6 +290,13 @@ function Invoke-Shp {
         vision-capable models. Each local file is embedded as a base64 data URI;
         each URL is passed by reference. Forces the chat API shape.
 
+        Only image files are accepted (.bmp, .gif, .jpeg, .jpg, .png, .webp) -
+        any other attachment has to reach the model through the file tool or be
+        pasted into the prompt. The service refuses a whole request body over
+        5 MiB, and base64 costs 4 bytes per 3, so an image much above ~3.5 MB on
+        disk cannot fit; oversized attachments are rejected before the call with
+        their sizes named. An https URL is exempt: it is sent by reference.
+
     .PARAMETER ResponseFormat
         Ask the model for a structured reply. 'json_object' requests a single
         valid JSON object, which is parsed and returned on the result's

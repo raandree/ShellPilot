@@ -40,6 +40,26 @@ Chronological record of shipped changes and remaining work. Latest first.
 
 ## Log
 
+- 2026-08-24 - `Invoke-Shp -Image` now fails fast instead of ending in a bare
+  `413 Request Entity Too Large`. Reported from a real call that attached a
+  3.94 MB phone photo *and a `.msg` file* to `-Image`. Two independent defects:
+  the parameter accepted any file and embedded an unknown extension as
+  `application/octet-stream`, so a `.msg` was sent at full base64 weight to a
+  model that cannot see it; and nothing measured the payload against the
+  service's request-body limit. **The limit was binary-searched live rather
+  than assumed** - 5,235,612 bytes of image plus prompt padding accepted,
+  5,237,612 refused, which is exactly 5 MiB once the JSON scaffolding is
+  counted, and it is a *gateway* limit that the model never sees, so no token
+  count explains it. Extension is now checked against the six types a vision
+  model reads; the encoded size of every local attachment is summed against
+  `$script:MaxRequestBodyBytes` less a 256 KiB reserve and refused before the
+  round-trip with each file's size named (an `http(s)` URL is exempt, being
+  sent by reference); and both HTTP senders append the byte count sent and the
+  ceiling to a gateway 413, leaving the `model_max_prompt_tokens_exceeded` 413
+  alone. Verified: 1266 tests, 0 failures, coverage 87.38%, build 16 tasks /
+  0 errors / 0 warnings; live, the reported call now fails in under a second
+  with guidance and the same photo scaled to 265 KB is described correctly.
+
 - 2026-08-12 - MCP verified against a REAL third-party server, closing the gap
   the stub suite could not: a stub implements the author's own reading of the
   specification and cannot falsify it. Azure MCP Server 2.0.5

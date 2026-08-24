@@ -703,6 +703,17 @@ stock task locates
 
 - One-function-per-file source layout under source/ (done).
 - Sampler build with ModuleBuilder, Pester 5, GitVersion (done).
+- **A service limit is measured, never assumed.** The request-body ceiling in
+  `$script:MaxRequestBodyBytes` was binary-searched against the live endpoint
+  (5,235,612 bytes accepted, 5,237,612 refused) rather than taken from any
+  vendor's documented figure - OpenAI's own image limit is 20 MB, four times
+  what this proxy actually allows. A guard built on a guessed number either
+  refuses valid work or lets the 413 through anyway.
+- **A caller-side guard states both figures the service withholds.** A gateway
+  413's body is the bare phrase `Request Entity Too Large`, naming neither what
+  was sent nor what is allowed. Any error this module raises for a size, count
+  or budget refusal names the measured value, the limit, and the remedy -
+  otherwise the caller can only guess and retry.
 
 ## Patterns to introduce (pending)
 
