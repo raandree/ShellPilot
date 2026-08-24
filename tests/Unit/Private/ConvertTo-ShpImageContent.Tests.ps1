@@ -127,4 +127,71 @@ Describe 'ConvertTo-ShpImageContent' {
             }
         }
     }
+
+    Context 'An oversized but decodable image' -Skip:(-not [System.OperatingSystem]::IsWindows()) {
+        BeforeAll {
+            Add-Type -AssemblyName System.Drawing
+            $script:photo = Join-Path $TestDrive 'photo.png'
+            $bmp = [System.Drawing.Bitmap]::new(600, 400)
+            $rand = [System.Random]::new(7)
+            for ($y = 0; $y -lt 400; $y++) {
+                for ($x = 0; $x -lt 600; $x++) {
+                    $bmp.SetPixel($x, $y, [System.Drawing.Color]::FromArgb($rand.Next(256), $rand.Next(256), $rand.Next(256)))
+                }
+            }
+            $bmp.Save($script:photo, [System.Drawing.Imaging.ImageFormat]::Png)
+            $bmp.Dispose()
+        }
+
+        It 'Re-encodes instead of refusing, and says what it cost' {
+            # Refusing an ordinary photo helps nobody; the call should succeed.
+            InModuleScope $script:moduleName -Parameters @{ f = $script:photo } {
+                param($f)
+                $savedMax = $script:MaxRequestBodyBytes
+                $savedReserve = $script:RequestBodyImageReserveBytes
+                try {
+                    $script:MaxRequestBodyBytes = 300KB
+                    $script:RequestBodyImageReserveBytes = 50KB
+                    $blocks = ConvertTo-ShpImageContent -Text 'hi' -Image $f -WarningVariable w -WarningAction SilentlyContinue
+                    $blocks[1].image_url.url | Should -BeLike 'data:image/jpeg;base64,*'
+                    # The embedded payload must be inside the budget.
+                    $b64 = ($blocks[1].image_url.url -split ',', 2)[1]
+                    $b64.Length | Should -BeLessOrEqual (300KB - 50KB)
+                    ($w -join ' ') | Should -BeLike '*re-compressed*'
+                } finally {
+                    $script:MaxRequestBodyBytes = $savedMax
+                    $script:RequestBodyImageReserveBytes = $savedReserve
+                }
+            }
+        }
+
+        It 'Warns about legibility only when it had to change the dimensions' {
+            InModuleScope $script:moduleName -Parameters @{ f = $script:photo } {
+                param($f)
+                $savedMax = $script:MaxRequestBodyBytes
+                $savedReserve = $script:RequestBodyImageReserveBytes
+                try {
+                    # Tight enough that quality alone cannot get there.
+                    $script:MaxRequestBodyBytes = 30KB
+                    $script:RequestBodyImageReserveBytes = 5KB
+                    $null = ConvertTo-ShpImageContent -Text 'hi' -Image $f -WarningVariable w -WarningAction SilentlyContinue
+                    ($w -join ' ') | Should -BeLike '*scaled from 600x400*'
+                    ($w -join ' ') | Should -BeLike '*Small text may no longer be legible*'
+                } finally {
+                    $script:MaxRequestBodyBytes = $savedMax
+                    $script:RequestBodyImageReserveBytes = $savedReserve
+                }
+            }
+        }
+
+        It 'Says nothing and changes nothing when the image already fits' {
+            InModuleScope $script:moduleName -Parameters @{ f = $script:photo } {
+                param($f)
+                $blocks = ConvertTo-ShpImageContent -Text 'hi' -Image $f -WarningVariable w -WarningAction SilentlyContinue
+                $w | Should -BeNullOrEmpty
+                # Untouched means still the original PNG, not a re-encoded JPEG.
+                $blocks[1].image_url.url | Should -BeLike 'data:image/png;base64,*'
+            }
+        }
+    }
 }

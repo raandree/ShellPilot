@@ -377,6 +377,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **An oversized image is now re-encoded to fit instead of failing the call.**
+  The request-body guard below was correct but unhelpful: an ordinary phone
+  photo is already over the 5 MiB ceiling, so `-Image` refused a perfectly
+  normal attachment and told the caller to go and resize it.
+  **Resolution is the last thing given up, and that order was measured.** A
+  photographed departure board read correctly at every size from 512px to
+  4096px - but a scanned page of 9pt text was refused as illegible below 1024px
+  and, at 1568px, returned a **confidently wrong** file number (`4-C 1137/26`
+  for `4 C 1187/26`). A silently wrong answer is worse than a refusal, so JPEG
+  quality is reduced at full resolution first and dimensions change only when
+  compression alone cannot reach the budget. On the photo that prompted this,
+  quality alone freed 35% (3,943,304 to 2,580,566 bytes) with all 4096x3072
+  pixels kept.
+  A warning always states what it cost, and a dimension change warns separately
+  that small text may no longer be legible. Re-encoding needs an in-box image
+  codec, so it is Windows-only; elsewhere the call is refused with its sizes
+  named, as before.
+
 - **`Invoke-Shp -Image` no longer accepts a file that is not an image.** Any
   path was read and embedded as a base64 data URI, with an unknown extension
   falling back to `application/octet-stream` - so attaching a `.msg`, `.pdf` or

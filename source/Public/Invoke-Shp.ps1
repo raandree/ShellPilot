@@ -292,10 +292,19 @@ function Invoke-Shp {
 
         Only image files are accepted (.bmp, .gif, .jpeg, .jpg, .png, .webp).
         For any other format use -Attachment, which takes a file of any kind.
-        The service refuses a whole request body over 5 MiB, and base64 costs
-        4 bytes per 3, so an image much above ~3.5 MB on disk cannot fit;
-        oversized attachments are rejected before the call with their sizes
-        named. An https URL is exempt: it is sent by reference.
+
+        The service refuses a whole request body over 5 MiB and base64 costs
+        4 bytes per 3, so an ordinary phone photo is already over the ceiling.
+        Rather than fail the call, an oversized image is re-encoded to fit, and
+        resolution is the LAST thing given up: JPEG quality is reduced first at
+        full size, and dimensions only change when compression alone cannot
+        reach the budget. A warning always says what it cost, and specifically
+        warns about small text when the dimensions changed - measured, a scanned
+        page that read correctly at full size returned a confidently WRONG
+        reference number once scaled to 1568px. Re-encoding needs an in-box
+        image codec, which exists on Windows only; elsewhere an oversized image
+        is refused with its sizes named. An https URL is exempt entirely: it is
+        sent by reference.
 
     .PARAMETER Attachment
         One or more files of ANY format to attach to the prompt. Each file is

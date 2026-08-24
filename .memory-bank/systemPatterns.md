@@ -728,6 +728,14 @@ stock task locates
   fenced and explicitly framed as data, because the system prompt is where the
   caller's instructions live and promoting a document to that standing is what
   turns a confused deputy into an exploit (spec 019).
+- **Degrade the input by the minimum a limit requires, and say what it cost.**
+  When something must be shrunk to fit, give up the least valuable dimension
+  first and stop as soon as it fits, rather than normalising to a fixed target.
+  Measured on image input: a fixed downscale looked safe on one sample and
+  produced a *confidently wrong* answer on another, which is worse than the
+  refusal it replaced. Reducing quality at full resolution was enough for the
+  real case. Any lossy accommodation must warn, and must warn differently for
+  the step that can actually corrupt the answer.
 
 ## Patterns to introduce (pending)
 

@@ -40,6 +40,21 @@ Chronological record of shipped changes and remaining work. Latest first.
 
 ## Log
 
+- 2026-08-24 - An oversized `-Image` is re-encoded to fit rather than refused,
+  and **the order of what to give up was measured, not assumed**. The naive fix
+  is a fixed downscale target, and one probe supports it: a photographed
+  departure board read correctly at 512px through 4096px, at 1,091 vs 6,190
+  prompt tokens - 5.7x the cost for the same answer. The second probe kills it.
+  A scanned page of 9pt text was refused as illegible below 1024px and at
+  **1568px returned a confidently WRONG file number** (`4-C 1137/26` for
+  `4 C 1187/26`); 2048px and native were correct. A silently wrong answer is the
+  worst outcome available, so no fixed target is safe.
+  The rule is therefore **shrink the minimum necessary**: JPEG quality first at
+  full resolution, dimensions only if compression cannot reach the budget. The
+  reported photo needed no pixel loss at all - quality alone freed 35%. Windows
+  only (`System.Drawing.Common` is the sole in-box codec on modern .NET);
+  elsewhere the existing refusal stands and says so.
+
 - 2026-08-24 - `Invoke-Shp -Attachment` accepts a file of ANY format (spec 022).
   **The design decision is what matters: ShellPilot converts nothing.** The
   obvious build was a converter suite - Outlook COM for `.msg`, OOXML for
