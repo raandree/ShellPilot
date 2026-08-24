@@ -714,6 +714,20 @@ stock task locates
   was sent nor what is allowed. Any error this module raises for a size, count
   or budget refusal names the measured value, the limit, and the remedy -
   otherwise the caller can only guess and retry.
+- **Present, do not convert.** Where the model already has a general capability,
+  the module's job is to supply the one input the model cannot obtain for
+  itself, not to reimplement the capability. `-Attachment` does not decode a
+  `.msg`, a `.docx` or a PDF; it identifies the format from the magic number and
+  hands over a hex preview, and the model decodes it with `read_file` and
+  `run_command`. A converter table would cost a dependency and an extractor per
+  format forever, and would still be worse than the model at an open-ended
+  recognition problem. Weigh this before adding any extractor, parser or
+  renderer to the module.
+- **Untrusted content never enters the system prompt.** Attachment text, tool
+  results and fetched pages are data. They ride in the user or tool message,
+  fenced and explicitly framed as data, because the system prompt is where the
+  caller's instructions live and promoting a document to that standing is what
+  turns a confused deputy into an exploit (spec 019).
 
 ## Patterns to introduce (pending)
 

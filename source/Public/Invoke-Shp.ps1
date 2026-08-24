@@ -291,14 +291,33 @@ function Invoke-Shp {
         each URL is passed by reference. Forces the chat API shape.
 
         Only image files are accepted (.bmp, .gif, .jpeg, .jpg, .png, .webp).
-        This parameter is not a general attachment mechanism: a text file needs
-        none, because naming its path in the prompt lets the read_file tool
-        fetch it, and a binary document (.msg, .pdf, .docx, .xlsx) has to be
-        converted to text first - read_file reads text, so it would otherwise
-        hand the model raw bytes. The service refuses a whole request body over
-        5 MiB, and base64 costs 4 bytes per 3, so an image much above ~3.5 MB on
-        disk cannot fit; oversized attachments are rejected before the call with
-        their sizes named. An https URL is exempt: it is sent by reference.
+        For any other format use -Attachment, which takes a file of any kind.
+        The service refuses a whole request body over 5 MiB, and base64 costs
+        4 bytes per 3, so an image much above ~3.5 MB on disk cannot fit;
+        oversized attachments are rejected before the call with their sizes
+        named. An https URL is exempt: it is sent by reference.
+
+    .PARAMETER Attachment
+        One or more files of ANY format to attach to the prompt. Each file is
+        classified by its content rather than its extension and routed:
+
+        - An image joins the vision path, exactly as -Image would.
+        - A text file (any encoding) is decoded and inlined into the prompt,
+          capped per file with a truncation marker.
+        - Anything else is described rather than decoded: the model is given the
+          absolute path, the size, the format identified from the file's magic
+          number, and a hex preview of the head - enough to recognise the format
+          and decode the file itself with read_file and run_command.
+
+        ShellPilot deliberately converts nothing. A converter table would need a
+        dependency and a new extractor per format, while the model already has
+        the tools and only lacks the first bytes. A binary attachment therefore
+        needs file or terminal access to be useful; a warning is emitted when
+        both are disabled.
+
+        Attachment content is inserted into the USER message and framed as data,
+        never as a system instruction, because a document is untrusted content.
+        Use Set-ShpToolPolicy to bound what the model may then do.
 
     .PARAMETER ResponseFormat
         Ask the model for a structured reply. 'json_object' requests a single
@@ -429,6 +448,21 @@ function Invoke-Shp {
 
         Disables the file tools (read_file / list_directory / write_file /
         create_directory) for this call.
+
+    .EXAMPLE
+        Invoke-Shp -Prompt 'Worum geht es in dieser Mail?' -Attachment '.\flight-delay.msg'
+
+        Attaches a file of any format. A .msg is an OLE2 compound file, so it is
+        not decoded here: the model is told the path, the size, that the leading
+        bytes are d0 cf 11 e0 a1 b1 1a e1, and that it should decode the file
+        itself - which it can, using read_file and run_command.
+
+    .EXAMPLE
+        Invoke-Shp -Prompt 'Fasse beide Belege zusammen.' -Attachment '.\boarding.jpg', '.\notes.md'
+
+        Mixes formats in one call. The image goes down the vision path and the
+        Markdown is inlined into the prompt; the result's Attachments member
+        reports how each one was classified and whether it was truncated.
 
     .EXAMPLE
         Invoke-Shp -Prompt 'Refactor this loop.' -SystemPrompt 'You are a terse senior PowerShell engineer. Reply with code only, no prose.'
@@ -637,6 +671,9 @@ function Invoke-Shp {
 
         [ValidateNotNullOrEmpty()]
         [string[]]$Image,
+
+        [ValidateNotNullOrEmpty()]
+        [string[]]$Attachment,
 
         [ValidateSet('text', 'json_object')]
         [string]$ResponseFormat,
@@ -1040,9 +1077,32 @@ function Invoke-Shp {
     # Build the user message. With -Image the chat content becomes an array of
     # content blocks (text plus one image_url block per image); otherwise it is
     # the plain prompt string. The responses shape keeps the text prompt.
-    $userChatContent = if ($Image) { ConvertTo-ShpImageContent -Text $Prompt -Image $Image } else { $Prompt }
+    # -Attachment is expanded first: an image joins the vision path, a text file
+    # is inlined into the prompt, and a binary file contributes a manifest entry
+    # the model can act on. The blocks ride in the USER message on purpose -
+    # attachment content is untrusted data and must not gain the standing of a
+    # system instruction (spec 019).
+    $effectivePrompt = $Prompt
+    # Built as a list, not as @($Image): an unbound [string[]] parameter is
+    # $null, and @($null) is an array holding one null element, which would be
+    # passed on as a bogus image path.
+    $effectiveImages = New-Object System.Collections.Generic.List[string]
+    foreach ($i in $Image) { if (-not [string]::IsNullOrWhiteSpace($i)) { $null = $effectiveImages.Add($i) } }
+    $attachments = @()
+    if ($Attachment) {
+        $expanded = ConvertTo-ShpAttachmentContent -Path $Attachment
+        $effectivePrompt = $Prompt + $expanded.PromptText
+        foreach ($i in $expanded.Image) { $null = $effectiveImages.Add($i) }
+        $attachments = $expanded.Manifest
+        $undecoded = @($attachments | Where-Object { $_.Kind -eq 'Binary' })
+        if ($undecoded.Count -gt 0 -and -not $fileAccessEnabled -and -not $terminalEnabled) {
+            Write-Warning ("{0} binary attachment(s) were described but not decoded, and both -DisableFileAccess and -DisableTerminal are set, so the model has no way to read them: {1}." -f $undecoded.Count, (($undecoded.Name) -join ', '))
+        }
+    }
+    $hasImages = $effectiveImages.Count -gt 0
+    $userChatContent = if ($hasImages) { ConvertTo-ShpImageContent -Text $effectivePrompt -Image $effectiveImages.ToArray() } else { $effectivePrompt }
     $null = $chatMessages.Add(@{ role='user';   content=$userChatContent })
-    $null = $respInput.Add(@{ role='user';   content=$Prompt })
+    $null = $respInput.Add(@{ role='user';   content=$effectivePrompt })
 
     $respTools = $null
     if ($tools) {
@@ -1107,12 +1167,12 @@ function Invoke-Shp {
     # Structured output (response_format) and image input are chat-shaped;
     # server-side state is responses-shaped. These cannot be combined.
     $structured = ($ResponseFormat -eq 'json_object') -or (-not [string]::IsNullOrWhiteSpace($JsonSchema))
-    if ($UseServerSideState -and ($structured -or $Image)) {
+    if ($UseServerSideState -and ($structured -or $hasImages)) {
         throw 'UseServerSideState (responses API) cannot be combined with structured output or image input (chat API).'
     }
     $streamingEnabled = (-not $DisableStreaming) -and (-not $UseServerSideState)
     $mode = if ($UseServerSideState) { 'responses' }
-            elseif ($Image -or $structured) { 'chat' }
+            elseif ($hasImages -or $structured) { 'chat' }
             elseif ($ShowThinking -and -not $streamingEnabled) { 'responses' }
             else { 'chat' }
     $requestReasoning = [bool]$ShowThinking -and ($mode -eq 'responses')
@@ -1575,9 +1635,17 @@ function Invoke-Shp {
     # session chat to its own constituted conversation; continuation is the
     # default. Use Clear-ShpChat to reset. The explicit -History mode stays
     # stateless and never writes to the session.
+    # The PAYLOAD is deliberately left out of the history: a Turn replays its
+    # history on every later call, so inlined attachment text would be resent
+    # for the rest of the session and an image would be resent as base64. Record
+    # only that the files were attached, which keeps a continuation coherent -
+    # the assistant's reply refers to them - without the weight.
+    $historyPrompt = if ($attachments.Count -gt 0) {
+        '{0}{1}[Attached: {2}]' -f $Prompt, "`n`n", ((@($attachments).Name) -join ', ')
+    } else { $Prompt }
     $newHistory = @(
         foreach ($h in $priorHistory) { [pscustomobject]@{ role = [string]$h.role; content = [string]$h.content } }
-        [pscustomobject]@{ role = 'user';      content = $Prompt }
+        [pscustomobject]@{ role = 'user';      content = $historyPrompt }
         [pscustomobject]@{ role = 'assistant'; content = $finalContent }
     )
     if (-not $PSBoundParameters.ContainsKey('History')) {
@@ -1607,6 +1675,7 @@ function Invoke-Shp {
         TerminalEnabled=[bool]$terminalEnabled; UserPromptsEnabled=[bool]$userPromptsEnabled
         StreamingEnabled=[bool]$streamingEnabled
         FilesRead=@($filesRead); FilesWritten=@($filesWritten); ApiMode=$turn.Mode
+        Attachments=@($attachments)
         CommandsRun=@($commandsRun); QuestionsAsked=@($questionsAsked)
         ToolCallsDenied=@($toolCallsDenied)
         TodoList=@($todoList)

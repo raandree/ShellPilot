@@ -46,6 +46,7 @@ proof of concept, what is partial, and what is still to be decided.
 | Slash commands | Start-ShpChat (/model, /models, /clear, /history, /retry, /usage, /exit, /help) | Partial |
 | Structured output | -ResponseFormat / -JsonSchema to ContentObject | Done |
 | Vision (image input) | Invoke-Shp -Image | Done |
+| File attachments (any format) | Invoke-Shp -Attachment | Done |
 | Embeddings and similarity | Request-ShpEmbedding, Get-ShpCosineSimilarity | Done |
 | Session connection context | Set-ShpContext, Get-ShpContext, Clear-ShpContext | Done |
 | HTTP retry / timeout / outage tolerance | -TimeoutSec, -MaxRetryCount, -NetworkOutageToleranceSec | Done |

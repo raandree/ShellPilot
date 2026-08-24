@@ -40,6 +40,31 @@ Chronological record of shipped changes and remaining work. Latest first.
 
 ## Log
 
+- 2026-08-24 - `Invoke-Shp -Attachment` accepts a file of ANY format (spec 022).
+  **The design decision is what matters: ShellPilot converts nothing.** The
+  obvious build was a converter suite - Outlook COM for `.msg`, OOXML for
+  `.docx`, a PDF text layer - and it was the wrong one twice over: unbounded
+  (a new extractor, dependency and platform caveat per format, against a module
+  whose stated constraint is no runtime dependencies) and redundant (the model
+  already has `read_file` and `run_command`, and is better at "recognise this
+  format and decode it" than any fixed table). It lacked exactly one thing it
+  cannot get for itself: **the first bytes**. So the module's job is to present,
+  not to decode - resolve the file, identify it from its magic number, and hand
+  over a hex preview.
+  Classification is by content, not extension, in both directions: a gzip called
+  `.log` is caught, and an extensionless config is read as text. An image joins
+  the vision path; text is inlined with a cap; a binary file contributes only a
+  manifest entry, so a 400 KB file and a 2 KB file cost the prompt the same.
+  **Proved by the case that motivated it**, with neither Outlook (`REGDB_E_
+  CLASSNOTREG`) nor Python (a Store alias stub) installed: given
+  `d0 cf 11 e0 a1 b1 1a e1` the model recognised the OLE2 compound file and
+  decoded the sender, subject, timestamp, flight number and booking code in four
+  iterations, entirely through `run_command`.
+  Security: content goes in the **user** message framed as data, never the
+  system prompt - spec 019's threat model is precisely a document that contains
+  instructions. The payload is also kept out of the replayed history, which
+  would otherwise resend an inlined file for the rest of the session.
+
 - 2026-08-24 - `Invoke-Shp -Image` now fails fast instead of ending in a bare
   `413 Request Entity Too Large`. Reported from a real call that attached a
   3.94 MB phone photo *and a `.msg` file* to `-Image`. Two independent defects:

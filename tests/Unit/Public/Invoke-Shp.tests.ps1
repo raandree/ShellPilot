@@ -1128,6 +1128,106 @@ Describe 'Invoke-Shp' {
         }
     }
 
+    Context 'Attachments' {
+        BeforeEach {
+            InModuleScope $script:moduleName {
+                $script:ShpChat = @()
+                $script:capturedConversation = $null
+                $script:capturedMode = $null
+                Mock Get-ShpSessionToken { [pscustomobject]@{ token = 't'; expires_at = 0; endpoints = [pscustomobject]@{ api = 'https://api.example' } } }
+                Mock Invoke-CopilotTurn {
+                    $script:capturedConversation = $Conversation
+                    $script:capturedMode = $Mode
+                    [pscustomobject]@{
+                        Mode = $Mode; Content = 'ok'; FinishReason = 'stop'; ToolCalls = @()
+                        AssistantMessage = [pscustomobject]@{ content = 'ok' }; Reasoning = ''
+                        PromptTokens = 5; CompletionTokens = 7; CachedTokens = 0; CacheWriteTokens = 0
+                        ModelName = $Model; CopilotUsage = $null; Raw = @{}; Response = [pscustomobject]@{ Headers = @{} }
+                    }
+                }
+            }
+        }
+
+        AfterEach {
+            InModuleScope $script:moduleName { $script:ShpChat = @() }
+        }
+
+        It 'Exposes an -Attachment parameter' {
+            (Get-Command -Name 'Invoke-Shp').Parameters.Keys | Should -Contain 'Attachment'
+        }
+
+        It 'Attaches an image without -Image being bound (regression: @($null) built a null image path)' {
+            # An unbound [string[]] parameter is $null, and @($null) is an array
+            # holding ONE NULL ELEMENT - which reached ConvertTo-ShpImageContent
+            # as a bogus path and failed its ValidateNotNullOrEmpty.
+            $png = Join-Path $TestDrive 'shot.png'
+            [System.IO.File]::WriteAllBytes($png, [byte[]]@(0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A) + [byte[]]::new(32))
+            InModuleScope $script:moduleName -Parameters @{ p = $png } {
+                param($p)
+                $r = Invoke-Shp -Prompt 'hi' -Attachment $p -DisableBrowsing -DisableFileAccess -DisableTerminal -DisableUserPrompts -DisableTodoList
+                $r.Attachments[0].Kind | Should -Be 'Image'
+                # An image forces the chat shape and a content-block array.
+                $script:capturedMode | Should -Be 'chat'
+                $user = @($script:capturedConversation) | Where-Object { $_.role -eq 'user' }
+                @($user.content)[0].type | Should -Be 'text'
+                @($user.content)[1].type | Should -Be 'image_url'
+            }
+        }
+
+        It 'Leaves the responses shape available when nothing is attached' {
+            InModuleScope $script:moduleName {
+                $null = Invoke-Shp -Prompt 'hi' -DisableBrowsing -DisableFileAccess -DisableTerminal -DisableUserPrompts -DisableTodoList -UseServerSideState
+                $script:capturedMode | Should -Be 'responses'
+            }
+        }
+
+        It 'Inlines a text attachment into the user message, not the system prompt' {
+            $note = Join-Path $TestDrive 'note.txt'
+            Set-Content -LiteralPath $note -Value 'SENTINEL-TEXT' -Encoding utf8NoBOM
+            InModuleScope $script:moduleName -Parameters @{ n = $note } {
+                param($n)
+                $null = Invoke-Shp -Prompt 'hi' -Attachment $n -DisableBrowsing -DisableFileAccess -DisableTerminal -DisableUserPrompts -DisableTodoList
+                $msgs = @($script:capturedConversation)
+                ($msgs | Where-Object { $_.role -eq 'user' }).content | Should -BeLike '*SENTINEL-TEXT*'
+                # The system prompt must NOT carry attachment content: that would
+                # give a document the standing of the caller's instructions.
+                ($msgs | Where-Object { $_.role -eq 'system' }).content | Should -Not -BeLike '*SENTINEL-TEXT*'
+            }
+        }
+
+        It 'Keeps the attachment payload out of the replayed history' {
+            $note = Join-Path $TestDrive 'hist.txt'
+            Set-Content -LiteralPath $note -Value 'SENTINEL-TEXT' -Encoding utf8NoBOM
+            InModuleScope $script:moduleName -Parameters @{ n = $note } {
+                param($n)
+                $r = Invoke-Shp -Prompt 'hi' -Attachment $n -DisableBrowsing -DisableFileAccess -DisableTerminal -DisableUserPrompts -DisableTodoList
+                $user = @($r.History | Where-Object { $_.role -eq 'user' })[-1]
+                $user.content | Should -Not -BeLike '*SENTINEL-TEXT*'
+                $user.content | Should -BeLike '*[Attached: hist.txt]*'
+            }
+        }
+
+        It 'Warns when a binary attachment cannot be decoded because both tool groups are off' {
+            $bin = Join-Path $TestDrive 'mail.msg'
+            [System.IO.File]::WriteAllBytes($bin, [byte[]]@(0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1))
+            InModuleScope $script:moduleName -Parameters @{ b = $bin } {
+                param($b)
+                $null = Invoke-Shp -Prompt 'hi' -Attachment $b -DisableBrowsing -DisableFileAccess -DisableTerminal -DisableUserPrompts -DisableTodoList -WarningVariable w -WarningAction SilentlyContinue
+                ($w -join ' ') | Should -BeLike '*no way to read them*mail.msg*'
+            }
+        }
+
+        It 'Does not warn when the model still has the tools to decode it' {
+            $bin = Join-Path $TestDrive 'ok.msg'
+            [System.IO.File]::WriteAllBytes($bin, [byte[]]@(0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1))
+            InModuleScope $script:moduleName -Parameters @{ b = $bin } {
+                param($b)
+                $null = Invoke-Shp -Prompt 'hi' -Attachment $b -DisableBrowsing -DisableUserPrompts -DisableTodoList -WarningVariable w -WarningAction SilentlyContinue
+                ($w -join ' ') | Should -Not -BeLike '*no way to read them*'
+            }
+        }
+    }
+
     Context 'ContextTokens (peak context-window occupancy)' {
         AfterEach {
             InModuleScope $script:moduleName { $script:ShpChat = @() }

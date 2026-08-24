@@ -149,6 +149,22 @@ $script:MaxRequestBodyBytes = 5MB
 # guard that handed them the full ceiling would still 413.
 $script:RequestBodyImageReserveBytes = 256KB
 
+# Cap (characters) on the text of a SINGLE inlined -Attachment. A text
+# attachment is put in front of the model whole, without a tool call, so one
+# large file would otherwise consume the context window before the turn starts.
+# Past this the text is cut with the module's usual truncation marker and the
+# model is told to page the rest with read_file, which is what that tool is for.
+$script:MaxAttachmentTextChars = 100000
+
+# How many leading bytes of a BINARY -Attachment are rendered as hex for the
+# model. A binary file is never inlined - its bytes are unreadable to the model
+# and cost the body their full weight - so this preview is all it gets, and its
+# job is only to carry the magic number and any legible header strings. 256
+# bytes is 16 hexdump rows, roughly 1 KB of prompt: 32x the longest signature
+# this module matches, and enough header for a model to recognise a format it
+# knows that this module does not.
+$script:AttachmentHexPreviewBytes = 256
+
 # Conservative fallback budget (estimated tokens) for the accumulated chat
 # messages of a single Turn, used by the context-window guard in Invoke-Shp
 # (Compress-ShpChatContext). A Turn is a loop and every tool result rides along

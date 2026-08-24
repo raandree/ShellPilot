@@ -9,6 +9,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`Invoke-Shp -Attachment` takes a file of any format.** `-Image` was the only
+  attachment surface and accepts images only, so everything else had no route to
+  the model at all - naming the path in the prompt works for a text file and
+  fails for anything else, because `read_file` decodes text and a `.msg` comes
+  back as 2,257 characters of raw bytes.
+  Each file is classified by **content, not extension**, and routed three ways:
+  an image joins the vision path; a text file of any encoding is decoded and
+  inlined, capped with the usual truncation marker; and a binary file is
+  **described rather than decoded** - the model is given the absolute path, the
+  size, the format identified from the file's magic number, and a hex preview of
+  the head.
+  **ShellPilot deliberately converts nothing.** A converter table would need a
+  dependency and a new extractor per format, against a module whose stated
+  constraint is no runtime dependencies - while the model already has `read_file`
+  and `run_command` and lacked only the first bytes. Live-verified on the `.msg`
+  that motivated this, with neither Outlook nor Python present: given
+  `d0 cf 11 e0 a1 b1 1a e1` the model recognised the OLE2 compound file and
+  decoded the sender, subject, timestamp, flight number and booking code itself
+  in four iterations.
+  Attachment content is inserted into the **user** message and framed as data,
+  never as a system instruction, because a document is untrusted content
+  (spec 019's threat model). The payload is kept out of the replayed history, so
+  a continuation records that files were attached without resending them. The
+  result reports `Attachments`.
+  See [specs/022-file-attachments.md](specs/022-file-attachments.md).
+
 - `Register-ShpMcpServer`, `Get-ShpMcpServer` and `Unregister-ShpMcpServer`
   attach MCP (Model Context Protocol) servers so their tools are offered to the
   model alongside the built-ins and any registered user tools. Opt out for one
