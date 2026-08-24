@@ -358,7 +358,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   full base64 weight, and the only symptom was a refusal from the service. The
   extension is now checked against the types a vision model reads (`.bmp`,
   `.gif`, `.jpeg`, `.jpg`, `.png`, `.webp`) and anything else is rejected by
-  name before the call, pointing at the file tool for the other attachment.
+  name before the call. The rejection also says what to do instead, because the
+  answer differs by file: a **text** file needs no attachment at all - naming
+  its path in the prompt lets the `read_file` tool fetch it - while a binary
+  document (`.msg`, `.pdf`, `.docx`, `.xlsx`) has to be converted to text first,
+  since `read_file` reads text and would otherwise hand the model raw bytes.
 - **An oversized image is now refused locally instead of as a bare
   `413 Request Entity Too Large`.** The ceiling is a *gateway* limit measured
   live rather than assumed: binary-searched against the real endpoint, a body of

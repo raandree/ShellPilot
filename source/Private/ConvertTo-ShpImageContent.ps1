@@ -77,7 +77,7 @@ function ConvertTo-ShpImageContent {
         $ext = [System.IO.Path]::GetExtension($resolved).ToLowerInvariant()
         if (-not $mimeByExt.ContainsKey($ext)) {
             $supported = ($mimeByExt.Keys | Sort-Object) -join ', '
-            throw "Image '$img' has extension '$ext', which is not an image type a vision model can read (supported: $supported). Attach image files here; any other file has to reach the model through the file tool or be pasted into the prompt."
+            throw "Image '$img' has extension '$ext', which is not an image type a vision model can read (supported: $supported). A TEXT file needs no attachment at all - name its path in the prompt and the read_file tool fetches it. A binary document (.msg, .pdf, .docx, .xlsx) has to be converted to text first, because read_file reads text and would otherwise hand the model raw bytes."
         }
         $fileBytes = (Get-Item -LiteralPath $resolved).Length
         $entry = [pscustomobject]@{
