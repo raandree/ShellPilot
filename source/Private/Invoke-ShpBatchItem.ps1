@@ -109,6 +109,14 @@ function Invoke-ShpBatchItem {
         $result = Invoke-Shp @invokeParams
     } catch {
         $failure = $_
+        # An -FailOn stop is a COMPLETED, billed turn that was converted into an
+        # error, and it puts the whole result on TargetObject. Recover it, or the
+        # item would report no cost and the batch budget would silently
+        # under-count every failing item. An HTTP failure carries a
+        # ShellPilot.HttpErrorDetail here instead, so the type check is the gate.
+        if ($null -ne $_.TargetObject -and (@($_.TargetObject.PSObject.TypeNames) -contains 'ShellPilot.Result')) {
+            $result = $_.TargetObject
+        }
     }
 
     $usage = @(Get-ShpUsage)
@@ -117,8 +125,11 @@ function Invoke-ShpBatchItem {
         $WorkItem.SpendBag.Add([double]$result.CostUSD)
     }
 
+    # A failing item still carries its Result, so Model, FinishReason, Usage and
+    # CostUSD survive; New-ShpBatchResult keeps Success false because an
+    # ErrorRecord is present.
     $batchResult = if ($failure) {
-        New-ShpBatchResult -Index $WorkItem.Index -Id $WorkItem.Id -Prompt $WorkItem.Prompt -InputObject $WorkItem.InputObject -ErrorRecord $failure
+        New-ShpBatchResult -Index $WorkItem.Index -Id $WorkItem.Id -Prompt $WorkItem.Prompt -InputObject $WorkItem.InputObject -ErrorRecord $failure -Result $result
     } else {
         New-ShpBatchResult -Index $WorkItem.Index -Id $WorkItem.Id -Prompt $WorkItem.Prompt -InputObject $WorkItem.InputObject -Result $result
     }

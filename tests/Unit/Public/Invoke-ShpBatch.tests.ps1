@@ -433,3 +433,235 @@ Describe 'Invoke-ShpBatch' {
         }
     }
 }
+
+Describe 'Invoke-ShpBatch failure semantics' {
+    Context 'Parameter surface' {
+        It 'Offers the same five conditions as Invoke-Shp' {
+            $batchSet = ((Get-Command -Name 'Invoke-ShpBatch').Parameters['FailOn'].Attributes |
+                    Where-Object { $_ -is [System.Management.Automation.ValidateSetAttribute] }).ValidValues
+            $singleSet = ((Get-Command -Name 'Invoke-Shp').Parameters['FailOn'].Attributes |
+                    Where-Object { $_ -is [System.Management.Automation.ValidateSetAttribute] }).ValidValues
+
+            ($batchSet | Sort-Object) | Should -Be ($singleSet | Sort-Object)
+        }
+
+        It 'Offers -FailBatchOnAnyItem as a switch' {
+            (Get-Command -Name 'Invoke-ShpBatch').Parameters['FailBatchOnAnyItem'].SwitchParameter | Should -BeTrue
+        }
+    }
+
+    Context 'Forwarding to the item' {
+        BeforeEach {
+            InModuleScope $script:moduleName {
+                $script:ShpUsageLog = [System.Collections.Generic.List[pscustomobject]]::new()
+                $script:capturedWorkItem = $null
+                Mock Invoke-ShpParallel {
+                    $script:capturedWorkItem = @($WorkItem)
+                    foreach ($item in $WorkItem) {
+                        [pscustomobject]@{
+                            BatchResult = [pscustomobject]@{
+                                PSTypeName = 'ShellPilot.BatchResult'
+                                Index      = $item.Index; Id = $item.Id; Prompt = $item.Prompt
+                                Success    = $true; Skipped = $false; Content = 'answer'; Error = $null
+                            }
+                            UsageRecord = @(); Warning = @()
+                        }
+                    }
+                }
+            }
+        }
+
+        It 'Sends -FailOn down to every item' {
+            $null = Invoke-ShpBatch -Prompt 'a', 'b' -FailOn Truncated, NoContent
+            InModuleScope $script:moduleName {
+                $script:capturedWorkItem[0].InvokeParams.FailOn | Should -Be @('Truncated', 'NoContent')
+                $script:capturedWorkItem[1].InvokeParams.FailOn | Should -Be @('Truncated', 'NoContent')
+            }
+        }
+
+        It 'Leaves -FailOn out of the item parameters when it was not supplied' {
+            $null = Invoke-ShpBatch -Prompt 'a'
+            InModuleScope $script:moduleName {
+                $script:capturedWorkItem[0].InvokeParams.ContainsKey('FailOn') | Should -BeFalse
+            }
+        }
+
+        # -FailBatchOnAnyItem is a batch-level rollup; forwarding it to Invoke-Shp
+        # would be a parameter that does not exist there.
+        It 'Does not forward -FailBatchOnAnyItem to the item' {
+            $null = Invoke-ShpBatch -Prompt 'a' -FailBatchOnAnyItem
+            InModuleScope $script:moduleName {
+                $script:capturedWorkItem[0].InvokeParams.ContainsKey('FailBatchOnAnyItem') | Should -BeFalse
+            }
+        }
+    }
+
+    Context 'A failing item does not take the batch down' {
+        BeforeEach {
+            InModuleScope $script:moduleName {
+                $script:ShpUsageLog = [System.Collections.Generic.List[pscustomobject]]::new()
+                $script:ShpChat = @()
+                $script:ShpBatchWorkerReady = $false
+
+                Mock Invoke-ShpParallel { $WorkItem | ForEach-Object -Process $ScriptBlock }
+                # Item 1 trips -FailOn Truncated for real: Invoke-Shp raises the
+                # terminating error and puts the completed, billed result on
+                # TargetObject, exactly as it does outside a batch.
+                Mock Invoke-Shp {
+                    $turnResult = [pscustomobject]@{
+                        PSTypeName   = 'ShellPilot.Result'
+                        Model        = 'test-model'; Prompt = $Prompt; Content = 'half an ans'
+                        Usage        = [pscustomobject]@{ TotalTokens = 3 }
+                        CostUSD      = 0.5; Credits = 50.0; Priced = $true
+                        FinishReason = 'length'; Iterations = 1; ToolCalls = @(); DurationMs = 5
+                        BudgetExceeded = $false; ContentObject = $null
+                    }
+                    if ($Prompt -eq 'beta') {
+                        $PSCmdlet.ThrowTerminatingError((New-ShpFailureError -Condition 'Truncated' -Result $turnResult -Message '-FailOn Truncated: the reply was cut off.'))
+                    }
+                    $turnResult.Content = 'reply to ' + $Prompt
+                    $turnResult.FinishReason = 'stop'
+                    $turnResult
+                }
+            }
+        }
+
+        AfterEach {
+            InModuleScope $script:moduleName {
+                $script:ShpUsageLog = [System.Collections.Generic.List[pscustomobject]]::new()
+                $script:ShpBatchWorkerReady = $false
+            }
+        }
+
+        It 'Leaves the other items intact and marks only the failing one' {
+            $result = @(Invoke-ShpBatch -Prompt 'alpha', 'beta', 'gamma' -FailOn Truncated -WarningAction SilentlyContinue)
+
+            $result.Count | Should -Be 3
+            @($result | Where-Object Success).Count | Should -Be 2
+            ($result | Where-Object { -not $_.Success }).Prompt | Should -Be 'beta'
+        }
+
+        # The id, not the ',Invoke-Shp' suffix: raised from a mock there is no
+        # real command name to append. What matters here is that the id survives
+        # the runspace and result-building boundaries at all - the fully
+        # qualified form is asserted against the real cmdlet in Invoke-Shp.tests.
+        It 'Keeps the branchable error id on the failed item' {
+            $result = @(Invoke-ShpBatch -Prompt 'alpha', 'beta' -FailOn Truncated -WarningAction SilentlyContinue)
+            $failed = $result | Where-Object { -not $_.Success }
+
+            $failed.ErrorRecord.FullyQualifiedErrorId | Should -BeLike 'ShpTruncated*'
+            $failed.Error | Should -BeLike '*cut off*'
+        }
+
+        # A -FailOn stop is a turn that completed and was billed. Dropping its
+        # cost would make -MaxBatchBudgetUSD undercount every failing item.
+        It 'Keeps the failed item usage and cost, recovered from TargetObject' {
+            $result = @(Invoke-ShpBatch -Prompt 'alpha', 'beta' -FailOn Truncated -WarningAction SilentlyContinue)
+            $failed = $result | Where-Object { -not $_.Success }
+
+            $failed.CostUSD      | Should -Be 0.5
+            $failed.Model        | Should -Be 'test-model'
+            $failed.FinishReason | Should -Be 'length'
+            $failed.Result.Content | Should -Be 'half an ans'
+        }
+
+        It 'Still withholds Content from an unsuccessful item' {
+            $result = @(Invoke-ShpBatch -Prompt 'alpha', 'beta' -FailOn Truncated -WarningAction SilentlyContinue)
+            ($result | Where-Object { -not $_.Success }).Content | Should -BeNullOrEmpty
+        }
+
+        It 'Counts the failure in the end-of-batch warning' {
+            $warnings = $null
+            $null = Invoke-ShpBatch -Prompt 'alpha', 'beta', 'gamma' -FailOn Truncated -WarningVariable warnings
+
+            @($warnings).Count | Should -Be 1
+            [string]$warnings[0] | Should -BeLike '*1 of 3*'
+        }
+
+        It 'Does not throw without -FailBatchOnAnyItem' {
+            { Invoke-ShpBatch -Prompt 'alpha', 'beta' -FailOn Truncated -WarningAction SilentlyContinue } |
+                Should -Not -Throw
+        }
+    }
+
+    Context '-FailBatchOnAnyItem' {
+        BeforeEach {
+            InModuleScope $script:moduleName {
+                $script:ShpUsageLog = [System.Collections.Generic.List[pscustomobject]]::new()
+                Mock Invoke-ShpParallel {
+                    foreach ($item in $WorkItem) {
+                        $failed = $item.Index -eq 1
+                        [pscustomobject]@{
+                            BatchResult = [pscustomobject]@{
+                                PSTypeName = 'ShellPilot.BatchResult'
+                                Index      = $item.Index; Id = $item.Id; Prompt = $item.Prompt
+                                Success    = (-not $failed); Skipped = $false
+                                Content    = $(if ($failed) { $null } else { 'answer' })
+                                Error      = $(if ($failed) { 'the reply was cut off' } else { $null })
+                            }
+                            UsageRecord = @(); Warning = @()
+                        }
+                    }
+                }
+            }
+        }
+
+        It 'Throws ShpBatchItemsFailed once, after every item has run' {
+            $err = { Invoke-ShpBatch -Prompt 'a', 'b', 'c' -FailBatchOnAnyItem -WarningAction SilentlyContinue } |
+                Should -Throw -PassThru
+
+            $err.FullyQualifiedErrorId | Should -Be 'ShpBatchItemsFailed,Invoke-ShpBatch'
+            $err.Exception.Message     | Should -BeLike '*1 of 3*'
+        }
+
+        It 'Carries the tally and the failed items on TargetObject' {
+            $err = { Invoke-ShpBatch -Prompt 'a', 'b', 'c' -FailBatchOnAnyItem -WarningAction SilentlyContinue } |
+                Should -Throw -PassThru
+
+            @($err.TargetObject.PSObject.TypeNames) | Should -Contain 'ShellPilot.BatchSummary'
+            $err.TargetObject.TotalCount     | Should -Be 3
+            $err.TargetObject.FailedCount    | Should -Be 1
+            $err.TargetObject.SucceededCount | Should -Be 2
+            $err.TargetObject.SkippedCount   | Should -Be 0
+            @($err.TargetObject.Failed).Count | Should -Be 1
+            @($err.TargetObject.Failed)[0].Prompt | Should -Be 'b'
+        }
+
+        # The empty entry sits at index 2 deliberately: a malformed item never
+        # reaches a worker, so putting it at index 1 would consume the mock's
+        # only failure instead of adding to it.
+        It 'Counts a malformed input as a failure too' {
+            $err = { Invoke-ShpBatch -Prompt 'a', 'b', '', 'd' -FailBatchOnAnyItem -WarningAction SilentlyContinue } |
+                Should -Throw -PassThru
+
+            # One rejected before dispatch plus the mock's index-1 failure.
+            $err.TargetObject.TotalCount  | Should -Be 4
+            $err.TargetObject.FailedCount | Should -Be 2
+            @($err.TargetObject.Failed | Where-Object { $_.Error -like '*null or empty*' }).Count | Should -Be 1
+        }
+
+        It 'Stays silent when every item succeeded' {
+            InModuleScope $script:moduleName {
+                Mock Invoke-ShpParallel {
+                    foreach ($item in $WorkItem) {
+                        [pscustomobject]@{
+                            BatchResult = [pscustomobject]@{
+                                PSTypeName = 'ShellPilot.BatchResult'
+                                Index      = $item.Index; Id = $item.Id; Prompt = $item.Prompt
+                                Success    = $true; Skipped = $false; Content = 'answer'; Error = $null
+                            }
+                            UsageRecord = @(); Warning = @()
+                        }
+                    }
+                }
+            }
+
+            # Not wrapped in Should -Not -Throw: an unexpected terminating error
+            # fails the test on its own, and a variable assigned inside that
+            # scriptblock would not survive it anyway.
+            $result = @(Invoke-ShpBatch -Prompt 'a', 'b' -FailBatchOnAnyItem)
+            @($result).Count | Should -Be 2
+            @($result | Where-Object Success).Count | Should -Be 2
+        }
+    }
+}

@@ -27,7 +27,10 @@ function Invoke-ShpBatch {
         would destroy every result in the batch, which is precisely what this
         cmdlet exists to prevent. Check Success, Error and ErrorRecord on each
         result; a single summary warning at the end names how many items did not
-        complete.
+        complete. -FailBatchOnAnyItem is the one exception and it does not weaken
+        the rule: it raises a single terminating error AFTER every item has run
+        and every result has been written, so it converts the final tally into an
+        exit condition rather than abandoning work.
 
         RESULTS ARRIVE IN COMPLETION ORDER, not input order, so position carries
         no meaning. Every result carries Index (the input's 0-based position) and
@@ -165,6 +168,44 @@ function Invoke-ShpBatch {
         item's estimated spend exceeds the amount. Independent of
         -MaxBatchBudgetUSD.
 
+    .PARAMETER FailOn
+        Applied to every item, exactly as Invoke-Shp -FailOn: BudgetExceeded,
+        Truncated, ToolIterationLimit, NoContent and/or SchemaMismatch turn a
+        disappointing outcome into a failure. See Invoke-Shp for what each
+        condition tests and which error id it raises.
+
+        A tripped condition NEVER aborts the batch. The item comes back with
+        Success false, the message on Error and the whole ErrorRecord on
+        ErrorRecord - so FullyQualifiedErrorId is still there to branch on - and
+        every other item runs to completion regardless. That is the same
+        isolation contract a failed HTTP call already has, and it is the reason
+        the switch is safe to turn on for a large sweep.
+
+        The item keeps its Model, FinishReason, Usage and CostUSD, because a
+        -FailOn stop is a turn that completed and was billed. Content and
+        ContentObject are withheld, as they are for any unsuccessful item; the
+        full result is still on the item's Result member. Batch spend accounting
+        counts a failed item's cost, so -MaxBatchBudgetUSD is not fooled by it.
+
+    .PARAMETER FailBatchOnAnyItem
+        After every item has finished, raise ONE terminating error if any item
+        did not complete - whether it failed a -FailOn condition, failed for any
+        other reason, or was rejected as malformed input. Items skipped by
+        -MaxBatchBudgetUSD count as not completed too.
+
+        FullyQualifiedErrorId is 'ShpBatchItemsFailed,Invoke-ShpBatch'. The
+        error's TargetObject is a ShellPilot.BatchSummary with TotalCount,
+        SucceededCount, FailedCount, SkippedCount and Failed - the failed
+        results themselves, so a wrapper can report which items died without
+        re-running anything.
+
+        Note what a terminating error does to the pipeline: the results were
+        already written, but the statement does not complete, so
+        `$r = Invoke-ShpBatch ... -FailBatchOnAnyItem` leaves $r unassigned. Read
+        the failures off TargetObject, or omit the switch and branch on Success
+        yourself. As everywhere in this module, nothing calls exit or sets
+        $LASTEXITCODE - the exit code is the caller's job.
+
     .PARAMETER MaxBatchBudgetUSD
         Ceiling in USD for the batch as a whole. Before each item is sent, the
         cost recorded so far is compared with this cap; once it is reached, the
@@ -236,6 +277,22 @@ function Invoke-ShpBatch {
 
         Requests a schema-constrained reply per item and reads the parsed object
         off each result.
+
+    .EXAMPLE
+        try {
+            Invoke-ShpBatch -Prompt $prompts -JsonSchema $schema `
+                -FailOn SchemaMismatch, Truncated -FailBatchOnAnyItem |
+                Export-Csv verdicts.csv -NoTypeInformation
+        } catch {
+            $_.TargetObject.Failed | Format-Table Id, FinishReason, Error
+            Write-Host "::error::$($_.Exception.Message)"
+            exit 1
+        }
+
+        The CI wrapper. Every item still runs, an unparseable or truncated reply
+        marks only its own item failed, and one terminating error at the end
+        stops the step. The failed items are on the summary carried by
+        TargetObject.
 
     .LINK
         Invoke-Shp
@@ -321,6 +378,11 @@ function Invoke-ShpBatch {
         [ValidateRange(0.0, [double]::MaxValue)]
         [double]$MaxBatchBudgetUSD,
 
+        [ValidateSet('BudgetExceeded', 'Truncated', 'ToolIterationLimit', 'NoContent', 'SchemaMismatch')]
+        [string[]]$FailOn,
+
+        [switch]$FailBatchOnAnyItem,
+
         [ValidateNotNullOrEmpty()]
         [string]$ApiBase,
 
@@ -381,7 +443,7 @@ function Invoke-ShpBatch {
                 'InstructionRoot', 'SkillPath', 'Temperature', 'TopP', 'Seed',
                 'ResponseFormat', 'JsonSchema', 'DisableBrowsing', 'AllowPrivateNetwork',
                 'DisableFileAccess', 'DisableTerminal', 'DisableUserTools', 'DisableTodoList',
-                'MaxToolIterations', 'MaxContextWindowTokens', 'MaxBudgetUSD',
+                'MaxToolIterations', 'MaxContextWindowTokens', 'MaxBudgetUSD', 'FailOn',
                 'ApiBase', 'TimeoutSec', 'MaxRetryCount', 'RetryDelaySec', 'NetworkOutageToleranceSec', 'TokenPath')) {
             if ($PSBoundParameters.ContainsKey($name)) { $invokeParams[$name] = $PSBoundParameters[$name] }
         }
@@ -519,11 +581,17 @@ function Invoke-ShpBatch {
 
         $usageToMerge = [System.Collections.Generic.List[object]]::new()
         $workerWarning = [System.Collections.Generic.List[string]]::new()
+        # Only the failures are kept, so -FailBatchOnAnyItem can name them on the
+        # summary without holding a second reference to every answer in the run.
+        $failedResults = [System.Collections.Generic.List[object]]::new()
         $failedCount = $invalidResults.Count
         $skippedCount = 0
         $totalCount = $invalidResults.Count + $workItems.Count
 
-        foreach ($invalid in $invalidResults) { $invalid }
+        foreach ($invalid in $invalidResults) {
+            $failedResults.Add($invalid)
+            $invalid
+        }
 
         if ($workItems.Count -gt 0) {
             Invoke-ShpParallel -WorkItem $workItems.ToArray() -ThrottleLimit $ThrottleLimit -ScriptBlock $worker |
@@ -531,7 +599,10 @@ function Invoke-ShpBatch {
                     $envelope = $_
                     foreach ($record in @($envelope.UsageRecord)) { $usageToMerge.Add($record) }
                     foreach ($message in @($envelope.Warning)) { $workerWarning.Add($message) }
-                    if (-not $envelope.BatchResult.Success) { $failedCount++ }
+                    if (-not $envelope.BatchResult.Success) {
+                        $failedCount++
+                        $failedResults.Add($envelope.BatchResult)
+                    }
                     if ($envelope.BatchResult.Skipped) { $skippedCount++ }
                     $envelope.BatchResult
                 }
@@ -545,6 +616,28 @@ function Invoke-ShpBatch {
 
         if ($failedCount -gt 0) {
             Write-Warning ('Invoke-ShpBatch: {0} of {1} item(s) did not complete ({2} skipped by the batch budget). Nothing was written to the error stream - inspect Success, Skipped and Error on the results.' -f $failedCount, $totalCount, $skippedCount)
+
+            # The one place a batch is allowed to terminate, and only on request.
+            # It fires AFTER every item has run and every result has been written,
+            # so the isolation contract above is intact: this converts the final
+            # tally into an exit condition, it does not abandon work.
+            if ($FailBatchOnAnyItem) {
+                $summary = [pscustomobject]@{
+                    PSTypeName     = 'ShellPilot.BatchSummary'
+                    TotalCount     = $totalCount
+                    SucceededCount = $totalCount - $failedCount
+                    FailedCount    = $failedCount
+                    SkippedCount   = $skippedCount
+                    Failed         = @($failedResults)
+                }
+                $PSCmdlet.ThrowTerminatingError(
+                    [System.Management.Automation.ErrorRecord]::new(
+                        [System.InvalidOperationException]::new(
+                            ('-FailBatchOnAnyItem: {0} of {1} batch item(s) did not complete ({2} skipped by the batch budget). Inspect TargetObject.Failed for the individual errors.' -f $failedCount, $totalCount, $skippedCount)),
+                        'ShpBatchItemsFailed',
+                        [System.Management.Automation.ErrorCategory]::OperationStopped,
+                        $summary))
+            }
         }
     }
 }

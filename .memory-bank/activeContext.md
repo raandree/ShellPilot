@@ -4,6 +4,86 @@ Current working focus for ShellPilot. Overwrite this file as the focus shifts.
 
 ## Focus
 
+A ShellPilot call can now **fail** a pipeline step (spec 024). The gap was not
+that failures were unreported - it was that every disappointing outcome was
+reported as *data*, and an unattended runner reads none of it.
+
+`-MaxBudgetUSD` wrote a `Write-Warning`, set `BudgetExceeded = $true` and
+returned normally. The warning goes to a log nobody opens and the property to a
+variable nobody inspects, so the step is green and the artifact is half an
+answer. Truncation (`FinishReason = 'length'`), an empty reply, and an
+unparseable schema reply were all the same shape.
+
+**`Invoke-Shp -FailOn` takes five named conditions** - `BudgetExceeded`,
+`Truncated`, `ToolIterationLimit`, `NoContent`, `SchemaMismatch` - and turns
+them into terminating errors with distinct ids (`ShpBudgetExceeded,Invoke-Shp`
+and so on). Omitting it changes nothing whatsoever, which is the entire
+back-compatibility guarantee.
+
+**`ToolIterationLimit` is the one that shows why an id matters.** It already
+terminated - with `throw "Exceeded MaxToolIterations (25)."`, which makes the
+*message string* the `FullyQualifiedErrorId`. There was nothing stable to branch
+on. Listing it does not change whether the call fails, only that the error is
+addressable; omitting it leaves the original throw byte-for-byte intact.
+
+**The check is the last statement of the turn, deliberately.** The result is
+built, the usage row written and the session chat updated first, so `-FailOn`
+decides exactly one thing: result, or terminating error. Anything earlier would
+have made it silently change the call's side effects too. The whole
+`ShellPilot.Result` rides on `ErrorRecord.TargetObject`, so a `catch` block still
+knows what the abandoned turn cost - a failed step must not be cheaper to run
+than to account for.
+
+**Three edges were decided rather than assumed, and each is tested.** `NoContent`
+tests the delivered `Content` member, not the model's raw output, because
+`Invoke-Shp` already substitutes a "Files written: ..." summary for a turn that
+worked in silence - testing the raw content would fail exactly the scaffolding
+prompts that did their job. `SchemaMismatch` is armed by `-JsonSchema` only;
+`-ResponseFormat json_object` has no schema to mismatch and arming it there
+would fail every deliberately loose prose reply. `Truncated` is a chat-shape
+signal, since the responses shape puts a status in `FinishReason` instead.
+
+**The batch keeps its isolation contract, and gained a real fix on the way.**
+`Invoke-ShpBatch -FailOn` forwards per item; a tripped condition never aborts
+the batch. But `Invoke-ShpBatchItem` built a failed result from the
+`ErrorRecord` **alone**, so a throw contributed nothing to the spend
+accumulator. Invisible while every failure was a cheap HTTP refusal - and wrong
+the moment a `-FailOn` stop is a *completed, billed* turn, because a sweep of
+truncated replies would have overrun `-MaxBatchBudgetUSD` silently. A failing
+item now recovers its result from `TargetObject` and keeps `Model`,
+`FinishReason`, `Usage` and `CostUSD`.
+
+`-FailBatchOnAnyItem` raises one `ShpBatchItemsFailed,Invoke-ShpBatch` after
+every item has run, carrying a `ShellPilot.BatchSummary`. The summary lives on
+the error rather than in the output stream because the cmdlet's contract is one
+`BatchResult` per input and callers pipe it into `Sort-Object Index`.
+
+**Nothing sets `$LASTEXITCODE` and nothing calls `exit`.** A module that
+terminates its host cannot be wrapped, retried or called from another cmdlet.
+The `try`/`catch` plus `exit 1` wrapper is documented in the help of both
+cmdlets instead.
+
+Verified rather than assumed: `$PSCmdlet.ThrowTerminatingError` from an advanced
+function really does render `<id>,<FunctionName>`; a `PSTypeName` literal really
+does land in `PSObject.TypeNames`; and an assignment really does **not** complete
+after a terminating error, which is why `-FailBatchOnAnyItem` documents reading
+the failures off `TargetObject` instead of promising `$r`.
+
+Three of the new tests were proved to discriminate by mutation rather than
+asserted to: disabling the `NoContent` branch, swapping the condition order, and
+switching `NoContent` from `$finalContent` to `$turn.Content` each turned the
+matching test red for its own reason. Two mutations at once initially masked one
+another - a reminder that a combined mutation proves less than it appears to.
+
+Verified: build 7 tasks / 0 errors / 0 warnings; 24 `-FailOn` + 15 batch
+failure-semantics + 12 `New-ShpFailureError` focused tests, 0 failures;
+PSScriptAnalyzer clean on all 5 changed source files (every remaining warning in
+the two touched test files predates this change). The QA gate caught the missing
+`tests/Unit/Private/New-ShpFailureError.Tests.ps1` - a new private function
+requires its own unit-test file.
+
+## Superseded focus (2026-08-25) - non-interactive token
+
 ShellPilot authenticates on a CI runner (spec 023). This was the hard blocker
 for every other CI change, and it was **structural rather than a missing
 parameter**.

@@ -25,6 +25,11 @@ function Invoke-Shp {
         executed, timing, and the raw response. Every call is also appended to
         the per-session usage log (see Get-ShpUsage).
 
+        Nothing here is fatal by default: a budget stop, a truncated reply and an
+        empty answer all come back as data on that object. Pass -FailOn to turn
+        named outcomes into terminating errors instead, so an unattended pipeline
+        step fails rather than shipping a half-finished artifact.
+
         The -Model parameter supports tab-completion backed by Get-ShpModelName.
 
     .PARAMETER Model
@@ -182,6 +187,46 @@ function Invoke-Shp {
         not a hard spend limit. Requires the model to have a price-table entry;
         with no entry no cost can be computed and the cap cannot apply. Omit it
         to run without a budget.
+
+    .PARAMETER FailOn
+        Turn one or more disappointing outcomes into a TERMINATING error, so an
+        unattended step fails instead of exiting 0 on an answer that never
+        arrived. Omit it and nothing changes: a budget stop stays a warning plus
+        the BudgetExceeded property, and every other condition below stays a
+        plain result you inspect yourself.
+
+        Accepts any combination of:
+
+        - BudgetExceeded - the -MaxBudgetUSD cap stopped the tool-calling loop.
+          Error id ShpBudgetExceeded.
+        - Truncated - the model hit its output cap (FinishReason 'length').
+          Error id ShpTruncated. This is a chat-shape finish reason; the
+          responses shape reports a status instead, so pair it with the chat
+          shape (the default) rather than -UseServerSideState.
+        - ToolIterationLimit - the loop hit -MaxToolIterations. Error id
+          ShpToolIterationLimit. This case already threw; listing it only
+          upgrades the opaque throw to a branchable error id.
+        - NoContent - the reply is empty. Error id ShpNoContent. Tested on the
+          Content member you receive, so a turn that wrote files and returned no
+          message does NOT trip it: the file-work summary counts as content.
+        - SchemaMismatch - -JsonSchema was supplied and the reply did not parse,
+          leaving ContentObject null. Error id ShpSchemaMismatch. Armed by
+          -JsonSchema only; -ResponseFormat json_object on its own has no schema
+          to mismatch.
+
+        Conditions are tested in the order listed and the first match throws, so
+        an empty reply under -FailOn NoContent, SchemaMismatch reports
+        ShpNoContent.
+
+        FullyQualifiedErrorId is '<error id>,Invoke-Shp' - branch on that rather
+        than on the message text. The turn's whole result is carried on the
+        error's TargetObject, because a -FailOn stop happens after the turn was
+        billed: the cost, the usage log entry, the session chat and any partial
+        content are all unchanged, and only the OUTPUT becomes an error.
+
+        This module never calls exit and never sets $LASTEXITCODE - a module that
+        terminates its host is a module you cannot compose. Wrap the call
+        yourself; see the CI example below.
 
     .PARAMETER ReasoningEffort
         Reasoning (thinking) effort for the model, mirroring the effort control
@@ -573,6 +618,23 @@ function Invoke-Shp {
         chat entirely - handy in scripts and pipelines where each invocation
         must be self-contained.
 
+    .EXAMPLE
+        try {
+            $r = Invoke-Shp -Prompt 'Summarise the release notes.' -MaxBudgetUSD 0.50 `
+                -FailOn BudgetExceeded, Truncated, NoContent -DisableTerminal -DisableUserPrompts
+            $r.Content | Set-Content summary.md
+        } catch {
+            Write-Host "::error::$($_.Exception.Message)"
+            Write-Host "condition: $($_.FullyQualifiedErrorId)  spent: $($_.TargetObject.CostUSD)"
+            exit 1
+        }
+
+        The CI wrapper. ShellPilot raises a terminating error and stops there -
+        it never calls exit and never sets $LASTEXITCODE, because a module that
+        terminates its host cannot be composed - so the step's exit code is the
+        caller's job. The error id tells the wrapper which condition fired and
+        TargetObject still carries what the abandoned turn cost.
+
     .OUTPUTS
         System.Management.Automation.PSCustomObject
 
@@ -664,6 +726,9 @@ function Invoke-Shp {
         [ValidateRange(0.0, [double]::MaxValue)]
         [double]$MaxBudgetUSD,
 
+        [ValidateSet('BudgetExceeded', 'Truncated', 'ToolIterationLimit', 'NoContent', 'SchemaMismatch')]
+        [string[]]$FailOn,
+
         [ValidateSet('minimal', 'low', 'medium', 'high', 'xhigh', 'max')]
         [string]$ReasoningEffort,
 
@@ -739,6 +804,11 @@ function Invoke-Shp {
     if (-not $PSBoundParameters.ContainsKey('MaxOutputTokens') -and $script:ShpDefaults.MaxOutputTokens) {
         $MaxOutputTokens = [int]$script:ShpDefaults.MaxOutputTokens
     }
+
+    # Normalise -FailOn once. An unbound [string[]] is $null and @($null) is a
+    # ONE-element array, so a bare .Count test here would arm every condition for
+    # a caller who never asked for any.
+    $failOnCondition = @($FailOn | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
 
     # Resolve the prior conversation to continue from. An explicit -History
     # wins (and runs stateless: never reads or writes the session chat);
@@ -1234,6 +1304,14 @@ function Invoke-Shp {
             # this turn already spent before abandoning it.
             $limitError = "Exceeded MaxToolIterations ($MaxToolIterations)."
             $null = Add-ShpUsageRecord -RequestedModel $Model -ServerModel $(if ($turn) { $turn.ModelName } else { $null }) -Prompt $Prompt -RoundTrip $roundTrips.ToArray() -ContextTokens $peakPromptTokens -Iterations ($iteration - 1) -ToolCallCount (@($toolCallsExecuted).Count) -DurationMs ([int]$sw.Elapsed.TotalMilliseconds) -ErrorMessage $limitError
+            # This condition already terminated the call, so -FailOn does not
+            # change WHETHER it fails - only that the error carries a branchable
+            # id instead of a bare message. There is no result to hand over: the
+            # loop is abandoned before one is built.
+            if ($failOnCondition -contains 'ToolIterationLimit') {
+                $PSCmdlet.ThrowTerminatingError((New-ShpFailureError -Condition 'ToolIterationLimit' -Message (
+                            '-FailOn ToolIterationLimit: the tool-calling loop reached iteration {0}, over the -MaxToolIterations limit of {1}.' -f $iteration, $MaxToolIterations)))
+            }
             throw $limitError
         }
         if ($ShowThinking) { Write-Host ("`n=== iteration {0} ({1}) ===" -f $iteration, $mode) -ForegroundColor DarkCyan }
@@ -1712,6 +1790,36 @@ function Invoke-Shp {
     # analysed afterwards via Get-ShpUsage. A failed turn is recorded too, at
     # the throws above, through this same builder.
     $null = Add-ShpUsageRecord -RequestedModel $Model -ServerModel $turn.ModelName -Prompt $Prompt -RoundTrip $roundTrips.ToArray() -ContextTokens $peakPromptTokens -Iterations $iteration -ToolCallCount (@($toolCallsExecuted).Count) -FinishReason $turn.FinishReason -DurationMs ([int]$sw.Elapsed.TotalMilliseconds)
+
+    # Opt-in failure semantics, evaluated LAST and nowhere else. Everything this
+    # turn does has already happened - it was billed, the usage row is written,
+    # the session chat is updated - so -FailOn decides one thing only: whether
+    # the call ends with a result or with a terminating error carrying that same
+    # result on TargetObject. Anything earlier would make -FailOn change the
+    # call's side effects too, which is a second behaviour nobody asked for.
+    if ($failOnCondition.Count -gt 0) {
+        $contentLength = if ($null -eq $finalContent) { 0 } else { $finalContent.Length }
+        $failOnError = $null
+
+        # First match wins, in the order the parameter documents. ToolIterationLimit
+        # is absent because it cannot reach here - it aborts the loop above.
+        if ($failOnCondition -contains 'BudgetExceeded' -and $budgetStopped) {
+            $failOnError = New-ShpFailureError -Condition 'BudgetExceeded' -Result $result -Message (
+                '-FailOn BudgetExceeded: this turn spent {0:N6} USD, over the -MaxBudgetUSD cap of {1:N6}.' -f [double]$costUSD, $MaxBudgetUSD)
+        } elseif ($failOnCondition -contains 'Truncated' -and $turn.FinishReason -eq 'length') {
+            $outputCap = if ($MaxOutputTokens -gt 0) { '-MaxOutputTokens {0}' -f $MaxOutputTokens } else { "the model's own output cap (-MaxOutputTokens was not set)" }
+            $failOnError = New-ShpFailureError -Condition 'Truncated' -Result $result -Message (
+                "-FailOn Truncated: the reply was cut off at the output cap (FinishReason 'length') after {0} completion token(s), against {1}." -f $totalCompletion, $outputCap)
+        } elseif ($failOnCondition -contains 'NoContent' -and $contentLength -eq 0) {
+            $failOnError = New-ShpFailureError -Condition 'NoContent' -Result $result -Message (
+                "-FailOn NoContent: the reply is empty (0 characters) after {0} iteration(s); FinishReason was '{1}'." -f $iteration, $turn.FinishReason)
+        } elseif ($failOnCondition -contains 'SchemaMismatch' -and -not [string]::IsNullOrWhiteSpace($JsonSchema) -and $null -eq $contentObject) {
+            $failOnError = New-ShpFailureError -Condition 'SchemaMismatch' -Result $result -Message (
+                '-FailOn SchemaMismatch: -JsonSchema was supplied but the {0}-character reply did not parse into an object, so ContentObject is null.' -f $contentLength)
+        }
+
+        if ($failOnError) { $PSCmdlet.ThrowTerminatingError($failOnError) }
+    }
 
     $result
 }

@@ -13,7 +13,7 @@ Design and scope documents for ShellPilot. Start with the overview, then the
 open decisions. The numbered specs that follow each describe a single pattern,
 its design, and its source hook points.
 
-> **Status:** every numbered pattern below (002-023) is **implemented**. Each
+> **Status:** every numbered pattern below (002-024) is **implemented**. Each
 > spec's own `## Status` section records the current state, including any
 > backend caveat (for example server-side state, which the Copilot proxy does
 > not support and which falls back to client-side history). The tiers below
@@ -45,6 +45,7 @@ its design, and its source hook points.
 - [MCP (Model Context Protocol) server support](021-mcp-server-support.md)
 - [File attachments](022-file-attachments.md)
 - [Non-interactive token](023-non-interactive-token.md)
+- [Pipeline failure semantics](024-pipeline-failure-semantics.md)
 
 ### Tier 2
 

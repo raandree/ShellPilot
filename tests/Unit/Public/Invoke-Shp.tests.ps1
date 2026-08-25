@@ -2049,3 +2049,365 @@ Describe 'Invoke-Shp approval, budget and pricing tiers' {
         }
     }
 }
+
+Describe 'Invoke-Shp -FailOn' {
+    BeforeEach {
+        InModuleScope $script:moduleName {
+            $script:ShpChat = @()
+            $script:ShpUsageLog = [System.Collections.Generic.List[pscustomobject]]::new()
+            Mock Get-ShpSessionToken { [pscustomobject]@{ token = 't'; expires_at = 0; endpoints = [pscustomobject]@{ api = 'https://api.example' } } }
+        }
+    }
+
+    AfterEach {
+        InModuleScope $script:moduleName {
+            $script:ShpChat = @()
+            $script:ShpUsageLog = [System.Collections.Generic.List[pscustomobject]]::new()
+        }
+    }
+
+    Context 'Parameter surface' {
+        It 'Accepts exactly the five documented conditions' {
+            $validateSet = (Get-Command -Name 'Invoke-Shp').Parameters['FailOn'].Attributes |
+                Where-Object { $_ -is [System.Management.Automation.ValidateSetAttribute] }
+
+            ($validateSet.ValidValues | Sort-Object) | Should -Be @('BudgetExceeded', 'NoContent', 'SchemaMismatch', 'ToolIterationLimit', 'Truncated')
+        }
+
+        It 'Takes more than one condition at a time' {
+            (Get-Command -Name 'Invoke-Shp').Parameters['FailOn'].ParameterType | Should -Be ([string[]])
+        }
+
+        It 'Rejects a condition that is not in the set' {
+            { Invoke-Shp -Prompt 'hi' -FailOn 'Whatever' } | Should -Throw
+        }
+    }
+
+    Context 'BudgetExceeded' {
+        BeforeEach {
+            InModuleScope $script:moduleName {
+                # Every turn asks for another tool call, so only the budget stops
+                # the loop. One round-trip of claude-opus-5 costs 30 USD.
+                Mock Invoke-RunCommandTool { '{"command":"git status","exitCode":0,"stdout":"clean","stderr":""}' }
+                Mock Invoke-CopilotTurn {
+                    [pscustomobject]@{
+                        Mode = 'chat'; Content = 'partial'; FinishReason = 'tool_calls'
+                        ToolCalls = @([pscustomobject]@{ Id = 'c1'; Name = 'run_command'; Arguments = '{"command":"git status"}' })
+                        AssistantMessage = [pscustomobject]@{ content = 'partial' }; Reasoning = ''
+                        PromptTokens = 1000000; CompletionTokens = 1000000; CachedTokens = 0; CacheWriteTokens = 0
+                        ModelName = 'claude-opus-5'; CopilotUsage = $null; Raw = @{}; Response = [pscustomobject]@{ Headers = @{} }
+                    }
+                }
+            }
+        }
+
+        It 'Keeps the warning-plus-property behaviour when -FailOn is omitted' {
+            InModuleScope $script:moduleName {
+                $r = Invoke-Shp -Prompt 'go' -Model 'claude-opus-5' -MaxBudgetUSD 1 -DisableBrowsing -DisableUserPrompts -WarningAction SilentlyContinue
+                $r.BudgetExceeded | Should -BeTrue
+            }
+        }
+
+        It 'Does not throw when a DIFFERENT condition is listed' {
+            InModuleScope $script:moduleName {
+                $r = Invoke-Shp -Prompt 'go' -Model 'claude-opus-5' -MaxBudgetUSD 1 -FailOn Truncated -DisableBrowsing -DisableUserPrompts -WarningAction SilentlyContinue
+                $r.BudgetExceeded | Should -BeTrue
+            }
+        }
+
+        It 'Throws ShpBudgetExceeded when listed' {
+            InModuleScope $script:moduleName {
+                $err = { Invoke-Shp -Prompt 'go' -Model 'claude-opus-5' -MaxBudgetUSD 1 -FailOn BudgetExceeded -DisableBrowsing -DisableUserPrompts -WarningAction SilentlyContinue } |
+                    Should -Throw -PassThru
+
+                $err.FullyQualifiedErrorId | Should -Be 'ShpBudgetExceeded,Invoke-Shp'
+            }
+        }
+
+        It 'States the spend and the cap, and never the prompt' {
+            InModuleScope $script:moduleName {
+                $err = { Invoke-Shp -Prompt 'a very secret prompt' -Model 'claude-opus-5' -MaxBudgetUSD 1 -FailOn BudgetExceeded -DisableBrowsing -DisableUserPrompts -WarningAction SilentlyContinue } |
+                    Should -Throw -PassThru
+
+                $err.Exception.Message | Should -BeLike '*30.000000*'
+                $err.Exception.Message | Should -BeLike '*1.000000*'
+                $err.Exception.Message | Should -Not -BeLike '*secret prompt*'
+            }
+        }
+
+        It 'Carries the whole billed result on TargetObject' {
+            InModuleScope $script:moduleName {
+                $err = { Invoke-Shp -Prompt 'go' -Model 'claude-opus-5' -MaxBudgetUSD 1 -FailOn BudgetExceeded -DisableBrowsing -DisableUserPrompts -WarningAction SilentlyContinue } |
+                    Should -Throw -PassThru
+
+                @($err.TargetObject.PSObject.TypeNames) | Should -Contain 'ShellPilot.Result'
+                $err.TargetObject.CostUSD        | Should -BeGreaterThan 1
+                $err.TargetObject.BudgetExceeded | Should -BeTrue
+            }
+        }
+
+        It 'Still records the turn in the usage log' {
+            InModuleScope $script:moduleName {
+                { Invoke-Shp -Prompt 'go' -Model 'claude-opus-5' -MaxBudgetUSD 1 -FailOn BudgetExceeded -DisableBrowsing -DisableUserPrompts -WarningAction SilentlyContinue } |
+                    Should -Throw
+
+                @(Get-ShpUsage).Count | Should -Be 1
+            }
+        }
+    }
+
+    Context 'Truncated' {
+        BeforeEach {
+            InModuleScope $script:moduleName {
+                Mock Invoke-CopilotTurn {
+                    [pscustomobject]@{
+                        Mode = 'chat'; Content = 'half an ans'; FinishReason = 'length'; ToolCalls = @()
+                        AssistantMessage = [pscustomobject]@{ content = 'half an ans' }; Reasoning = ''
+                        PromptTokens = 10; CompletionTokens = 4; CachedTokens = 0; CacheWriteTokens = 0
+                        ModelName = 'claude-haiku-4.5'; CopilotUsage = $null; Raw = @{}; Response = [pscustomobject]@{ Headers = @{} }
+                    }
+                }
+            }
+        }
+
+        It 'Returns the partial answer when -FailOn is omitted' {
+            InModuleScope $script:moduleName {
+                $r = Invoke-Shp -Prompt 'go' -Model 'claude-haiku-4.5' -DisableBrowsing -DisableFileAccess -DisableTerminal -DisableUserPrompts
+                $r.FinishReason | Should -Be 'length'
+                $r.Content      | Should -Be 'half an ans'
+            }
+        }
+
+        It 'Throws ShpTruncated when listed' {
+            InModuleScope $script:moduleName {
+                $err = { Invoke-Shp -Prompt 'go' -Model 'claude-haiku-4.5' -MaxOutputTokens 4 -FailOn Truncated -DisableBrowsing -DisableFileAccess -DisableTerminal -DisableUserPrompts } |
+                    Should -Throw -PassThru
+
+                $err.FullyQualifiedErrorId | Should -Be 'ShpTruncated,Invoke-Shp'
+                $err.Exception.Message     | Should -BeLike "*'length'*"
+                $err.Exception.Message     | Should -BeLike '*-MaxOutputTokens 4*'
+            }
+        }
+
+        It 'Keeps the partial content reachable on TargetObject' {
+            InModuleScope $script:moduleName {
+                $err = { Invoke-Shp -Prompt 'go' -Model 'claude-haiku-4.5' -FailOn Truncated -DisableBrowsing -DisableFileAccess -DisableTerminal -DisableUserPrompts } |
+                    Should -Throw -PassThru
+
+                $err.TargetObject.Content | Should -Be 'half an ans'
+            }
+        }
+
+        It 'Does not fire on a normal stop' {
+            InModuleScope $script:moduleName {
+                Mock Invoke-CopilotTurn {
+                    [pscustomobject]@{
+                        Mode = 'chat'; Content = 'all done'; FinishReason = 'stop'; ToolCalls = @()
+                        AssistantMessage = [pscustomobject]@{ content = 'all done' }; Reasoning = ''
+                        PromptTokens = 10; CompletionTokens = 4; CachedTokens = 0; CacheWriteTokens = 0
+                        ModelName = 'claude-haiku-4.5'; CopilotUsage = $null; Raw = @{}; Response = [pscustomobject]@{ Headers = @{} }
+                    }
+                }
+
+                $r = Invoke-Shp -Prompt 'go' -Model 'claude-haiku-4.5' -FailOn Truncated -DisableBrowsing -DisableFileAccess -DisableTerminal -DisableUserPrompts
+                $r.Content | Should -Be 'all done'
+            }
+        }
+    }
+
+    Context 'ToolIterationLimit' {
+        BeforeEach {
+            InModuleScope $script:moduleName {
+                Mock Invoke-RunCommandTool { '{"command":"git status","exitCode":0,"stdout":"clean","stderr":""}' }
+                Mock Invoke-CopilotTurn {
+                    [pscustomobject]@{
+                        Mode = 'chat'; Content = ''; FinishReason = 'tool_calls'
+                        ToolCalls = @([pscustomobject]@{ Id = 'c1'; Name = 'run_command'; Arguments = '{"command":"git status"}' })
+                        AssistantMessage = [pscustomobject]@{ content = '' }; Reasoning = ''
+                        PromptTokens = 1; CompletionTokens = 1; CachedTokens = 0; CacheWriteTokens = 0
+                        ModelName = 'claude-haiku-4.5'; CopilotUsage = $null; Raw = @{}; Response = [pscustomobject]@{ Headers = @{} }
+                    }
+                }
+            }
+        }
+
+        # This one already terminated the call, so the back-compat guarantee is
+        # about the SHAPE of the error, not about whether one is raised.
+        It 'Keeps the original opaque throw when -FailOn is omitted' {
+            InModuleScope $script:moduleName {
+                $err = { Invoke-Shp -Prompt 'go' -Model 'claude-haiku-4.5' -MaxToolIterations 2 -DisableBrowsing -DisableUserPrompts } |
+                    Should -Throw -PassThru
+
+                $err.Exception.Message     | Should -BeLike '*MaxToolIterations*'
+                $err.FullyQualifiedErrorId | Should -Not -Be 'ShpToolIterationLimit,Invoke-Shp'
+            }
+        }
+
+        It 'Throws ShpToolIterationLimit when listed' {
+            InModuleScope $script:moduleName {
+                $err = { Invoke-Shp -Prompt 'go' -Model 'claude-haiku-4.5' -MaxToolIterations 2 -FailOn ToolIterationLimit -DisableBrowsing -DisableUserPrompts } |
+                    Should -Throw -PassThru
+
+                $err.FullyQualifiedErrorId | Should -Be 'ShpToolIterationLimit,Invoke-Shp'
+                $err.Exception.Message     | Should -BeLike '*iteration 3*'
+                $err.Exception.Message     | Should -BeLike '*-MaxToolIterations limit of 2*'
+            }
+        }
+
+        # The loop is abandoned before a result is built, so there is nothing
+        # honest to put on TargetObject. Assert that rather than let a later
+        # change quietly attach a half-built object.
+        It 'Leaves TargetObject empty, because no result was ever built' {
+            InModuleScope $script:moduleName {
+                $err = { Invoke-Shp -Prompt 'go' -Model 'claude-haiku-4.5' -MaxToolIterations 2 -FailOn ToolIterationLimit -DisableBrowsing -DisableUserPrompts } |
+                    Should -Throw -PassThru
+
+                $err.TargetObject | Should -BeNullOrEmpty
+            }
+        }
+    }
+
+    Context 'NoContent' {
+        BeforeEach {
+            InModuleScope $script:moduleName {
+                Mock Invoke-CopilotTurn {
+                    [pscustomobject]@{
+                        Mode = 'chat'; Content = ''; FinishReason = 'stop'; ToolCalls = @()
+                        AssistantMessage = [pscustomobject]@{ content = '' }; Reasoning = ''
+                        PromptTokens = 10; CompletionTokens = 0; CachedTokens = 0; CacheWriteTokens = 0
+                        ModelName = 'claude-haiku-4.5'; CopilotUsage = $null; Raw = @{}; Response = [pscustomobject]@{ Headers = @{} }
+                    }
+                }
+            }
+        }
+
+        It 'Returns an empty result when -FailOn is omitted' {
+            InModuleScope $script:moduleName {
+                $r = Invoke-Shp -Prompt 'go' -Model 'claude-haiku-4.5' -DisableBrowsing -DisableFileAccess -DisableTerminal -DisableUserPrompts
+                $r.Content | Should -BeNullOrEmpty
+            }
+        }
+
+        It 'Throws ShpNoContent when listed' {
+            InModuleScope $script:moduleName {
+                $err = { Invoke-Shp -Prompt 'go' -Model 'claude-haiku-4.5' -FailOn NoContent -DisableBrowsing -DisableFileAccess -DisableTerminal -DisableUserPrompts } |
+                    Should -Throw -PassThru
+
+                $err.FullyQualifiedErrorId | Should -Be 'ShpNoContent,Invoke-Shp'
+                $err.Exception.Message     | Should -BeLike '*0 characters*'
+            }
+        }
+
+        # Documented behaviour: NoContent tests the Content member the caller
+        # receives, and a turn that did file work substitutes a summary for the
+        # model's silence. That summary counts as content.
+        It 'Does not fire when the turn did file work and a summary was substituted' {
+            InModuleScope $script:moduleName {
+                $script:noContentTurn = 0
+                Mock Invoke-WriteFileTool { '{"path":"x.txt","written":true}' }
+                Mock Invoke-CopilotTurn {
+                    $script:noContentTurn++
+                    if ($script:noContentTurn -eq 1) {
+                        [pscustomobject]@{
+                            Mode = 'chat'; Content = ''; FinishReason = 'tool_calls'
+                            ToolCalls = @([pscustomobject]@{ Id = 'c1'; Name = 'write_file'; Arguments = '{"path":"x.txt","content":"hi"}' })
+                            AssistantMessage = [pscustomobject]@{ content = '' }; Reasoning = ''
+                            PromptTokens = 1; CompletionTokens = 1; CachedTokens = 0; CacheWriteTokens = 0
+                            ModelName = 'claude-haiku-4.5'; CopilotUsage = $null; Raw = @{}; Response = [pscustomobject]@{ Headers = @{} }
+                        }
+                    } else {
+                        [pscustomobject]@{
+                            Mode = 'chat'; Content = ''; FinishReason = 'stop'; ToolCalls = @()
+                            AssistantMessage = [pscustomobject]@{ content = '' }; Reasoning = ''
+                            PromptTokens = 1; CompletionTokens = 1; CachedTokens = 0; CacheWriteTokens = 0
+                            ModelName = 'claude-haiku-4.5'; CopilotUsage = $null; Raw = @{}; Response = [pscustomobject]@{ Headers = @{} }
+                        }
+                    }
+                }
+
+                $r = Invoke-Shp -Prompt 'write it' -Model 'claude-haiku-4.5' -FailOn NoContent -DisableBrowsing -DisableTerminal -DisableUserPrompts
+                $r.Content | Should -BeLike '*Files written*'
+            }
+        }
+    }
+
+    Context 'SchemaMismatch' {
+        BeforeEach {
+            InModuleScope $script:moduleName {
+                Mock Invoke-CopilotTurn {
+                    [pscustomobject]@{
+                        Mode = 'chat'; Content = 'not json at all'; FinishReason = 'stop'; ToolCalls = @()
+                        AssistantMessage = [pscustomobject]@{ content = 'not json at all' }; Reasoning = ''
+                        PromptTokens = 10; CompletionTokens = 4; CachedTokens = 0; CacheWriteTokens = 0
+                        ModelName = 'claude-haiku-4.5'; CopilotUsage = $null; Raw = @{}; Response = [pscustomobject]@{ Headers = @{} }
+                    }
+                }
+            }
+        }
+
+        It 'Warns and leaves ContentObject null when -FailOn is omitted' {
+            InModuleScope $script:moduleName {
+                $r = Invoke-Shp -Prompt 'go' -Model 'claude-haiku-4.5' -JsonSchema '{"type":"object"}' -DisableBrowsing -DisableFileAccess -DisableTerminal -DisableUserPrompts -WarningAction SilentlyContinue
+                $r.ContentObject | Should -BeNullOrEmpty
+                $r.Content       | Should -Be 'not json at all'
+            }
+        }
+
+        It 'Throws ShpSchemaMismatch when listed' {
+            InModuleScope $script:moduleName {
+                $err = { Invoke-Shp -Prompt 'go' -Model 'claude-haiku-4.5' -JsonSchema '{"type":"object"}' -FailOn SchemaMismatch -DisableBrowsing -DisableFileAccess -DisableTerminal -DisableUserPrompts -WarningAction SilentlyContinue } |
+                    Should -Throw -PassThru
+
+                $err.FullyQualifiedErrorId | Should -Be 'ShpSchemaMismatch,Invoke-Shp'
+                $err.Exception.Message     | Should -BeLike '*-JsonSchema*'
+            }
+        }
+
+        # Armed by -JsonSchema only. json_object has no schema to mismatch, and
+        # arming it there would fail every prose reply a caller asked for loosely.
+        It 'Does not fire for -ResponseFormat json_object without a schema' {
+            InModuleScope $script:moduleName {
+                $r = Invoke-Shp -Prompt 'go' -Model 'claude-haiku-4.5' -ResponseFormat 'json_object' -FailOn SchemaMismatch -DisableBrowsing -DisableFileAccess -DisableTerminal -DisableUserPrompts -WarningAction SilentlyContinue
+                $r.ContentObject | Should -BeNullOrEmpty
+            }
+        }
+
+        It 'Does not fire when the reply parses' {
+            InModuleScope $script:moduleName {
+                Mock Invoke-CopilotTurn {
+                    [pscustomobject]@{
+                        Mode = 'chat'; Content = '{"verdict":"pass"}'; FinishReason = 'stop'; ToolCalls = @()
+                        AssistantMessage = [pscustomobject]@{ content = '{"verdict":"pass"}' }; Reasoning = ''
+                        PromptTokens = 10; CompletionTokens = 4; CachedTokens = 0; CacheWriteTokens = 0
+                        ModelName = 'claude-haiku-4.5'; CopilotUsage = $null; Raw = @{}; Response = [pscustomobject]@{ Headers = @{} }
+                    }
+                }
+
+                $r = Invoke-Shp -Prompt 'go' -Model 'claude-haiku-4.5' -JsonSchema '{"type":"object"}' -FailOn SchemaMismatch -DisableBrowsing -DisableFileAccess -DisableTerminal -DisableUserPrompts
+                $r.ContentObject.verdict | Should -Be 'pass'
+            }
+        }
+    }
+
+    Context 'Precedence between conditions' {
+        It 'Reports the first listed condition that matches, not the last' {
+            InModuleScope $script:moduleName {
+                Mock Invoke-CopilotTurn {
+                    [pscustomobject]@{
+                        Mode = 'chat'; Content = ''; FinishReason = 'stop'; ToolCalls = @()
+                        AssistantMessage = [pscustomobject]@{ content = '' }; Reasoning = ''
+                        PromptTokens = 10; CompletionTokens = 0; CachedTokens = 0; CacheWriteTokens = 0
+                        ModelName = 'claude-haiku-4.5'; CopilotUsage = $null; Raw = @{}; Response = [pscustomobject]@{ Headers = @{} }
+                    }
+                }
+
+                # An empty reply under -JsonSchema satisfies both NoContent and
+                # SchemaMismatch; the documented order makes NoContent win.
+                $err = { Invoke-Shp -Prompt 'go' -Model 'claude-haiku-4.5' -JsonSchema '{"type":"object"}' -FailOn SchemaMismatch, NoContent -DisableBrowsing -DisableFileAccess -DisableTerminal -DisableUserPrompts } |
+                    Should -Throw -PassThru
+
+                $err.FullyQualifiedErrorId | Should -Be 'ShpNoContent,Invoke-Shp'
+            }
+        }
+    }
+}

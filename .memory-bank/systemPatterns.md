@@ -186,6 +186,46 @@ single place to audit. It is replayed into every batch worker for the same
 reason the session context and registered tools are - a worker inherits nothing,
 so the batch would otherwise be the one unguarded path.
 
+### A failure is opt-in, evaluated last, and carries its own evidence
+
+Every disappointing outcome is data by default - a budget stop warns and sets
+BudgetExceeded, a truncated reply sets FinishReason, an unparsed schema reply
+warns and leaves ContentObject null. That is right for an interactive caller and
+useless for an unattended one, which reads neither the warning nor the property.
+Invoke-Shp -FailOn (and Invoke-ShpBatch -FailOn) turns named conditions into
+terminating errors. Three rules make it safe:
+
+**It is evaluated as the LAST statement of the turn.** The result is built, the
+usage row written and the session chat updated first, so -FailOn decides exactly
+one thing: result, or terminating error. Evaluating it earlier would have made
+an opt-in reporting switch silently change the call's side effects too.
+
+**The error carries the result on TargetObject**, the same seam
+New-ShpHttpErrorDetail uses. A -FailOn stop is a turn that COMPLETED and was
+BILLED, so a catch block still has the cost, the usage and any partial content.
+A failed step must not be cheaper to run than it is to account for. The one
+exception is ToolIterationLimit, which aborts before a result exists and
+therefore hands over $null rather than something half built.
+
+**The error id is the contract, not the message.** One private builder
+(New-ShpFailureError) owns the condition-to-id map, so five call sites cannot
+drift; PowerShell renders it as '<id>,<CommandName>'. ToolIterationLimit is the
+case that motivates this: it already threw, with `throw "<message>"`, which makes
+the message string the FullyQualifiedErrorId - so the only way to branch on it
+was to match English prose. Listing it upgrades the error rather than adding one.
+
+The batch keeps failure isolation intact: a tripped condition marks its own item
+and nothing else. -FailBatchOnAnyItem is the single exception and does not weaken
+the rule, because it fires AFTER every item has run and every result has been
+written - it converts a tally into an exit condition rather than abandoning work.
+Its summary lives on the error's TargetObject rather than in the output stream,
+because the cmdlet's contract is one BatchResult per input and callers pipe it
+into Sort-Object Index.
+
+And nothing sets $LASTEXITCODE or calls exit. A module that terminates its host
+cannot be dot-sourced, wrapped in a retry, or called from another cmdlet, so the
+exit code stays the caller's job and the try/catch wrapper is documented instead.
+
 ### One resolver per option family, and no exemptions
 
 Every option family that has more than one source resolves through a single

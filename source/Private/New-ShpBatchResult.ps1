@@ -31,8 +31,12 @@ function New-ShpBatchResult {
         a result with whatever record it came from.
 
     .PARAMETER Result
-        The ShellPilot.Result returned by Invoke-Shp for a completed call. Omit
-        it for a failed, skipped or malformed item.
+        The ShellPilot.Result returned by Invoke-Shp for a completed call. It may
+        be supplied ALONGSIDE -ErrorRecord: an Invoke-Shp -FailOn stop is a
+        completed, billed turn turned into an error, and its usage and cost must
+        still be reported. Success stays false whenever an error is present, so
+        Content and ContentObject are withheld either way. Omit it for a call
+        that never produced a result at all.
 
     .PARAMETER ErrorRecord
         The ErrorRecord of a failed call. Kept whole so the structured members of

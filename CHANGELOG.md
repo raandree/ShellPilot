@@ -9,6 +9,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A pipeline step can now fail when the call did not deliver.** A budget
+  overrun was a `Write-Warning` plus a `BudgetExceeded` property, so an
+  unattended run exited `0` on a truncated or abandoned answer and wrote the
+  half-finished artifact anyway. `Invoke-Shp -FailOn` turns five named outcomes
+  into terminating errors: `BudgetExceeded`, `Truncated`, `ToolIterationLimit`,
+  `NoContent` and `SchemaMismatch`.
+  Each carries a distinct, documented `FullyQualifiedErrorId`
+  (`ShpBudgetExceeded,Invoke-Shp` and so on) so a wrapper branches on the
+  condition instead of matching an English message - which is what
+  `MaxToolIterations` forced, having used its own message text as the error id.
+  **Omitting `-FailOn` changes nothing**, and the turn's side effects are
+  unchanged either way: the call is evaluated last, after the result is built,
+  the usage row written and the session chat updated, so `-FailOn` decides only
+  whether the call ends with a result or with an error. The whole
+  `ShellPilot.Result` rides on `ErrorRecord.TargetObject`, so a `catch` block
+  still knows what the abandoned turn cost.
+  ShellPilot never sets `$LASTEXITCODE` and never calls `exit` - a module that
+  terminates its host cannot be composed - so the exit code stays the caller's
+  job; the comment-based help carries the `try`/`catch` plus `exit 1` wrapper.
+  See [specs/024-pipeline-failure-semantics.md](specs/024-pipeline-failure-semantics.md).
+
+- **`Invoke-ShpBatch -FailOn` and `-FailBatchOnAnyItem`.** The same five
+  conditions apply per item, and a tripped one never aborts the batch: the item
+  reports `Success = $false` with the branchable `ErrorRecord` intact while every
+  other item runs to completion. `-FailBatchOnAnyItem` raises one terminating
+  error afterwards, `ShpBatchItemsFailed,Invoke-ShpBatch`, carrying a
+  `ShellPilot.BatchSummary` with `TotalCount`, `SucceededCount`, `FailedCount`,
+  `SkippedCount` and the `Failed` results themselves.
+
 - **ShellPilot can authenticate without a browser and without a token file.**
   `Initialize-Shp` was device-code only and `Get-ShpSessionToken` opened with an
   unconditional `Test-Path` throw, so a CI runner - no profile, no browser -
@@ -87,6 +116,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `McpEnabled`, `McpServersAvailable`, `McpToolsAvailable` and `McpToolsCalled`,
   and an MCP call emits the same `ToolCall` progress record as every other tool,
   so a host renders it identically.
+
+### Fixed
+
+- **A failed batch item no longer reports zero cost.** `Invoke-ShpBatchItem`
+  built its result from the `ErrorRecord` alone, so a call that threw
+  contributed nothing to the batch spend accumulator. That was invisible while
+  every failure was an HTTP refusal that had cost little, but an
+  `Invoke-Shp -FailOn` stop is a *completed, billed* turn - a sweep of truncated
+  replies would have overrun `-MaxBatchBudgetUSD` silently. A failing item now
+  recovers its result from `TargetObject` and keeps `Model`, `FinishReason`,
+  `Usage` and `CostUSD`. `Content` is still withheld from an unsuccessful item.
 
 ### Security
 

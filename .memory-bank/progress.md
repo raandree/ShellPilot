@@ -8,8 +8,9 @@ Chronological record of shipped changes and remaining work. Latest first.
   public cmdlets, Pester 5 tests, QA gates (TestQuality, helpQuality),
   GitVersion, and a GitHub Actions CI. main builds at 0.2.0-preview0001.
 - All 13 migration specs (002-014) are implemented, plus 015 (batch execution),
-  016 (failed-call usage accounting) and 017 (context-window budget resolved
-  from the model); the backend-dependent ones are live-verified. Server-side
+  016 (failed-call usage accounting), 017 (context-window budget resolved
+  from the model) and 024 (pipeline failure semantics); the backend-dependent
+  ones are live-verified. Server-side
   state (011) is implemented but the Copilot proxy does not support it, so it
   falls back to client-side history.
 - The full Pester run crashes locally on a .NET 10 native access violation
@@ -39,6 +40,45 @@ Chronological record of shipped changes and remaining work. Latest first.
   `Invoke-ShpBatch` covers the concurrent case.
 
 ## Log
+
+- 2026-08-25 - A ShellPilot call can fail a pipeline step (spec 024). The gap
+  was not that failures went unreported; it was that every disappointing outcome
+  was reported as **data**, and an unattended runner reads none of it. A budget
+  stop was a `Write-Warning` plus a `BudgetExceeded` property, so the step went
+  green on half an answer - as did truncation, an empty reply and an unparseable
+  schema reply.
+  `Invoke-Shp -FailOn` takes `BudgetExceeded`, `Truncated`, `ToolIterationLimit`,
+  `NoContent` and `SchemaMismatch`, raising a terminating error with a distinct
+  id per condition (`ShpBudgetExceeded,Invoke-Shp` and so on). **Omitting it
+  changes nothing.** `ToolIterationLimit` is the case that shows why an id is
+  the point: it already threw, but with `throw "<message>"`, which makes the
+  message string the `FullyQualifiedErrorId` - nothing a caller can branch on.
+  The check is the **last statement of the turn**, after the result is built,
+  the usage row written and the session chat updated, so `-FailOn` decides only
+  result-versus-error and never the call's side effects. The whole result rides
+  on `ErrorRecord.TargetObject`, because a failed step must not be cheaper to
+  run than to account for.
+  Three edges were decided rather than assumed: `NoContent` tests the delivered
+  `Content` (so a turn that wrote files and said nothing does not trip it),
+  `SchemaMismatch` is armed by `-JsonSchema` only, and `Truncated` is a
+  chat-shape signal.
+  **A real bug surfaced in the batch.** `Invoke-ShpBatchItem` built a failed
+  result from the `ErrorRecord` alone, so a throw added nothing to the spend
+  accumulator - harmless while every failure was a cheap HTTP refusal, wrong the
+  moment a `-FailOn` stop is a completed, billed turn, because a sweep of
+  truncated replies would have overrun `-MaxBatchBudgetUSD` silently.
+  `-FailBatchOnAnyItem` raises one `ShpBatchItemsFailed,Invoke-ShpBatch` after
+  every item has run, carrying a `ShellPilot.BatchSummary` on `TargetObject`;
+  the summary is not put in the output stream because the cmdlet's contract is
+  one `BatchResult` per input.
+  Nothing sets `$LASTEXITCODE` or calls `exit` - a module that terminates its
+  host cannot be composed - so both cmdlets document the `try`/`catch` wrapper.
+  Three tests were proved to discriminate by **mutation** rather than asserted
+  to; two mutations applied at once initially masked one another.
+  Verified: build 7 tasks / 0 errors / 0 warnings; 199 focused + 545 QA tests,
+  0 failures; PSScriptAnalyzer clean on all 5 changed source files. The full
+  local run again hit the documented .NET 10 native access violation, so it was
+  verified out-of-band per techContext; CI on Ubuntu runs the full suite.
 
 - 2026-08-25 - ShellPilot can authenticate without a browser and without a
   token file (spec 023). **The blocker was structural, not a missing feature.**
