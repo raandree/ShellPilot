@@ -195,7 +195,10 @@ function Invoke-ShpBatch {
         outage on any one request.
 
     .PARAMETER TokenPath
-        Path to the cached OAuth token file, read by every worker.
+        Path to an OAuth token file to authenticate with, read by every worker.
+        Omit it to resolve the token by the module's precedence: the session
+        context (Set-ShpContext -GitHubToken, replayed into every worker), then
+        $env:SHELLPILOT_GITHUB_TOKEN, then the default token file.
 
     .EXAMPLE
         Invoke-ShpBatch -Prompt 'What is PowerShell?', 'What is DSC?', 'What is Pester?'
@@ -393,7 +396,7 @@ function Invoke-ShpBatch {
         # A worker inherits neither the session context nor the registered tools,
         # so both travel on the work item and are replayed once per runspace.
         $context = @{}
-        foreach ($key in @('TimeoutSec', 'MaxRetryCount', 'RetryDelaySec', 'NetworkOutageToleranceSec', 'MaxContextWindowTokens', 'ApiBase', 'ApiKey')) {
+        foreach ($key in @('TimeoutSec', 'MaxRetryCount', 'RetryDelaySec', 'NetworkOutageToleranceSec', 'MaxContextWindowTokens', 'ApiBase', 'ApiKey', 'GitHubToken')) {
             if ($null -ne $script:ShpContext[$key]) { $context[$key] = $script:ShpContext[$key] }
         }
         # The cached model limits travel too, or every worker would resolve the

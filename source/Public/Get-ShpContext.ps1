@@ -6,11 +6,12 @@ function Get-ShpContext {
     .DESCRIPTION
         Reads the module-scoped session context set by Set-ShpContext and
         returns it as an object. These connection-level options (HTTP timeout,
-        retry behaviour, and an optional alternative backend) are applied by
-        Invoke-Shp and the other API cmdlets when the matching parameter is not
-        supplied on the call. A value of $null means no override is set and the
-        built-in default is used. The ApiKey is masked so it is never echoed.
-        The context lives only in the current PowerShell session.
+        retry behaviour, an optional alternative backend, and an optional
+        in-memory GitHub OAuth token) are applied by Invoke-Shp and the other API
+        cmdlets when the matching parameter is not supplied on the call. A value
+        of $null means no override is set and the built-in default is used. The
+        ApiKey and the GitHubToken are masked so neither is ever echoed. The
+        context lives only in the current PowerShell session.
 
     .EXAMPLE
         Get-ShpContext
@@ -21,7 +22,8 @@ function Get-ShpContext {
         System.Management.Automation.PSCustomObject
 
         An object with TimeoutSec, MaxRetryCount, RetryDelaySec,
-        NetworkOutageToleranceSec, ApiBase, and a masked ApiKey indicator.
+        NetworkOutageToleranceSec, ApiBase, a masked ApiKey indicator, and a
+        masked GitHubToken indicator.
 
     .LINK
         Set-ShpContext
@@ -42,5 +44,6 @@ function Get-ShpContext {
         MaxContextWindowTokens    = $script:ShpContext.MaxContextWindowTokens
         ApiBase                   = $script:ShpContext.ApiBase
         ApiKey                    = if ($script:ShpContext.ApiKey) { '***' } else { $null }
+        GitHubToken               = if ($script:ShpContext.GitHubToken) { '***' } else { $null }
     }
 }

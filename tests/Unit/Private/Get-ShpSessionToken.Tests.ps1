@@ -3,9 +3,19 @@ BeforeAll {
 
     Remove-Module -Name $script:moduleName -Force -ErrorAction SilentlyContinue
     Import-Module -Name $script:moduleName -Force -ErrorAction Stop
+
+    # The token seam reads a process-wide environment variable, so a value
+    # already set on the machine would decide these tests instead of the test.
+    $script:savedEnvToken = $env:SHELLPILOT_GITHUB_TOKEN
+    Remove-Item -LiteralPath 'Env:SHELLPILOT_GITHUB_TOKEN' -ErrorAction SilentlyContinue
 }
 
 AfterAll {
+    if ($null -ne $script:savedEnvToken) {
+        $env:SHELLPILOT_GITHUB_TOKEN = $script:savedEnvToken
+    } else {
+        Remove-Item -LiteralPath 'Env:SHELLPILOT_GITHUB_TOKEN' -ErrorAction SilentlyContinue
+    }
     Get-Module -Name $script:moduleName -All | Remove-Module -Force -ErrorAction SilentlyContinue
 }
 Describe 'Get-ShpSessionToken' {
@@ -113,6 +123,85 @@ Describe 'Get-ShpSessionToken' {
         InModuleScope $script:moduleName -Parameters @{ TokenPath = $missing } {
             param($TokenPath)
             { Get-ShpSessionToken -TokenPath $TokenPath } | Should -Throw '*Token file not found*'
+        }
+    }
+
+    Context 'Non-interactive token sources' {
+        AfterEach {
+            Remove-Item -LiteralPath 'Env:SHELLPILOT_GITHUB_TOKEN' -ErrorAction SilentlyContinue
+            InModuleScope $script:moduleName { Clear-ShpContext; $script:ShpSessionTokenCache = @{} }
+        }
+
+        It 'Exchanges an environment-supplied token with no token file on disk' {
+            $env:SHELLPILOT_GITHUB_TOKEN = 'ghu_ci_runner'
+            $absentDefault = Join-Path $TestDrive 'ci-no-file.token'
+
+            InModuleScope $script:moduleName -Parameters @{ DefaultPath = $absentDefault } {
+                param($DefaultPath)
+                $saved = $script:DefaultTokenPath
+                try {
+                    $script:DefaultTokenPath = $DefaultPath
+                    $script:captured = $null
+                    Mock Invoke-ShpWithRetry {
+                        $script:captured = $ArgumentList[0].Headers.Authorization
+                        [pscustomobject]@{ token = 'sess'; expires_at = 0; endpoints = [pscustomobject]@{ api = 'https://sess.example' } }
+                    }
+
+                    $null = Get-ShpSessionToken
+
+                    $script:captured | Should -Be 'token ghu_ci_runner'
+                    # Nothing may reach disk on this path: the seam is in memory.
+                    Test-Path -LiteralPath $DefaultPath | Should -BeFalse
+                } finally {
+                    $script:DefaultTokenPath = $saved
+                }
+            }
+        }
+
+        It 'Exchanges a session-context token with no token file on disk' {
+            $absentDefault = Join-Path $TestDrive 'ctx-no-file.token'
+
+            InModuleScope $script:moduleName -Parameters @{ DefaultPath = $absentDefault } {
+                param($DefaultPath)
+                $saved = $script:DefaultTokenPath
+                try {
+                    $script:DefaultTokenPath = $DefaultPath
+                    Set-ShpContext -GitHubToken 'ghu_in_memory'
+                    $script:captured = $null
+                    Mock Invoke-ShpWithRetry {
+                        $script:captured = $ArgumentList[0].Headers.Authorization
+                        [pscustomobject]@{ token = 'sess'; expires_at = 0; endpoints = [pscustomobject]@{ api = 'https://sess.example' } }
+                    }
+
+                    $null = Get-ShpSessionToken
+
+                    $script:captured | Should -Be 'token ghu_in_memory'
+                    Test-Path -LiteralPath $DefaultPath | Should -BeFalse
+                } finally {
+                    $script:DefaultTokenPath = $saved
+                }
+            }
+        }
+
+        # The cache key hashes the OAuth token, so an in-memory token has to get
+        # its own entry rather than being served the file token's session token.
+        It 'Gives an in-memory token its own session-token cache entry' {
+            $tokenFile = Join-Path $TestDrive 'cache-key.token'
+            Set-Content -LiteralPath $tokenFile -Value 'ghu_from_file' -NoNewline
+
+            InModuleScope $script:moduleName -Parameters @{ TokenPath = $tokenFile } {
+                param($TokenPath)
+                Mock Invoke-RestMethod {
+                    [pscustomobject]@{ token = 'sess'; expires_at = 4102444800; endpoints = [pscustomobject]@{ api = 'https://api.example' } }
+                }
+
+                $null = Get-ShpSessionToken -TokenPath $TokenPath
+                Set-ShpContext -GitHubToken 'ghu_from_context'
+                $null = Get-ShpSessionToken
+
+                Should -Invoke Invoke-RestMethod -Times 2 -Exactly
+                $script:ShpSessionTokenCache.Count | Should -Be 2
+            }
         }
     }
 

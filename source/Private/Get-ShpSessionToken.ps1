@@ -4,23 +4,34 @@ function Get-ShpSessionToken {
         Exchanges the cached GitHub OAuth token for a short-lived Copilot session token.
 
     .DESCRIPTION
-        Reads the OAuth token written by Initialize-Shp and calls the Copilot
-        internal token endpoint to obtain a session token plus the per-account
-        API endpoints. Private helper used by Get-ShpModel and Invoke-Shp.
+        Resolves the OAuth token through Resolve-ShpOAuthToken and calls the
+        Copilot internal token endpoint to obtain a session token plus the
+        per-account API endpoints. Private helper used by Get-ShpModel and
+        Invoke-Shp.
+
+        The OAuth token does not have to be on disk. Resolve-ShpOAuthToken takes
+        an explicit -TokenPath first, then the session context
+        (Set-ShpContext -GitHubToken), then $env:SHELLPILOT_GITHUB_TOKEN, then
+        the default token file - so an unattended runner authenticates from an
+        injected secret with no token file present at all.
 
         The returned session token is short-lived but valid for minutes, and
         Invoke-Shp calls this at the start of every Turn, so the response is
         cached module-wide (keyed by a hash of the OAuth token and the
-        Editor-Version) and reused until it nears expiry. While more than the
-        module safety margin ($script:SessionTokenSafetyMarginSec) remains before
-        the cached token's expires_at, the cached response is returned without a
-        network call - the same "exchange once, reuse for minutes" behaviour VS
-        Code relies on. When the cached token is missing, within the safety
-        margin of expiry, or -Force is supplied, a fresh token is exchanged and
-        the cache is updated. Initialize-Shp invalidates the cache on re-auth.
+        Editor-Version) and reused until it nears expiry. Hashing the OAuth
+        token means an in-memory token gets its own cache entry rather than
+        being served a session token issued for a different identity. While more
+        than the module safety margin ($script:SessionTokenSafetyMarginSec)
+        remains before the cached token's expires_at, the cached response is
+        returned without a network call - the same "exchange once, reuse for
+        minutes" behaviour VS Code relies on. When the cached token is missing,
+        within the safety margin of expiry, or -Force is supplied, a fresh token
+        is exchanged and the cache is updated. Initialize-Shp invalidates the
+        cache on re-auth.
 
     .PARAMETER TokenPath
-        Path to the cached OAuth token file.
+        Path to a cached OAuth token file to use instead of any other source.
+        Omit it to resolve the token by the documented precedence.
 
     .PARAMETER EditorVersion
         Editor-Version header value sent with the request.
@@ -58,9 +69,16 @@ function Get-ShpSessionToken {
     .EXAMPLE
         Get-ShpSessionToken -TokenPath (Join-Path $HOME '.shellpilot-token')
 
-        Reads the cached OAuth token and exchanges it for a short-lived Copilot
+        Reads that OAuth token file and exchanges it for a short-lived Copilot
         session token plus the per-account API endpoints (or returns the cached
         session token when one is still valid).
+
+    .EXAMPLE
+        Get-ShpSessionToken
+
+        Resolves the OAuth token by the documented precedence - session context,
+        then SHELLPILOT_GITHUB_TOKEN, then the default token file - and
+        exchanges it.
 
     .EXAMPLE
         Get-ShpSessionToken -Force
@@ -75,7 +93,9 @@ function Get-ShpSessionToken {
     [CmdletBinding()]
     [OutputType([pscustomobject])]
     param(
-        [string]$TokenPath     = $script:DefaultTokenPath,
+        [AllowEmptyString()]
+        [string]$TokenPath,
+
         [string]$EditorVersion = $script:DefaultEditorVersion,
         [string]$UserAgent     = $script:DefaultUserAgent,
 
@@ -93,10 +113,7 @@ function Get-ShpSessionToken {
 
         [switch]$Force
     )
-    if (-not (Test-Path -LiteralPath $TokenPath)) {
-        throw "Token file not found: $TokenPath. Run Initialize-Shp first."
-    }
-    $ghToken = Unprotect-ShpTokenValue -Content (Get-Content -LiteralPath $TokenPath -Raw)
+    $ghToken = (Resolve-ShpOAuthToken -TokenPath $TokenPath).Token
 
     # Cache key: a SHA-256 hash of the OAuth token plus the Editor-Version. Both
     # influence the issued session token, and hashing keeps the raw OAuth secret

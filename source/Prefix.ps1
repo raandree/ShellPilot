@@ -97,6 +97,8 @@ $script:ShpUsageLog = [System.Collections.Generic.List[pscustomobject]]::new()
 # Resolution precedence is always: explicit parameter > session context >
 # built-in default. ApiBase and ApiKey enable an opt-in alternative,
 # OpenAI-compatible backend (off unless explicitly set); never a default.
+# GitHubToken lets an unattended caller supply the OAuth token in memory instead
+# of signing in interactively; like ApiKey it is masked on read.
 # Session-scoped (the current PowerShell session); not persisted to disk.
 $script:ShpContext = @{
     TimeoutSec                = $null
@@ -106,6 +108,7 @@ $script:ShpContext = @{
     MaxContextWindowTokens    = $null
     ApiBase                   = $null
     ApiKey                    = $null
+    GitHubToken               = $null
 }
 
 # Built-in fallbacks for the HTTP retry behaviour, used when neither an explicit

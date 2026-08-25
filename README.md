@@ -61,6 +61,19 @@ Initialize-Shp
 # Prints a code and opens the GitHub device-login page; enter the code there.
 ```
 
+On a CI runner there is no browser, so supply the OAuth token in memory instead.
+Nothing is written to disk on this path.
+
+```powershell
+$env:SHELLPILOT_GITHUB_TOKEN = $tokenFromTheCiSecretStore   # or:
+Set-ShpContext -GitHubToken $tokenFromTheCiSecretStore      # session only, masked on read
+```
+
+Precedence, highest first: an explicit `-TokenPath`, the session context, the
+environment variable, then the cached token file. A `SHELLPILOT_GITHUB_TOKEN`
+that is set but empty is rejected rather than skipped - see
+[specs/023-non-interactive-token.md](specs/023-non-interactive-token.md).
+
 ## Quick start
 
 ```powershell

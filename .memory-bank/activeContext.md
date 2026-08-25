@@ -4,6 +4,59 @@ Current working focus for ShellPilot. Overwrite this file as the focus shifts.
 
 ## Focus
 
+ShellPilot authenticates on a CI runner (spec 023). This was the hard blocker
+for every other CI change, and it was **structural rather than a missing
+parameter**.
+
+`Get-ShpSessionToken` opened with an unconditional `Test-Path` throw. Worse,
+`$TokenPath` defaulted to `$script:DefaultTokenPath` in `Get-ShpSessionToken`,
+`Get-ShpModel`, `Invoke-Shp` and `Request-ShpEmbedding`, and each of those
+forwarded it on **every** call - so the default file was never the last resort
+in a precedence chain, it was pinned as the parameter's value before any other
+source could be consulted. Adding one `elseif` inside the throw would have
+changed nothing. The fix is a resolver plus three cmdlets losing their default.
+
+**Precedence, highest first:** explicit `-TokenPath`, session context
+(`Set-ShpContext -GitHubToken`), `$env:SHELLPILOT_GITHUB_TOKEN`, default token
+file. Ranks 1 and 4 read through the spec 020 at-rest seam; 2 and 3 are the
+token itself and are trimmed, because a secret piped from a vault or a file
+carries a trailing newline. `Resolve-ShpOAuthToken` owns the whole order, which
+is the module's existing rule (`Resolve-ShpContextBudget`,
+`Resolve-ShpConnectionOption`) applied where it matters most: two call sites
+disagreeing about a credential authenticate as different identities.
+
+**A set-but-empty `SHELLPILOT_GITHUB_TOKEN` throws rather than falling
+through.** That state is exactly what a pipeline produces when its secret fails
+to expand - unset repository secret, typo, job that did not inherit the
+environment - and falling back to the token file would authenticate the run as
+**whoever last signed in on that machine**, which on a self-hosted runner is a
+real account, with the build going green. Verified rather than assumed that the
+two cases are distinguishable: PowerShell 7 leaves `$env:X = ''` present rather
+than removing it, so `$null -ne $envToken` really does separate "not set" from
+"set to nothing".
+
+**The threat-model delta is two-sided and written down as such.** In-memory is
+strictly better than the file - nothing to capture in a backup, a share or a
+leftover profile on a shared runner. But the environment block is inherited by
+a `run_command` child (spec 019), and an MCP child is not (spec 021), so
+`Set-ShpContext -GitHubToken` is the stronger of the two and ranks above it.
+`Initialize-Shp` remains the only writer; DPAPI and `NONE` are untouched.
+
+The session-token cache needed no change and that is asserted rather than
+assumed: its key is a SHA-256 hash of the OAuth token, so an in-memory token
+gets its own entry instead of being served a session token issued for a
+different identity.
+
+Red-first on all 18 behavioural tests. Verified: build 7 tasks / 0 errors /
+0 warnings; 66 focused + 539 QA tests, 0 failures; PSScriptAnalyzer clean on all
+10 changed source files. Live: with only `SHELLPILOT_GITHUB_TOKEN` set and
+`$script:DefaultTokenPath` pointed at a file that does not exist,
+`Resolve-ShpOAuthToken` reported source `Environment`, `Get-ShpModel` returned
+43 models, and the path was still absent afterwards. Committed on `main` at the
+user's explicit request.
+
+## Superseded focus (2026-08-12) - MCP server support
+
 MCP client support is **implemented and live-verified** (spec 021). ShellPilot
 can attach an MCP server and offer its tools to the model beside the built-ins.
 

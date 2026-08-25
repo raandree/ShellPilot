@@ -212,6 +212,29 @@ life of a session token, so MaxRetryCount 0 costs at most one un-retried attempt
 per session; and outage tolerance is a SEPARATE option, so disabling 429/5xx
 retry still leaves a dropped connection during auth to be ridden out.
 
+The CREDENTIAL now resolves the same way (Resolve-ShpOAuthToken: explicit
+-TokenPath > Session context > $env:SHELLPILOT_GITHUB_TOKEN > default token
+file), and it is the case that shows why the rule is not merely tidy. Two call
+sites that disagree about a timeout are slow; two that disagree about a token
+authenticate as different identities. The old code was not a precedence chain at
+all: $TokenPath DEFAULTED to $script:DefaultTokenPath in four functions that
+each forwarded it on every call, so the default file was pinned as the
+parameter's VALUE before any other source could be consulted. An extra elseif
+inside Get-ShpSessionToken would have changed nothing - the defaults had to go,
+which is what makes an unbound parameter mean "resolve" rather than "use the
+file".
+
+The sentinel/binding choice flips here, and correctly: a path has no meaningful
+empty value, so IsNullOrWhiteSpace is the right test for -TokenPath, where 0 is
+a real setting for every numeric option and only ContainsKey will do.
+
+And one level REFUSES to fall through. $env:SHELLPILOT_GITHUB_TOKEN set but
+empty throws instead of dropping to the token file, because that state is what a
+pipeline produces when its secret fails to expand, and falling through would
+authenticate the run as whoever last signed in on the machine - a green build
+under the wrong identity. Fall-through is the right default for an option and
+the wrong one for a credential.
+
 There is no default timeout. 0 means "no explicit timeout", because the shared
 HttpClient is built with an infinite timeout so a long streamed turn is not cut
 off mid-response. $script:DefaultTimeoutSec = 100 existed, was never read, and

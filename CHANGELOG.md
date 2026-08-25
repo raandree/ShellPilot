@@ -9,6 +9,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **ShellPilot can authenticate without a browser and without a token file.**
+  `Initialize-Shp` was device-code only and `Get-ShpSessionToken` opened with an
+  unconditional `Test-Path` throw, so a CI runner - no profile, no browser -
+  could not sign in at all. Two in-memory sources now exist:
+  `Set-ShpContext -GitHubToken` for a caller that already holds the value, and
+  `$env:SHELLPILOT_GITHUB_TOKEN` for a pipeline that injects it as a secret.
+  Neither is ever written to disk; `Initialize-Shp` remains the only code path
+  that writes a token file.
+  One private resolver owns the order - explicit `-TokenPath`, then the session
+  context, then the environment variable, then the default token file - because
+  the module's existing rule is that any option family with more than one source
+  resolves in exactly one place, and a credential is the worst place to have two
+  call sites disagree. The session token is supplied to `Invoke-ShpBatch`
+  workers too, which inherit nothing.
+  **A set-but-empty `SHELLPILOT_GITHUB_TOKEN` is rejected, not skipped.** That
+  state is what a pipeline produces when its secret fails to expand, and falling
+  through to the token file would authenticate the run as whoever last signed in
+  on that machine - green build, wrong identity. The token is masked as `***` by
+  `Get-ShpContext`, matching `-ApiKey`, and a verbose line names which source
+  supplied it and never the value.
+  See [specs/023-non-interactive-token.md](specs/023-non-interactive-token.md).
+
 - **`Invoke-Shp -Attachment` takes a file of any format.** `-Image` was the only
   attachment surface and accepts images only, so everything else had no route to
   the model at all - naming the path in the prompt works for a text file and

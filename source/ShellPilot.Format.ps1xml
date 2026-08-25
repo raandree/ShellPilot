@@ -310,6 +310,7 @@
           <TableColumnHeader><Label>NetworkOutageToleranceSec</Label><Alignment>Right</Alignment></TableColumnHeader>
           <TableColumnHeader><Label>ApiBase</Label></TableColumnHeader>
           <TableColumnHeader><Label>ApiKey</Label></TableColumnHeader>
+          <TableColumnHeader><Label>GitHubToken</Label></TableColumnHeader>
         </TableHeaders>
         <TableRowEntries>
           <TableRowEntry>
@@ -320,6 +321,7 @@
               <TableColumnItem><PropertyName>NetworkOutageToleranceSec</PropertyName></TableColumnItem>
               <TableColumnItem><PropertyName>ApiBase</PropertyName></TableColumnItem>
               <TableColumnItem><PropertyName>ApiKey</PropertyName></TableColumnItem>
+              <TableColumnItem><PropertyName>GitHubToken</PropertyName></TableColumnItem>
             </TableColumnItems>
           </TableRowEntry>
         </TableRowEntries>

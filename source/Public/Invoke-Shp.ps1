@@ -410,7 +410,10 @@ function Invoke-Shp {
         precedes it.
 
     .PARAMETER TokenPath
-        Path to the cached OAuth token file.
+        Path to an OAuth token file to authenticate with. Omit it to resolve the
+        token by the module's precedence: the session context
+        (Set-ShpContext -GitHubToken), then $env:SHELLPILOT_GITHUB_TOKEN, then
+        the default token file written by Initialize-Shp.
 
     .PARAMETER EditorVersion
         Editor-Version header value sent with the request.
@@ -715,7 +718,9 @@ function Invoke-Shp {
         [ValidateRange(0, [int]::MaxValue)]
         [int]$NetworkOutageToleranceSec,
 
-        [string]$TokenPath     = $script:DefaultTokenPath,
+        [AllowEmptyString()]
+        [string]$TokenPath,
+
         [string]$EditorVersion = $script:DefaultEditorVersion,
         [string]$PluginVersion = $script:DefaultPluginVersion,
         [string]$UserAgent     = $script:DefaultUserAgent,

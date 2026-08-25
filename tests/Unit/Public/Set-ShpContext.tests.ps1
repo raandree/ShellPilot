@@ -40,4 +40,23 @@ Describe 'Set-ShpContext' {
         $r.ApiBase | Should -Be 'http://localhost/v1'
         $r.ApiKey  | Should -Be '***'
     }
+
+    Context 'GitHubToken' {
+        It 'Stores the GitHub token for the session only' {
+            Set-ShpContext -GitHubToken 'ghu_session_only'
+            InModuleScope 'ShellPilot' {
+                $script:ShpContext.GitHubToken | Should -Be 'ghu_session_only'
+            }
+        }
+
+        It 'Masks the GitHub token when returned with -PassThru' {
+            $r = Set-ShpContext -GitHubToken 'ghu_masked' -PassThru
+            $r.GitHubToken | Should -Be '***'
+        }
+
+        It 'Rejects an empty or whitespace-only GitHub token' {
+            { Set-ShpContext -GitHubToken '' }    | Should -Throw -ExpectedMessage '*GitHub token must not be empty*'
+            { Set-ShpContext -GitHubToken '   ' } | Should -Throw -ExpectedMessage '*GitHub token must not be empty*'
+        }
+    }
 }

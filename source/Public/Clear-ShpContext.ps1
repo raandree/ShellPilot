@@ -6,9 +6,10 @@ function Clear-ShpContext {
     .DESCRIPTION
         Clears every option held in the module-scoped session context set by
         Set-ShpContext, so that subsequent Invoke-Shp and other API calls fall
-        back to the built-in defaults for HTTP timeout and retry behaviour and
-        stop using any alternative backend (ApiBase / ApiKey). Affects only the
-        current PowerShell session; nothing is persisted to disk.
+        back to the built-in defaults for HTTP timeout and retry behaviour, stop
+        using any alternative backend (ApiBase / ApiKey), and stop using an
+        in-memory GitHub OAuth token (GitHubToken). Affects only the current
+        PowerShell session; nothing is persisted to disk.
 
     .EXAMPLE
         Clear-ShpContext
@@ -36,5 +37,6 @@ function Clear-ShpContext {
         $script:ShpContext.MaxContextWindowTokens    = $null
         $script:ShpContext.ApiBase       = $null
         $script:ShpContext.ApiKey        = $null
+        $script:ShpContext.GitHubToken   = $null
     }
 }

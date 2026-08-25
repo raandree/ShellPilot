@@ -11,7 +11,7 @@ AfterAll {
 
 Describe 'Clear-ShpContext' {
     It 'Resets every option to null' {
-        Set-ShpContext -TimeoutSec 30 -MaxRetryCount 5 -NetworkOutageToleranceSec 60 -ApiBase 'http://x/v1' -ApiKey 'k'
+        Set-ShpContext -TimeoutSec 30 -MaxRetryCount 5 -NetworkOutageToleranceSec 60 -ApiBase 'http://x/v1' -ApiKey 'k' -GitHubToken 'ghu_k'
         Clear-ShpContext
         $ctx = Get-ShpContext
         $ctx.TimeoutSec                | Should -BeNullOrEmpty
@@ -19,5 +19,6 @@ Describe 'Clear-ShpContext' {
         $ctx.NetworkOutageToleranceSec | Should -BeNullOrEmpty
         $ctx.ApiBase                   | Should -BeNullOrEmpty
         $ctx.ApiKey                    | Should -BeNullOrEmpty
+        $ctx.GitHubToken               | Should -BeNullOrEmpty
     }
 }

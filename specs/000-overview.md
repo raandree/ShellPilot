@@ -18,6 +18,7 @@ proof of concept, what is partial, and what is still to be decided.
 | Copilot Chat (VS Code) | ShellPilot equivalent | Status |
 |------------------------|-------------------|--------|
 | GitHub sign-in | Initialize-Shp (device-code flow) | Done |
+| Unattended sign-in (CI, no browser) | Set-ShpContext -GitHubToken, $env:SHELLPILOT_GITHUB_TOKEN | Done |
 | Model picker | Get-ShpModel, -Model with completer | Done |
 | Model picker default (sticky) | Select-ShpModel, Get-ShpDefault | Done |
 | Ask / chat | Invoke-Shp | Done |

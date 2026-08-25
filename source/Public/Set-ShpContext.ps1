@@ -27,6 +27,11 @@ function Set-ShpContext {
         off unless you set them and are never a default; clear them to return to
         the standard Copilot session-token authentication.
 
+        The GitHubToken option supplies the GitHub OAuth token in memory, for a
+        pipeline or any other caller that cannot run the interactive device-code
+        flow. It is held for the session only and is never written to disk -
+        Initialize-Shp remains the only code path that writes a token file.
+
     .PARAMETER TimeoutSec
         Per-request HTTP timeout in seconds applied to API calls when a call does
         not specify its own. Built-in default: 0, meaning no explicit timeout -
@@ -68,6 +73,13 @@ function Set-ShpContext {
         Opt-in API key (bearer token) sent when -ApiBase points at an
         alternative backend. Ignored when no ApiBase is set.
 
+    .PARAMETER GitHubToken
+        GitHub OAuth token to authenticate with for this session, instead of the
+        token file Initialize-Shp writes. Held in memory only and never
+        persisted. It is used when a call does not name its own -TokenPath, and
+        it wins over $env:SHELLPILOT_GITHUB_TOKEN and the default token file.
+        Masked as *** by Get-ShpContext and by -PassThru.
+
     .PARAMETER PassThru
         Return the updated context object after setting it.
 
@@ -81,6 +93,12 @@ function Set-ShpContext {
         Set-ShpContext -ApiBase 'http://localhost:11434/v1' -ApiKey 'sk-local'
 
         Points ShellPilot at a local OpenAI-compatible server (opt-in).
+
+    .EXAMPLE
+        Set-ShpContext -GitHubToken $tokenFromVault
+
+        Authenticates this session from a token held in memory, with no token
+        file on disk and no interactive sign-in.
 
     .OUTPUTS
         None by default; the session context object when -PassThru is used.
@@ -116,6 +134,9 @@ function Set-ShpContext {
         [ValidateNotNullOrEmpty()]
         [string]$ApiKey,
 
+        [ValidatePattern('\S', ErrorMessage = 'The GitHub token must not be empty or whitespace.')]
+        [string]$GitHubToken,
+
         [switch]$PassThru
     )
 
@@ -128,6 +149,7 @@ function Set-ShpContext {
     if ($PSBoundParameters.ContainsKey('MaxContextWindowTokens')) { $script:ShpContext.MaxContextWindowTokens = $MaxContextWindowTokens }
     if ($PSBoundParameters.ContainsKey('ApiBase'))       { $script:ShpContext.ApiBase       = $ApiBase }
     if ($PSBoundParameters.ContainsKey('ApiKey'))        { $script:ShpContext.ApiKey        = $ApiKey }
+    if ($PSBoundParameters.ContainsKey('GitHubToken'))   { $script:ShpContext.GitHubToken   = $GitHubToken }
 
     if ($PassThru) {
         [pscustomobject]@{
@@ -138,6 +160,7 @@ function Set-ShpContext {
             MaxContextWindowTokens    = $script:ShpContext.MaxContextWindowTokens
             ApiBase                   = $script:ShpContext.ApiBase
             ApiKey                    = if ($script:ShpContext.ApiKey) { '***' } else { $null }
+            GitHubToken               = if ($script:ShpContext.GitHubToken) { '***' } else { $null }
         }
     }
 }

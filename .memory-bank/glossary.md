@@ -9,6 +9,8 @@ propose a new row instead of inventing a synonym.
 |------|-------|-----------|
 | OAuth token | The long-lived GitHub token from the device-code flow, cached on disk in a protected envelope. | PAT, access token, auth token |
 | Token envelope | The self-describing `SHPv1:<scheme>:<payload>` format of the token file, where the scheme is DPAPI (Windows) or NONE (file permissions only); a file with no envelope is a legacy clear-text token and still reads. | token format, token blob |
+| In-memory token | An OAuth token supplied by `Set-ShpContext -GitHubToken` or `$env:SHELLPILOT_GITHUB_TOKEN`, held for the session only and never written to disk; masked as `***` on read. | injected token, CI token, env token, ambient token |
+| Token precedence | The order Resolve-ShpOAuthToken applies to pick the OAuth token for a call: explicit -TokenPath, then Session context, then the environment variable, then the default token file. | token lookup, token chain, credential order |
 | Session token | The short-lived Copilot token exchanged from the OAuth token for each request. | bearer token, API key |
 | Device-code flow | The GitHub OAuth flow where the user types a code shown in the terminal into a browser. | login flow, sign-in flow |
 | Chat API | The /chat/completions request and response shape. | completions endpoint |

@@ -40,6 +40,35 @@ Chronological record of shipped changes and remaining work. Latest first.
 
 ## Log
 
+- 2026-08-25 - ShellPilot can authenticate without a browser and without a
+  token file (spec 023). **The blocker was structural, not a missing feature.**
+  `Get-ShpSessionToken` opened with an unconditional `Test-Path` throw, and
+  `$TokenPath` defaulted to `$script:DefaultTokenPath` in four places that each
+  forwarded it on every call - so the default file was not the last resort, it
+  was pinned as the parameter's value before any other source could be
+  consulted. That is why the fix is a resolver (`Resolve-ShpOAuthToken`) rather
+  than one extra `elseif`, and why three public cmdlets had to lose their
+  `= $script:DefaultTokenPath` default.
+  Precedence: explicit `-TokenPath`, session context
+  (`Set-ShpContext -GitHubToken`), `$env:SHELLPILOT_GITHUB_TOKEN`, default token
+  file. **A set-but-empty environment variable is rejected, not skipped** - that
+  state is exactly what a pipeline produces when its secret fails to expand, and
+  falling through would authenticate the run as whoever last signed in on the
+  machine, green build and wrong identity. PowerShell 7 keeps `$env:X = ''`
+  present rather than removing it, so `$null -ne` genuinely separates "not set"
+  from "set to nothing" - verified before relying on it.
+  The threat-model delta is two-sided and is written down as such: in-memory is
+  strictly better than the file (no artifact to back up or leave on a shared
+  runner), but the environment block is inherited by `run_command` children
+  (spec 019), which is why the session context ranks above it. `Initialize-Shp`
+  is still the only writer; DPAPI / `NONE` untouched.
+  Red-first on all 18 behavioural tests. Verified: build 7 tasks / 0 errors /
+  0 warnings; 66 focused + 539 QA tests, 0 failures; PSScriptAnalyzer clean on
+  all 10 changed source files. Live, on `main`: with only
+  `SHELLPILOT_GITHUB_TOKEN` set and `$script:DefaultTokenPath` pointed at a file
+  that does not exist, `Resolve-ShpOAuthToken` reported source `Environment`,
+  `Get-ShpModel` returned 43 models, and the path was still absent afterwards.
+
 - 2026-08-24 - An oversized `-Image` is re-encoded to fit rather than refused,
   and **the order of what to give up was measured, not assumed**. The naive fix
   is a fixed downscale target, and one probe supports it: a photographed

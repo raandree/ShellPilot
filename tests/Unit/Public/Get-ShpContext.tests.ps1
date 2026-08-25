@@ -26,6 +26,11 @@ Describe 'Get-ShpContext' {
         (Get-ShpContext).ApiKey | Should -Be '***'
     }
 
+    It 'Masks the GitHubToken' {
+        Set-ShpContext -GitHubToken 'ghu_never_echoed'
+        (Get-ShpContext).GitHubToken | Should -Be '***'
+    }
+
     It 'Surfaces the network-outage tolerance' {
         Set-ShpContext -NetworkOutageToleranceSec 20
         $ctx = Get-ShpContext
