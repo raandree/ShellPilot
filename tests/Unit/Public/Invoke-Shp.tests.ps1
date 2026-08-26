@@ -2645,3 +2645,115 @@ Describe 'Invoke-Shp CI profile' {
         }
     }
 }
+
+Describe 'Invoke-Shp egress redaction' {
+    Context 'A secret returned by a tool' {
+        BeforeEach {
+            InModuleScope $script:moduleName {
+                $script:ShpChat = @()
+                $script:turnCount = 0
+                $script:secondTurnConversation = $null
+                Mock Get-ShpSessionToken { [pscustomobject]@{ token = 't'; expires_at = 0; endpoints = [pscustomobject]@{ api = 'https://api.example' } } }
+                Mock Invoke-RunCommandTool {
+                    '{"command":"cat secret.txt","exitCode":0,"stdout":"token=ghp_1234567890abcdefghijklmnopqrstuvwxyz","stderr":""}'
+                }
+                Mock Invoke-CopilotTurn {
+                    $script:turnCount++
+                    if ($script:turnCount -eq 1) {
+                        [pscustomobject]@{
+                            Mode = 'chat'; Content = ''; FinishReason = 'tool_calls'
+                            ToolCalls = @([pscustomobject]@{ Id = 'c1'; Name = 'run_command'; Arguments = '{"command":"cat secret.txt"}' })
+                            AssistantMessage = [pscustomobject]@{ content = '' }; Reasoning = ''
+                            PromptTokens = 1; CompletionTokens = 1; CachedTokens = 0; CacheWriteTokens = 0
+                            ModelName = $Model; CopilotUsage = $null; Raw = @{}; Response = [pscustomobject]@{ Headers = @{} }
+                        }
+                    } else {
+                        # This is the exact conversation the SECOND round-trip is
+                        # about to send - the request body a real HTTP call would
+                        # go on to serialise. Captured before the fake reply below
+                        # is returned.
+                        $script:secondTurnConversation = $Conversation
+                        [pscustomobject]@{
+                            Mode = 'chat'; Content = 'done'; FinishReason = 'stop'; ToolCalls = @()
+                            AssistantMessage = [pscustomobject]@{ content = 'done' }; Reasoning = ''
+                            PromptTokens = 1; CompletionTokens = 1; CachedTokens = 0; CacheWriteTokens = 0
+                            ModelName = $Model; CopilotUsage = $null; Raw = @{}; Response = [pscustomobject]@{ Headers = @{} }
+                        }
+                    }
+                }
+            }
+        }
+
+        AfterEach {
+            InModuleScope $script:moduleName { $script:ShpChat = @() }
+        }
+
+        It 'Never lets a secret in a run_command result reach the next request body' {
+            InModuleScope $script:moduleName {
+                $r = Invoke-Shp -Prompt 'cat the secret file' -DisableBrowsing -DisableFileAccess -DisableUserPrompts
+
+                $toolMessage = @($script:secondTurnConversation) | Where-Object { $_['role'] -eq 'tool' }
+                $toolMessage.content | Should -Not -BeNullOrEmpty
+                $toolMessage.content | Should -Not -Match 'ghp_1234567890abcdefghijklmnopqrstuvwxyz'
+                $toolMessage.content | Should -Match ([regex]::Escape('[redacted:github-token]'))
+                ($r.Redactions | Where-Object Name -eq 'github-token').Count | Should -Be 1
+            }
+        }
+
+        It 'Restores verbatim content when -DisableRedaction is passed' {
+            InModuleScope $script:moduleName {
+                $r = Invoke-Shp -Prompt 'cat the secret file' -DisableBrowsing -DisableFileAccess -DisableUserPrompts -DisableRedaction
+
+                $toolMessage = @($script:secondTurnConversation) | Where-Object { $_['role'] -eq 'tool' }
+                $toolMessage.content | Should -Match 'ghp_1234567890abcdefghijklmnopqrstuvwxyz'
+                @($r.Redactions).Count | Should -Be 0
+            }
+        }
+    }
+
+    Context 'Structured output' {
+        BeforeEach {
+            InModuleScope $script:moduleName {
+                $script:ShpChat = @()
+                $script:turnCount = 0
+                Mock Get-ShpSessionToken { [pscustomobject]@{ token = 't'; expires_at = 0; endpoints = [pscustomobject]@{ api = 'https://api.example' } } }
+                Mock Invoke-RunCommandTool {
+                    '{"command":"cat secret.txt","exitCode":0,"stdout":"token=ghp_1234567890abcdefghijklmnopqrstuvwxyz","stderr":""}'
+                }
+                Mock Invoke-CopilotTurn {
+                    $script:turnCount++
+                    if ($script:turnCount -eq 1) {
+                        [pscustomobject]@{
+                            Mode = 'chat'; Content = ''; FinishReason = 'tool_calls'
+                            ToolCalls = @([pscustomobject]@{ Id = 'c1'; Name = 'run_command'; Arguments = '{"command":"cat secret.txt"}' })
+                            AssistantMessage = [pscustomobject]@{ content = '' }; Reasoning = ''
+                            PromptTokens = 1; CompletionTokens = 1; CachedTokens = 0; CacheWriteTokens = 0
+                            ModelName = $Model; CopilotUsage = $null; Raw = @{}; Response = [pscustomobject]@{ Headers = @{} }
+                        }
+                    } else {
+                        [pscustomobject]@{
+                            Mode = 'chat'; Content = '{"ok":true}'; FinishReason = 'stop'; ToolCalls = @()
+                            AssistantMessage = [pscustomobject]@{ content = '{"ok":true}' }; Reasoning = ''
+                            PromptTokens = 1; CompletionTokens = 1; CachedTokens = 0; CacheWriteTokens = 0
+                            ModelName = $Model; CopilotUsage = $null; Raw = @{}; Response = [pscustomobject]@{ Headers = @{} }
+                        }
+                    }
+                }
+            }
+        }
+
+        AfterEach {
+            InModuleScope $script:moduleName { $script:ShpChat = @() }
+        }
+
+        It 'Still parses ContentObject from a -JsonSchema reply while a tool result was redacted' {
+            InModuleScope $script:moduleName {
+                $r = Invoke-Shp -Prompt 'cat the secret file and answer ok' -DisableBrowsing -DisableFileAccess -DisableUserPrompts -JsonSchema '{"type":"object"}'
+
+                $r.ContentObject | Should -Not -BeNullOrEmpty
+                $r.ContentObject.ok | Should -Be $true
+                ($r.Redactions | Where-Object Name -eq 'github-token').Count | Should -Be 1
+            }
+        }
+    }
+}

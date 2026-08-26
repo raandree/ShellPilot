@@ -72,8 +72,9 @@ Read-ShpUserInput [ask_user]), the customisation loaders
 the retry wrapper (Invoke-ShpWithRetry), the shared connection-pooling HTTP
 client accessor (Get-ShpHttpClient) and its buffered non-streaming sender
 (Invoke-ShpHttpRequest), the user-tool schema builder
-(New-ShpToolSchema), the context-window guard (Compress-ShpChatContext), and the
-vision content builder (ConvertTo-ShpImageContent).
+(New-ShpToolSchema), the context-window guard (Compress-ShpChatContext), the
+vision content builder (ConvertTo-ShpImageContent), and the egress-redaction
+choke point (Protect-ShpEgressContent).
 
 ## Recurring patterns
 
@@ -185,6 +186,48 @@ unattended loop would let the weakest call define the blast radius and leave no
 single place to audit. It is replayed into every batch worker for the same
 reason the session context and registered tools are - a worker inherits nothing,
 so the batch would otherwise be the one unguarded path.
+
+### One choke point for egress redaction, skip only the model's own turn
+
+Protect-ShpEgressContent (spec 026) is called from exactly ONE place in
+Invoke-Shp - right after the context-window guard, immediately before
+Invoke-CopilotTurn - rather than once per producer (the prompt,
+ConvertTo-ShpAttachmentContent, each tool back-end). Every producer already
+funnels into the same handful of `$chatMessages.Add(...)` / `$respInput.Add(...)`
+call sites before that point, so one seam catches all of them and a new tool
+back-end cannot forget to call it, because it never had to call it in the
+first place.
+
+The only content skipped is the model's OWN turn - `role='assistant'`, or a
+Responses-API `'function_call'` item - and the reason is causal, not a
+carve-out: given consistent use, that content was generated from input already
+redacted before it was sent, so it cannot reflect a secret the model was never
+shown, and this module does not mutate the reply handed back to the caller.
+Every other role (system, replayed history, user, every tool result regardless
+of which tool produced it) is scanned; there is deliberately no second
+exemption list to keep in sync.
+
+A match is replaced by a stable, named placeholder (`[redacted:github-token]`)
+and mutated IN PLACE on the same hashtable already sitting in the list the
+caller keeps re-sending - never deleted, because a hole changes what
+surrounding text means, and never a copy, because an already-redacted span
+costs nothing on the next iteration (it no longer matches its own pattern) and
+a secret that entered the conversation once cannot resurface later in the same
+turn.
+
+The custom policy (Set-ShpRedactionPolicy) mirrors Set-ShpToolPolicy's shape
+exactly - `Name(Pattern)` after `Kind(argument)`, fail-closed parsing that
+compiles every regex before assigning anything, session state replayed into
+every Invoke-ShpBatch worker - but inverts the DEFAULT: a tool policy widens
+what was unrestricted, so it defaults off; redaction narrows what was sent
+verbatim, so it defaults ON, and `-DisableRedaction` is the explicit,
+all-or-nothing escape hatch rather than a per-pattern one.
+
+Redaction only ever touches OUTGOING messages, never `$turn.Content` or the
+`$contentObject` parsed from it - the two code paths do not intersect by
+construction, which is why a `-JsonSchema` reply parses onto `ContentObject`
+identically whether or not an earlier tool result in the same turn was
+redacted, with no special case required to keep that true.
 
 ### A failure is opt-in, evaluated last, and carries its own evidence
 

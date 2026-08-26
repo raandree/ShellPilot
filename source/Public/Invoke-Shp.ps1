@@ -134,6 +134,21 @@ function Invoke-Shp {
         not get an answer instead of blocking, so this switch is mainly for
         forcing the model to proceed without ever asking.
 
+    .PARAMETER DisableRedaction
+        Turn off egress redaction. By default, immediately before each
+        round-trip, the accumulated conversation - the prompt, any inlined
+        -Attachment text, and every tool result (run_command / read_file /
+        fetch_url output, an MCP or user-tool result) - is scanned for common
+        secret shapes (GitHub tokens, AWS access key ids, PEM private-key
+        blocks, JWTs, basic-auth URL credentials, and connection-string
+        password fields) and a match is replaced with a stable, named
+        placeholder such as [redacted:github-token]. The model's own reply is
+        never touched. This switch sends the turn verbatim instead, exactly as
+        before egress redaction existed. Use Set-ShpRedactionPolicy to add
+        patterns rather than turning the control off entirely; see the
+        result's Redactions member for what actually matched (pattern name and
+        count only, never the matched value).
+
     .PARAMETER NonInteractive
         Run unattended. Implies -DisableUserPrompts, and turns any would-be
         prompt into a terminating error instead of something that waits: a model
@@ -683,7 +698,9 @@ function Invoke-Shp {
         and loaded on demand (InstructionsAvailable / InstructionsLoaded), the
         local files the model read and wrote (FilesRead / FilesWritten), the
         shell commands it ran (CommandsRun), the questions it asked on the
-        console (QuestionsAsked), the per-turn todo checklist it maintained
+        console (QuestionsAsked), the secrets redacted before egress unless
+        -DisableRedaction is set - pattern name and count only, never the
+        matched value (Redactions), the per-turn todo checklist it maintained
         unless -DisableTodoList is set (TodoList), any reasoning the model exposed
         (Reasoning), the sampling settings actually sent (Temperature / TopP /
         Seed, each null when the parameter was omitted and the model default
@@ -745,6 +762,8 @@ function Invoke-Shp {
         [switch]$DisableTerminal,
 
         [switch]$DisableUserPrompts,
+
+        [switch]$DisableRedaction,
 
         [switch]$NonInteractive,
 
@@ -1283,6 +1302,11 @@ function Invoke-Shp {
     # afterwards, and a refusal the caller cannot see is indistinguishable from
     # a model that simply chose not to try.
     $toolCallsDenied = New-Object System.Collections.Generic.List[string]
+    # Per-pattern egress-redaction match counts, accumulated across every
+    # round-trip this turn (Protect-ShpEgressContent below) and surfaced on the
+    # result as Redactions - pattern name and count only, never the matched
+    # value.
+    $redactionCounts = [ordered]@{}
     $questionsAsked = New-Object System.Collections.Generic.List[string]
     $userToolsCalled = New-Object System.Collections.Generic.List[string]
     $mcpToolsCalled = New-Object System.Collections.Generic.List[string]
@@ -1414,6 +1438,18 @@ function Invoke-Shp {
                 if (-not $guard.Fits -and -not $contextGuardExhaustedWarned) {
                     $contextGuardExhaustedWarned = $true
                     Write-Warning ("The context guard has elided every tool result it may and the conversation is still about {0} estimated tokens against a budget of {1}. The rest is user/assistant history, which it must not touch. Run Compress-ShpChat to drop the oldest exchanges and keep the rest, Clear-ShpChat to start over, or pass -History for a stateless call." -f $guard.EstimatedTokens, $effectiveContextBudget)
+                }
+            }
+            # Egress redaction (spec 026): the single choke point, immediately
+            # before the conversation enters the request body. Applied to
+            # whichever list ($chatMessages or $respInput) is active this
+            # iteration, in place - so every source of untrusted content (the
+            # prompt, an inlined attachment, a tool result) is scrubbed however
+            # it got here, and a span already redacted on an earlier iteration
+            # is left alone (it no longer matches its pattern).
+            if (-not $DisableRedaction) {
+                foreach ($hit in (Protect-ShpEgressContent -Message $conv)) {
+                    $redactionCounts[$hit.Name] = [int]$redactionCounts[$hit.Name] + $hit.Count
                 }
             }
             $turn = Invoke-CopilotTurn -Mode $mode -Model $Model -ApiBase $apiBase -Headers $apiHeaders -Conversation $conv -Tools $tls -RequestReasoningSummary:($mode -eq 'responses' -and $requestReasoning) -ReasoningEffort $ReasoningEffort -MaxOutputTokens $MaxOutputTokens -Stream:($streamingEnabled -and $mode -eq 'chat') -EchoReasoning:($ShowThinking -and $streamingEnabled -and $mode -eq 'chat') -Store:($serverSideActive -and $mode -eq 'responses') -PreviousResponseId $previousResponseId @structuredParams @samplingParams @connectionParams
@@ -1852,6 +1888,7 @@ function Invoke-Shp {
         Attachments=@($attachments)
         CommandsRun=@($commandsRun); QuestionsAsked=@($questionsAsked)
         ToolCallsDenied=@($toolCallsDenied)
+        Redactions=@($redactionCounts.Keys | ForEach-Object { [pscustomobject]@{ Name=$_; Count=$redactionCounts[$_] } })
         TodoList=@($todoList)
         UserToolsAvailable=@($userToolCommands.Keys); UserToolsCalled=@($userToolsCalled)
         McpEnabled=[bool]$mcpEnabled

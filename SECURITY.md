@@ -6,6 +6,26 @@ code repositories managed through our GitHub organization.
 If you believe you have found a security vulnerability in any of our
 repository, please report it to us as described below.
 
+## Egress redaction
+
+`Invoke-Shp` scrubs common secret shapes - GitHub tokens, AWS access key ids,
+PEM private-key blocks, JWTs, basic-auth URL credentials, and
+connection-string password fields - from the prompt, attachments and every
+tool result immediately before it enters a request body, replacing a match
+with a stable, named placeholder (for example `[redacted:github-token]`)
+rather than deleting it. This runs by default; pass `-DisableRedaction` to
+send a call verbatim, and use `Set-ShpRedactionPolicy` to add patterns for a
+secret shape specific to your own environment.
+
+**What this does not buy:** it is a narrow, pattern-based control, not
+entropy-based or machine-learned secret detection, and it does not scan the
+repository at rest - only what `Invoke-Shp` actually sends. A secret in a
+shape the built-in patterns (or your own custom rules) do not recognise is
+not caught, and the model's own reply is never redacted (see the spec for
+why that is safe by construction rather than an oversight). See
+[specs/026-egress-redaction.md](specs/026-egress-redaction.md) for the full
+threat model and design.
+
 ## Reporting Security Issues
 
 If the repository has enabled the ability to report a security vulnerability

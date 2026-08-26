@@ -249,6 +249,22 @@ Describe 'Invoke-ShpBatch' {
                 }
             } finally { Clear-ShpToolPolicy }
         }
+
+        It 'Should carry the custom redaction policy to the workers, the same way the tool policy travels' {
+            Set-ShpRedactionPolicy -Rule 'InternalToken(itk_[A-Za-z0-9]{10,})'
+            try {
+                $null = Invoke-ShpBatch -Prompt 'a', 'b'
+                InModuleScope $script:moduleName {
+                    # The built-in patterns need no replay (a Prefix.ps1
+                    # constant, present in every runspace), but a caller's extra
+                    # Set-ShpRedactionPolicy rule would otherwise be silently
+                    # dropped for every batch item.
+                    $script:capturedWorkItem[0].RedactionPolicy      | Should -Not -BeNullOrEmpty
+                    $script:capturedWorkItem[0].RedactionPolicy.Rule.Count | Should -Be 1
+                    $script:capturedWorkItem[1].RedactionPolicy      | Should -Not -BeNullOrEmpty
+                }
+            } finally { Clear-ShpRedactionPolicy }
+        }
     }
 
     Context 'Malformed input' {

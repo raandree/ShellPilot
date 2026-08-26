@@ -30,8 +30,9 @@ function Invoke-ShpBatchItem {
 
     .PARAMETER WorkItem
         The work item built by Invoke-ShpBatch: Index, Id, Prompt, InputObject,
-        ModulePath, InvokeParams, Context, ToolCommand, ModelLimit, and the
-        batch-wide SpendBag and BudgetLimit.
+        ModulePath, InvokeParams, Context, ToolCommand, ToolPolicy,
+        RedactionPolicy, ModelLimit, and the batch-wide SpendBag and
+        BudgetLimit.
 
     .EXAMPLE
         Invoke-ShpBatchItem -WorkItem $item
@@ -82,6 +83,12 @@ function Invoke-ShpBatchItem {
         # The tool policy must arrive before the first item runs, or the batch
         # would be the one place the model is unrestricted.
         $script:ShpToolPolicy = $WorkItem.ToolPolicy
+
+        # Same requirement for the custom redaction policy: the built-in
+        # patterns need no replay (a Prefix.ps1 constant, present in every
+        # runspace), but a caller's extra Set-ShpRedactionPolicy rules would
+        # otherwise be silently dropped for every batch item.
+        $script:ShpRedactionPolicy = $WorkItem.RedactionPolicy
 
         foreach ($command in @($WorkItem.ToolCommand)) {
             try {

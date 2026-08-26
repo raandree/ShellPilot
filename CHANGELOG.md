@@ -9,6 +9,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`Invoke-Shp` now redacts secrets before they leave the runner.** A CI job
+  feeds the model diffs, build logs and attachments produced by untrusted
+  pull-request content, and nothing scrubbed them before now - a leaked token
+  in a log became a token sent to a third party. Immediately before each
+  round-trip, the prompt, every inlined `-Attachment`, and every tool result
+  (`run_command`, `read_file`, `fetch_url`, an MCP tool, a user-defined tool)
+  is scanned for six built-in shapes - GitHub tokens, AWS access key ids, PEM
+  private-key blocks, JWTs, basic-auth URL credentials, and connection-string
+  password fields - and a match is replaced with a stable, named placeholder
+  such as `[redacted:github-token]`, never simply deleted. The result reports
+  `Redactions`: pattern name and count only, never the matched value.
+  `Set-ShpRedactionPolicy` / `Get-ShpRedactionPolicy` / `Clear-ShpRedactionPolicy`
+  add custom patterns on top of the built-ins, in the same `Name(Pattern)`
+  shape `Set-ShpToolPolicy` already uses, and the custom policy travels to
+  every `Invoke-ShpBatch` worker the same way the tool policy does. Redaction
+  is on by default; pass `-DisableRedaction` to send a call verbatim. Only the
+  model's own reply is exempt - it was generated from input already redacted
+  before it was sent, so it cannot reflect a secret it was never shown, and a
+  `-JsonSchema` reply still parses onto `ContentObject` exactly as it would
+  with redaction off.
+  See [specs/026-egress-redaction.md](specs/026-egress-redaction.md).
+
 - **An unattended run is now a supported, deliberate profile rather than an
   accident.** `Invoke-Shp`, `Invoke-ShpBatch` and `Initialize-Shp` take
   `-NonInteractive`, on automatically when `$env:CI` is truthy and overridable

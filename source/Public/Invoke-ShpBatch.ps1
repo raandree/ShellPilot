@@ -151,6 +151,15 @@ function Invoke-ShpBatch {
     .PARAMETER DisableTodoList
         Do not offer the built-in manage_todo_list tool.
 
+    .PARAMETER DisableRedaction
+        Turn off egress redaction for every item. By default each item's
+        prompt, attachments and tool results are scrubbed of common secret
+        shapes before they leave the runner (see Invoke-Shp -DisableRedaction);
+        this switch forwards -DisableRedaction to every worker instead. Any
+        custom rules from Set-ShpRedactionPolicy travel to every worker the
+        same way the tool policy does, so a batch is never the one path that
+        redacts less than a single Invoke-Shp call would.
+
     .PARAMETER NonInteractive
         Run unattended. A batch already forces -DisableUserPrompts, so what this
         adds is the rest of the profile: any would-be prompt inside an item
@@ -374,6 +383,8 @@ function Invoke-ShpBatch {
 
         [switch]$DisableTodoList,
 
+        [switch]$DisableRedaction,
+
         [switch]$NonInteractive,
 
         [ValidateRange(1, [int]::MaxValue)]
@@ -464,6 +475,7 @@ function Invoke-ShpBatch {
                 'InstructionRoot', 'SkillPath', 'Temperature', 'TopP', 'Seed',
                 'ResponseFormat', 'JsonSchema', 'DisableBrowsing', 'AllowPrivateNetwork',
                 'DisableFileAccess', 'DisableTerminal', 'DisableUserTools', 'DisableTodoList',
+                'DisableRedaction',
                 'MaxToolIterations', 'MaxContextWindowTokens', 'MaxBudgetUSD', 'FailOn',
                 'ApiBase', 'TimeoutSec', 'MaxRetryCount', 'RetryDelaySec', 'NetworkOutageToleranceSec', 'TokenPath')) {
             if ($PSBoundParameters.ContainsKey($name)) { $invokeParams[$name] = $PSBoundParameters[$name] }
@@ -504,6 +516,12 @@ function Invoke-ShpBatch {
         # batch item ran UNRESTRICTED - the failure mode a security control must
         # not have, and the same class of bug the session context already had.
         $toolPolicy = $script:ShpToolPolicy
+
+        # Same reasoning, same fix, for the custom redaction policy: a worker
+        # that never saw Set-ShpRedactionPolicy would still apply the built-in
+        # patterns (they are a Prefix.ps1 constant, present in every runspace),
+        # but silently drop any extra pattern the caller added.
+        $redactionPolicy = $script:ShpRedactionPolicy
 
         # MCP servers do not travel. Replaying an attachment into each worker
         # would start one copy of every server per worker, turning a throttle
@@ -557,6 +575,7 @@ function Invoke-ShpBatch {
                     Context      = $context
                     ToolCommand  = $toolCommand
                     ToolPolicy   = $toolPolicy
+                    RedactionPolicy = $redactionPolicy
                     ModelLimit   = $modelLimit
                     SpendBag     = $spendBag
                     BudgetLimit  = $budgetLimit

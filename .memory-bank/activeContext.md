@@ -4,6 +4,68 @@ Current working focus for ShellPilot. Overwrite this file as the focus shifts.
 
 ## Focus
 
+Egress redaction is now the last thing that touches a request body (spec 026).
+A CI job feeds the model diffs, build logs and attachments produced by
+untrusted pull-request content, and until now nothing scrubbed them - a leaked
+token sitting in a log became a token sent to a third party.
+
+**One choke point, not one guard per producer.** `Protect-ShpEgressContent` is
+called from exactly one place in `Invoke-Shp`: right after the context-window
+guard, immediately before `Invoke-CopilotTurn`, applied to whichever list
+(`$chatMessages` or `$respInput`) is active that iteration. Every producer of
+conversation content - the prompt, `ConvertTo-ShpAttachmentContent`'s inlined
+text, every tool result (`run_command` / `read_file` / `fetch_url`, an MCP
+tool, a user-defined tool) - already funnels into the same handful of
+`.Add(...)` call sites before this point, so scrubbing the accumulated list
+once catches all of them without a second guard at each producer.
+
+**Only the model's own turn is skipped**, and for a reason rather than a
+carve-out: a chat message with `role='assistant'`, or a Responses-API
+`'function_call'` item, was generated from input already redacted before it
+was sent, so it cannot reflect a secret it was never shown - and this module
+does not mutate the reply handed back to the caller. Everything else (system
+content, replayed history, the user message, every tool result regardless of
+origin) is scanned; there is deliberately no second exemption list.
+
+**A match becomes a placeholder, never a hole.** `[redacted:github-token]`
+names the pattern without disclosing the value; a connection-string rule keeps
+the key name and redacts only the value
+(`Password=[redacted:connection-string-password]`), because a hole where a
+token used to be changes what the surrounding text means.
+
+**Six built-in patterns, plus a custom policy shaped exactly like the tool
+policy.** GitHub tokens, AWS access key ids, PEM private-key blocks, JWTs,
+basic-auth URL credentials and connection-string passwords live in
+`$script:ShpBuiltInRedactionPattern` (`source/Prefix.ps1`).
+`Set-ShpRedactionPolicy` adds MORE patterns as `Name(Pattern)` - the same
+`Kind(argument)` shape `Set-ShpToolPolicy` already uses - and cannot disable a
+built-in; parsing fails closed, and the policy is session state replayed into
+every `Invoke-ShpBatch` worker for the identical reason the tool policy is.
+
+**The default is inverted from the tool policy, on purpose.** A tool policy
+WIDENS what was previously unrestricted, so defaulting it off preserves every
+existing call. Redaction NARROWS what was previously sent verbatim, so the
+harm is on the "leaves the runner" side - redaction defaults to ON, and
+`-DisableRedaction` is the explicit, all-or-nothing escape hatch.
+
+**Structured output was never at risk, by construction rather than a special
+case.** Redaction only ever touches OUTGOING messages; it never touches
+`$turn.Content` or the `$contentObject` parsed from it, so a `-JsonSchema`
+reply parses onto `ContentObject` identically whether or not an earlier tool
+result in the same turn was redacted - proved with a test that redacts a
+secret mid-turn and still gets a valid `ContentObject` back.
+
+The result's `Redactions` member reports pattern name and count only, across
+every round-trip of the turn - never the matched value, never a partial value.
+
+Verified: build 7 tasks / 0 errors / 0 warnings; PSScriptAnalyzer clean on all
+8 changed source files; full QA gate (587 tests), full regression on
+`Invoke-Shp` (142 tests) and `Invoke-ShpBatch` + `Invoke-ShpBatchItem` (63
+tests), and 31 new unit tests - all 0 failures, run out-of-band per
+file/module rather than via the full local suite (see techContext).
+
+## Superseded focus (2026-08-26) - CI profile and unattended use
+
 Unattended use is now a **supported profile rather than an accident** (spec
 025). Spec 023 made ShellPilot *able* to authenticate on a runner; it did not
 make doing so a good idea, and it left two failures neither a warning nor a

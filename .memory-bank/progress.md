@@ -4,13 +4,13 @@ Chronological record of shipped changes and remaining work. Latest first.
 
 ## Current state
 
-- ShellPilot is a Sampler-built PowerShell module (cmdlet prefix Shp) with 31
+- ShellPilot is a Sampler-built PowerShell module (cmdlet prefix Shp) with 34
   public cmdlets, Pester 5 tests, QA gates (TestQuality, helpQuality),
   GitVersion, and a GitHub Actions CI. main builds at 0.2.0-preview0001.
 - All 13 migration specs (002-014) are implemented, plus 015 (batch execution),
   016 (failed-call usage accounting), 017 (context-window budget resolved
-  from the model), 024 (pipeline failure semantics) and 025 (CI profile); the
-  backend-dependent ones are live-verified. Server-side
+  from the model), 024 (pipeline failure semantics), 025 (CI profile) and 026
+  (egress redaction); the backend-dependent ones are live-verified. Server-side
   state (011) is implemented but the Copilot proxy does not support it, so it
   falls back to client-side history.
 - The full Pester run crashes locally on a .NET 10 native access violation
@@ -40,6 +40,34 @@ Chronological record of shipped changes and remaining work. Latest first.
   `Invoke-ShpBatch` covers the concurrent case.
 
 ## Log
+
+- 2026-08-26 - Egress redaction shipped (spec 026). A CI job feeds the model
+  diffs, build logs and attachments produced by untrusted pull-request content,
+  and nothing scrubbed them before now - a leaked token in a log became a token
+  sent to a third party. `Protect-ShpEgressContent` is the single choke point:
+  called once per round-trip, right before `Invoke-CopilotTurn`, it redacts
+  every non-assistant message's `content` (string or vision content-block
+  array) and `output` (Responses-API tool result) in place. Only the model's
+  own turn (`role='assistant'`, or a `'function_call'` item) is skipped - by
+  construction it was generated from input already redacted before it was
+  sent, so it cannot reflect a secret it was never shown.
+  Six built-in patterns (GitHub tokens, AWS access key ids, PEM private-key
+  blocks, JWTs, basic-auth URL credentials, connection-string passwords) live in
+  `$script:ShpBuiltInRedactionPattern`; a match becomes a stable placeholder
+  (`[redacted:github-token]`), never a deletion. `Set-ShpRedactionPolicy` /
+  `Get-` / `Clear-` add custom `Name(Pattern)` rules on top, mirroring
+  `Set-ShpToolPolicy`'s shape exactly (fail-closed parsing, session state, replayed
+  into every `Invoke-ShpBatch` worker). `-DisableRedaction` is the escape hatch;
+  redaction defaults to ON - the opposite default from the tool policy, because
+  here the harm is on the "leaves the runner" side, not the "was it configured"
+  side. The result's `Redactions` member is name-and-count only, never the
+  matched value. Verified redaction never touches `$turn.Content` /
+  `ContentObject`, so a `-JsonSchema` reply parses identically either way.
+  Verified: build 7 tasks / 0 errors / 0 warnings; PSScriptAnalyzer clean on all
+  8 changed source files; full QA gate (587 tests) plus full regression on
+  Invoke-Shp (142), Invoke-ShpBatch + Invoke-ShpBatchItem (63), and the 31 new
+  unit tests, all 0 failures - run out-of-band per file/module rather than via
+  the known-crashing full local suite (see techContext).
 
 - 2026-08-26 - Unattended use became a supported profile rather than an accident
   (spec 025). Spec 023 made ShellPilot *able* to authenticate on a runner; it

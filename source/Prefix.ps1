@@ -227,6 +227,60 @@ $script:ShpUserTools = [ordered]@{}
 # the caller names one.
 $script:ShpToolPolicy = $null
 
+# Custom secret-redaction rules layered on top of the built-in patterns below
+# (see Set-ShpRedactionPolicy). $null means no custom rules; the built-ins
+# still apply regardless - only Invoke-Shp -DisableRedaction turns the whole
+# control off. Session state for the same reason as $script:ShpToolPolicy: a
+# per-call rule set would let the weakest call in an unattended loop define
+# what a secret looks like, with no single place to audit it. Replayed into
+# every Invoke-ShpBatch worker. Session-scoped; never persisted to disk, and
+# never loaded from a file unless the caller names one.
+$script:ShpRedactionPolicy = $null
+
+# Built-in egress-redaction patterns (spec 026). Protect-ShpEgressContent
+# applies these - plus any $script:ShpRedactionPolicy rules - to every outgoing
+# message except the model's own turn, immediately before Invoke-Shp hands the
+# conversation to Invoke-CopilotTurn. A match is replaced by its Replacement (a
+# stable, named placeholder such as [redacted:github-token]), never deleted, so
+# the shape of the surrounding text survives. These are narrow, syntactic
+# shapes - not entropy or ML-based secret detection, which is out of scope
+# (spec 026) - chosen because they show up in build logs, diffs and tool output
+# and are cheap to recognise without false-positiving on ordinary prose.
+# Replacement strings use .NET Regex.Replace backreference syntax ($1/${1}),
+# never PowerShell variable expansion - this table MUST stay single-quoted.
+$script:ShpBuiltInRedactionPattern = @(
+    [pscustomobject]@{
+        Name        = 'github-token'
+        Pattern     = '\bgh[pousr]_[A-Za-z0-9]{36,}\b'
+        Replacement = '[redacted:github-token]'
+    }
+    [pscustomobject]@{
+        Name        = 'aws-access-key-id'
+        Pattern     = '\b(?:AKIA|ASIA|AGPA|AIDA|AROA|AIPA|ANPA|ANVA)[A-Z0-9]{16}\b'
+        Replacement = '[redacted:aws-access-key-id]'
+    }
+    [pscustomobject]@{
+        Name        = 'pem-private-key'
+        Pattern     = '(?s)-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY-----.*?-----END (?:[A-Z0-9]+ )*PRIVATE KEY-----'
+        Replacement = '[redacted:pem-private-key]'
+    }
+    [pscustomobject]@{
+        Name        = 'jwt'
+        Pattern     = '\beyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\b'
+        Replacement = '[redacted:jwt]'
+    }
+    [pscustomobject]@{
+        Name        = 'url-credentials'
+        Pattern     = '(?<=://)[^/\s:@]+:[^/\s@]+(?=@)'
+        Replacement = '[redacted:url-credentials]'
+    }
+    [pscustomobject]@{
+        Name        = 'connection-string-password'
+        Pattern     = '(?i)(\b(?:password|pwd)\s*=\s*)([^;''"\r\n]+)'
+        Replacement = '${1}[redacted:connection-string-password]'
+    }
+)
+
 # Attached MCP servers (see Register-ShpMcpServer). Maps a caller-chosen alias
 # to a record carrying the child process, its stdio streams, the negotiated
 # protocol era and version, and the tool list captured at registration.
