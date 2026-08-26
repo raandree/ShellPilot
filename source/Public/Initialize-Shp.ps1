@@ -11,6 +11,13 @@ function Initialize-Shp {
         writes the resulting OAuth token to -TokenPath for later reuse by
         Get-ShpModel and Invoke-Shp.
 
+        The device-code flow needs a person and a browser, so it is the wrong
+        entry point for a pipeline. An unattended caller supplies the OAuth
+        token in memory instead - $env:SHELLPILOT_GITHUB_TOKEN or
+        Set-ShpContext -GitHubToken - and never calls this function at all.
+        -NonInteractive says so up front rather than letting a runner block on a
+        browser that will never open.
+
     .PARAMETER TokenPath
         File path for the cached token.
         Default: .shellpilot-token in your home directory (%USERPROFILE% on
@@ -24,6 +31,18 @@ function Initialize-Shp {
 
     .PARAMETER Force
         Re-authenticate even if a token file already exists at -TokenPath.
+
+    .PARAMETER NonInteractive
+        Run unattended: never open a browser, never write to the clipboard, and
+        fail with a terminating error rather than start a device-code flow that
+        has nobody to complete it. An existing token file is still returned. It
+        is on automatically when $env:CI is truthy; pass -NonInteractive:$false
+        to override that detection.
+
+        In CI this function is also refused outright unless
+        SHELLPILOT_ALLOW_COPILOT_BACKEND_IN_CI is set, because signing in here
+        exists only to enable Copilot-backend calls on a person's entitlement.
+        See Test-ShpCiReadiness.
 
     .EXAMPLE
         Initialize-Shp
@@ -42,14 +61,19 @@ function Initialize-Shp {
         The file that contains the cached OAuth token.
 
     .NOTES
-        Demo helper for PSConfEU 2026 "Reverse AI-ngineering". Not for
-        production use; the token is stored unencrypted on disk.
+        The token is written through the at-rest seam: DPAPI-encrypted for the
+        current Windows account, or mode 600 with the scheme recorded in the file
+        on Linux and macOS. See specs/020-encrypted-token-storage.md for what
+        that does and does not protect against.
 
     .LINK
         Get-ShpModel
 
     .LINK
         Invoke-Shp
+
+    .LINK
+        Test-ShpCiReadiness
     #>
     [CmdletBinding()]
     [System.Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingWriteHost', '', Justification = 'The device-code sign-in instructions (verification URL and user code) are interactive output that must be visible to the user by default; Write-Verbose or Write-Information would hide them.')]
@@ -58,8 +82,18 @@ function Initialize-Shp {
         [string]$TokenPath = $script:DefaultTokenPath,
         [string]$ClientId  = $script:DefaultClientId,
         [string]$Scope     = 'read:user',
-        [switch]$Force
+        [switch]$Force,
+        [switch]$NonInteractive
     )
+
+    # This function exists only to enable Copilot-backend calls, so it is gated
+    # on the same terms as one. There is no -ApiBase to name here: an
+    # alternative backend authenticates with its own key and never runs this.
+    $ciParams = @{}
+    if ($PSBoundParameters.ContainsKey('NonInteractive')) { $ciParams['NonInteractive'] = [bool]$NonInteractive }
+    $ciProfile = Resolve-ShpCiProfile @ciParams
+    if ($ciProfile.BackendGateError) { $PSCmdlet.ThrowTerminatingError($ciProfile.BackendGateError) }
+    $unattended = $ciProfile.NonInteractive
 
     if ((Test-Path -LiteralPath $TokenPath) -and -not $Force) {
         Write-Verbose "Token already present at $TokenPath. Use -Force to refresh."
@@ -85,6 +119,17 @@ function Initialize-Shp {
         # hidden on Linux/macOS, and Get-Item without -Force then fails with
         # "Could not find item" even though Test-Path reports it as present.
         return Get-Item -LiteralPath $TokenPath -Force
+    }
+
+    # Everything past here needs a person: a browser to open and a code to type.
+    # Refuse now rather than print instructions and poll for fifteen minutes
+    # against a deadline nobody is working towards.
+    if ($unattended) {
+        $PSCmdlet.ThrowTerminatingError([System.Management.Automation.ErrorRecord]::new(
+                [System.InvalidOperationException]::new(('The device-code sign-in needs a browser and a person, and this run is non-interactive. Supply the OAuth token in memory instead - set $env:SHELLPILOT_GITHUB_TOKEN or call Set-ShpContext -GitHubToken - or pre-seed a token file at {0}.' -f $TokenPath)),
+                'ShpNonInteractiveSignIn',
+                [System.Management.Automation.ErrorCategory]::InvalidOperation,
+                $TokenPath))
     }
 
     Write-Host 'Requesting device code from GitHub...' -ForegroundColor Cyan

@@ -226,6 +226,70 @@ And nothing sets $LASTEXITCODE or calls exit. A module that terminates its host
 cannot be dot-sourced, wrapped in a retry, or called from another cmdlet, so the
 exit code stays the caller's job and the try/catch wrapper is documented instead.
 
+### A machine may not spend a person's entitlement by default
+
+Unattended use is a profile, not a side effect, and it is resolved by two more
+single-owner resolvers: Resolve-ShpBackend (which endpoint) and
+Resolve-ShpCiProfile (unattended? Copilot allowed?). A run that is unattended
+for Invoke-Shp and interactive for Invoke-ShpBatch is not a smaller bug than a
+wrong timeout - it is a job that hangs in one step and not another.
+
+In CI the DEFAULT backend is REFUSED. It reaches the Copilot endpoints under the
+public VS Code client id, on a person's OAuth token, and doing that on a
+schedule is an attribution decision rather than a technical detail. The refusal
+is an error carrying ShpCopilotBackendInCi, raised BEFORE the token exchange -
+an exchange is already a request under that entitlement. A warning was the
+obvious alternative and is the wrong shape: nobody reads a warning in a green
+build, which is the whole finding behind -FailOn.
+
+The gate keys on $env:CI, NOT on the resolved unattended mode. -NonInteractive:
+$false says there is a person here; it does not say this pipeline may spend that
+entitlement. Only SHELLPILOT_ALLOW_COPILOT_BACKEND_IN_CI says that.
+
+Truthiness FAILS CLOSED - a value counts unless it is absent, empty, 0, false,
+no or off - so an unfamiliar runner is gated rather than waved through and the
+cost of being wrong is a build that fails naming its own fix. The same test
+decides the CI variable and the opt-out, so CI=false is not CI and ALLOW=false
+is not consent.
+
+-NonInteractive BINDS rather than defaults, because $false is a real answer and
+reading it as "not supplied" would make the switch impossible to turn off on the
+only machine where it matters. What it does is remove ways to wait, not add ways
+to proceed: ask_user is withdrawn, -Confirm is refused rather than silently
+answered yes, and the device-code flow is refused BEFORE the browser launch and
+clipboard write so both are unreachable rather than conditionally skipped.
+
+The ask_user terminating error is raised OUTSIDE the dispatch try/catch, and
+that placement is the whole of it: that catch converts every dispatch failure
+into a tool result, which is right for a tool that failed and wrong for a call
+that must end. Inside it, the throw becomes a tool result and the turn carries
+on using an answer nobody gave.
+
+The batch gates ONCE in end, before it builds a work item - a per-item failure
+would be N identical errors and N runspaces spun up to produce them - and then
+forwards the RESOLVED value rather than the caller's switch. Workers run
+in-process and would agree with the parent by luck, and would stop agreeing the
+moment a caller passed -NonInteractive:$false.
+
+### A bearer belongs to one backend only
+
+An alternative backend (ApiBase) NEVER carries the Copilot Session token. With a
+key it carries the key; without one it carries no Authorization header at all,
+which is what a local server expects anyway. Both the per-iteration bearer
+refresh and the 401 recovery key off IS THIS AN ALTERNATIVE BACKEND rather than
+DOES IT HAVE A KEY, so neither can put the Session token back.
+
+This was a latent weakness that a feature made reachable: the fallback existed
+while only Set-ShpContext could set ApiBase, and reading ApiBase from the
+environment would have let anything able to set a variable on a runner redirect
+a live Copilot credential. The rule is that widening a value's SOURCE re-opens
+every decision that was safe only because the source was narrow.
+
+A URL is also a place a credential can hide. Resolve-ShpBackend returns
+SafeApiBase with the userinfo component redacted, and that is what every
+display path uses - the result's Endpoint, the readiness object, verbose output -
+while the real value is used only to make the request.
+
 ### One resolver per option family, and no exemptions
 
 Every option family that has more than one source resolves through a single

@@ -9,6 +9,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **An unattended run is now a supported, deliberate profile rather than an
+  accident.** `Invoke-Shp`, `Invoke-ShpBatch` and `Initialize-Shp` take
+  `-NonInteractive`, on automatically when `$env:CI` is truthy and overridable
+  with `-NonInteractive:$false`. It withdraws `ask_user`, refuses `-Confirm`
+  instead of silently answering it yes, and refuses the device-code flow before
+  the browser launch and the clipboard write - because a prompt on a runner does
+  not fail, it burns the job's whole timeout and then fails for the wrong
+  reason. A model that calls `ask_user` anyway ends the turn with
+  `ShpNonInteractivePrompt` rather than continuing on an answer nobody gave.
+  See [specs/025-ci-profile.md](specs/025-ci-profile.md).
+
+- **In CI, the default Copilot backend is refused unless you opt in.** That
+  backend reaches the Copilot endpoints with the public VS Code client id, on
+  the token owner's personal entitlement - fine for a shell, a decision for a
+  pipeline. Configure an OpenAI-compatible endpoint instead, or set
+  `SHELLPILOT_ALLOW_COPILOT_BACKEND_IN_CI`. The error carries the id
+  `ShpCopilotBackendInCi` and names both remedies, and it is raised **before**
+  the token exchange so nothing is spent proving the point.
+  A warning was the obvious alternative and is the wrong shape: nobody reads a
+  warning in a green build, which is the whole finding behind `-FailOn`.
+
+- **`$env:SHELLPILOT_API_BASE` and `$env:SHELLPILOT_API_KEY`** are read as
+  backend defaults, below an explicit `-ApiBase` and the session context and
+  above the built-in Copilot endpoint - so a pipeline points ShellPilot at its
+  own endpoint with the variables it already injects.
+
+- **`Test-ShpCiReadiness`** reports the whole resolved profile - token source,
+  backend, interactive capability, `Ready`, and a list of named issues - without
+  sending a chat request or exchanging a token. The three things an unattended
+  run needs are decided by three different precedence chains with silent
+  fallbacks, so a misconfigured job otherwise fails minutes later at the first
+  `Invoke-Shp` with whichever chain gave out first. No secret is returned: the
+  credential and the API key are reported by source only, and the endpoint has
+  any URL credentials redacted.
+
+### Changed
+
+- **An alternative backend (`-ApiBase`) no longer carries the Copilot session
+  token.** It previously fell back to that token whenever no `ApiKey` was
+  configured. That was reachable before only through `Set-ShpContext`; reading
+  `ApiBase` from the environment would have let anything able to set a variable
+  on a runner redirect a live Copilot credential to a host of its choosing.
+  With a key the request carries the key; without one it carries no
+  `Authorization` header at all, which is what a local server expects anyway.
+  A URL's credentials are also redacted from the result's `Endpoint` member.
+
 - **A pipeline step can now fail when the call did not deliver.** A budget
   overrun was a `Write-Warning` plus a `BudgetExceeded` property, so an
   unattended run exited `0` on a truncated or abandoned answer and wrote the

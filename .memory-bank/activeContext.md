@@ -4,6 +4,90 @@ Current working focus for ShellPilot. Overwrite this file as the focus shifts.
 
 ## Focus
 
+Unattended use is now a **supported profile rather than an accident** (spec
+025). Spec 023 made ShellPilot *able* to authenticate on a runner; it did not
+make doing so a good idea, and it left two failures neither a warning nor a
+parameter would have caught.
+
+**The default backend is somebody's personal entitlement.** ShellPilot reaches
+the Copilot endpoints with the public VS Code `client_id`, on a person's OAuth
+token. Right for a shell, where the person is sitting there; a different act
+when a pipeline does it on a schedule. So in CI the Copilot backend is
+**refused** unless an alternative backend is configured or
+`SHELLPILOT_ALLOW_COPILOT_BACKEND_IN_CI` is set - an error carrying
+`ShpCopilotBackendInCi`, raised **before the token exchange** so nothing is
+spent proving the point.
+
+**A warning was the obvious alternative and is the wrong shape.** Nobody reads a
+warning in a green build - that is the whole finding behind spec 024, where
+`-MaxBudgetUSD` warned, returned normally, and the step wrote half an artifact
+and exited 0. A control whose only effect is a line in a log nobody opens is not
+a control.
+
+**The gate keys on `$env:CI`, not on the resolved unattended mode**, and the
+separation is deliberate. `-NonInteractive:$false` on a runner says *there is a
+person here* - a developer attached to a job. It does not say *this pipeline may
+spend that entitlement*. Only the opt-out variable says that, and there is a
+test pinning exactly this.
+
+**Truthiness fails closed.** A value counts unless it is absent, empty, `0`,
+`false`, `no` or `off`, so an unfamiliar runner is gated rather than waved
+through, and the cost of being wrong is a build that fails naming its own fix.
+The same test decides `$env:CI` and the opt-out, so `CI=false` is not CI and
+`ALLOW=false` is not consent.
+
+**`-NonInteractive` binds rather than defaults** (`$PSBoundParameters`), because
+`$false` is a real answer and reading it as "not supplied" would make the switch
+impossible to turn off on the only machine where it matters. It withdraws
+`ask_user`, refuses `-Confirm` instead of silently answering yes, and refuses
+the device-code flow before the browser launch and clipboard write - so both are
+*unreachable* rather than conditionally skipped.
+
+**The `ask_user` terminating error had to be raised outside the dispatch
+`try`/`catch`**, and that is the one placement decision that was not obvious.
+That catch turns every dispatch failure into a tool result, which is right for a
+tool that failed and wrong for a call that must end: raised inside it, the throw
+would have become a tool result and the turn would have carried on.
+
+**A credential that would have leaked, closed in the same change.** Reading
+`ApiBase` from the environment made an existing weakness reachable by anything
+that can set a variable on a runner: `Invoke-Shp` fell back to sending the
+**Copilot session token** to whatever `ApiBase` named when no `ApiKey` was set.
+An alternative backend now never carries it - key, or no `Authorization` header
+at all. The per-iteration bearer refresh and the 401 recovery both key off *is
+this an alternative backend* rather than *does it have a key*, so neither can
+put it back. URL userinfo is redacted wherever the endpoint is displayed
+(`SafeApiBase`), including the result's `Endpoint`.
+
+**Stated rather than left to be discovered:** an alternative backend still needs
+a GitHub OAuth token, because `Invoke-Shp` resolves a Copilot session token
+before every turn regardless of where the chat request goes.
+`Test-ShpCiReadiness` reports that as an issue, and the README's CI examples
+supply `SHELLPILOT_GITHUB_TOKEN` for exactly that reason. `Get-ShpModel` and
+`Request-ShpEmbedding` are likewise **not** gated - a real hole, written down in
+the spec rather than glossed.
+
+**`Test-ShpCiReadiness` exists because three precedence chains fail
+separately.** Credential, backend and interactivity each have a silent
+fallback, so a misconfigured job fails minutes later at the first `Invoke-Shp`
+with whichever chain gave out first. It asks the same resolvers and reports
+`Ready` plus named issues, sending nothing: no chat request, no token exchange.
+No secret is returned - source only, endpoint redacted.
+
+**The suite had to stop testing its host.** The repository's own pipeline sets
+`$env:CI`, so every existing `Invoke-Shp` test would have hit the new gate on
+GitHub Actions. Four test files now save and clear the CI profile variables in
+their own scope and restore them afterwards.
+
+Verified: build 7 tasks / 0 errors / 0 warnings; **1511 tests, 0 failures**
+(QA + Unit, out-of-band child-process Pester); PSScriptAnalyzer clean across
+every source file. Four mutations, applied **one at a time** and each rebuilt
+and re-run, all turned their own test red: disarming the gate throw, dropping
+`-not $unattended` from `$userPromptsEnabled`, restoring the keyless
+session-token fallback, and disarming the `ask_user` guard.
+
+## Superseded focus (2026-08-26) - pipeline failure semantics
+
 A ShellPilot call can now **fail** a pipeline step (spec 024). The gap was not
 that failures were unreported - it was that every disappointing outcome was
 reported as *data*, and an unattended runner reads none of it.

@@ -285,6 +285,126 @@ Start-ShpChat
 # Type to chat; /model <id> switches model, /clear resets, /exit leaves.
 ```
 
+## Run it in CI
+
+ShellPilot detects a runner from a truthy `$env:CI` and switches to an
+unattended profile: `ask_user` is withdrawn, and anything that would prompt
+raises a terminating error instead of waiting for a timeout.
+
+In CI it also **refuses the default Copilot backend**. That backend reaches the
+Copilot endpoints with the public VS Code client id, on the token owner's
+personal entitlement - fine for a shell, a decision for a pipeline. Point the
+job at an OpenAI-compatible endpoint instead, or opt in explicitly:
+
+```powershell
+$env:SHELLPILOT_API_BASE = 'https://models.example.com/v1'
+$env:SHELLPILOT_API_KEY  = $keyFromSecrets      # or: Set-ShpContext -ApiBase -ApiKey
+
+# ...or accept that this pipeline spends the token owner's Copilot allowance:
+$env:SHELLPILOT_ALLOW_COPILOT_BACKEND_IN_CI = 'true'
+```
+
+An alternative backend still needs `SHELLPILOT_GITHUB_TOKEN`: ShellPilot
+exchanges a Copilot session token before every turn regardless of where the chat
+request goes. Check the whole profile before the first call:
+
+```powershell
+$readiness = Test-ShpCiReadiness
+if (-not $readiness.Ready) { $readiness.Issue | Write-Error; exit 1 }
+```
+
+### GitHub Actions
+
+`CI` is already `true` on a GitHub runner, so nothing has to set it.
+
+```yaml
+jobs:
+  summarise:
+    runs-on: ubuntu-latest
+    env:
+      SHELLPILOT_GITHUB_TOKEN: ${{ secrets.SHELLPILOT_GITHUB_TOKEN }}
+      SHELLPILOT_API_BASE: ${{ vars.SHELLPILOT_API_BASE }}
+      SHELLPILOT_API_KEY: ${{ secrets.SHELLPILOT_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build ShellPilot
+        shell: pwsh
+        run: ./build.ps1 -ResolveDependency -Tasks build
+
+      - name: Check the CI profile
+        shell: pwsh
+        run: |
+          Import-Module ./output/module/ShellPilot/*/ShellPilot.psd1
+          $readiness = Test-ShpCiReadiness
+          $readiness | Format-List
+          if (-not $readiness.Ready) {
+            $readiness.Issue | ForEach-Object { Write-Host "::error::$_" }
+            exit 1
+          }
+
+      - name: Summarise the branch
+        shell: pwsh
+        run: |
+          Import-Module ./output/module/ShellPilot/*/ShellPilot.psd1
+          try {
+            $r = Invoke-Shp -Prompt 'Summarise the changes on this branch.' `
+              -FailOn NoContent, Truncated -MaxBudgetUSD 0.25 `
+              -DisableTerminal -DisableFileAccess
+            $r.Content | Out-File $env:GITHUB_STEP_SUMMARY -Append
+          } catch {
+            Write-Host "::error::$($_.Exception.Message)"
+            exit 1
+          }
+```
+
+### Azure Pipelines
+
+Azure Pipelines does not set `CI` the way GitHub Actions does, so set it on the
+step - or pass `-NonInteractive` on every call.
+
+```yaml
+steps:
+  - pwsh: ./build.ps1 -ResolveDependency -Tasks build
+    displayName: Build ShellPilot
+
+  - task: PowerShell@2
+    displayName: Summarise the branch
+    env:
+      CI: 'true'
+      SHELLPILOT_GITHUB_TOKEN: $(SHELLPILOT_GITHUB_TOKEN)
+      SHELLPILOT_API_BASE: $(SHELLPILOT_API_BASE)
+      SHELLPILOT_API_KEY: $(SHELLPILOT_API_KEY)
+    inputs:
+      pwsh: true
+      targetType: inline
+      script: |
+        Import-Module ./output/module/ShellPilot/*/ShellPilot.psd1
+
+        $readiness = Test-ShpCiReadiness
+        if (-not $readiness.Ready) {
+          $readiness.Issue |
+            ForEach-Object { Write-Host "##vso[task.logissue type=error]$_" }
+          exit 1
+        }
+
+        try {
+          $r = Invoke-Shp -Prompt 'Summarise the changes on this branch.' `
+            -FailOn NoContent, Truncated -MaxBudgetUSD 0.25 `
+            -DisableTerminal -DisableFileAccess
+          $r.Content
+        } catch {
+          Write-Host "##vso[task.logissue type=error]$($_.Exception.Message)"
+          exit 1
+        }
+```
+
+ShellPilot never calls `exit` and never sets `$LASTEXITCODE` - a module that
+terminates its host cannot be composed - so the step's exit code stays the
+wrapper's job. See
+[specs/025-ci-profile.md](specs/025-ci-profile.md) and
+[specs/024-pipeline-failure-semantics.md](specs/024-pipeline-failure-semantics.md).
+
 ## Cmdlet reference
 
 | Area | Cmdlets |
@@ -299,6 +419,7 @@ Start-ShpChat
 | Estimation | `ConvertTo-ShpTokenCount`, `Get-ShpCostEstimate` |
 | Usage | `Get-ShpUsage`, `Clear-ShpUsage` |
 | Context | `Set-ShpContext`, `Get-ShpContext`, `Clear-ShpContext` |
+| CI | `Test-ShpCiReadiness` |
 
 Every cmdlet has full comment-based help: `Get-Help Invoke-Shp -Full`.
 
@@ -315,6 +436,10 @@ Every cmdlet has full comment-based help: `Get-Help Invoke-Shp -Full`.
   privileges and no path sandboxing; user tools run arbitrary commands. They are
   opt-out (`-DisableTerminal`, `-DisableFileAccess`, `-DisableUserTools`).
   Disable them for untrusted prompts.
+- **Copilot backend in CI.** Unattended use of the default backend spends the
+  token owner's personal entitlement, so it is refused when `$env:CI` is truthy
+  unless `SHELLPILOT_ALLOW_COPILOT_BACKEND_IN_CI` is set. An alternative backend
+  (`-ApiBase`) never carries the Copilot session token.
 - **Server-side state.** `-UseServerSideState` is not supported by the Copilot
   backend (it is stateless) and falls back automatically to client-side history.
 - **Streaming.** Live streaming is the default on the chat shape only.

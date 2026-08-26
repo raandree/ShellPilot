@@ -4,13 +4,13 @@ Chronological record of shipped changes and remaining work. Latest first.
 
 ## Current state
 
-- ShellPilot is a Sampler-built PowerShell module (cmdlet prefix Shp) with 23
+- ShellPilot is a Sampler-built PowerShell module (cmdlet prefix Shp) with 31
   public cmdlets, Pester 5 tests, QA gates (TestQuality, helpQuality),
   GitVersion, and a GitHub Actions CI. main builds at 0.2.0-preview0001.
 - All 13 migration specs (002-014) are implemented, plus 015 (batch execution),
   016 (failed-call usage accounting), 017 (context-window budget resolved
-  from the model) and 024 (pipeline failure semantics); the backend-dependent
-  ones are live-verified. Server-side
+  from the model), 024 (pipeline failure semantics) and 025 (CI profile); the
+  backend-dependent ones are live-verified. Server-side
   state (011) is implemented but the Copilot proxy does not support it, so it
   falls back to client-side history.
 - The full Pester run crashes locally on a .NET 10 native access violation
@@ -40,6 +40,55 @@ Chronological record of shipped changes and remaining work. Latest first.
   `Invoke-ShpBatch` covers the concurrent case.
 
 ## Log
+
+- 2026-08-26 - Unattended use became a supported profile rather than an accident
+  (spec 025). Spec 023 made ShellPilot *able* to authenticate on a runner; it
+  did not make doing so a good idea. The default backend reaches the Copilot
+  endpoints with the public VS Code `client_id`, on a **person's** entitlement -
+  right for a shell, a different act on a schedule - so in CI it is now
+  **refused** (`ShpCopilotBackendInCi`) unless an alternative backend is
+  configured or `SHELLPILOT_ALLOW_COPILOT_BACKEND_IN_CI` is set. The refusal
+  lands **before the token exchange**, so nothing is spent proving the point. A
+  warning was the obvious alternative and is the wrong shape - nobody reads a
+  warning in a green build, which is the whole finding behind spec 024.
+  The gate keys on `$env:CI`, **not** on the resolved unattended mode:
+  `-NonInteractive:$false` says a person is present, not that the pipeline may
+  spend that entitlement. Truthiness fails closed - a value counts unless it is
+  absent, empty, `0`, `false`, `no` or `off` - so an unfamiliar runner is gated
+  rather than waved through, and the same test decides `$env:CI` and the opt-out.
+  `-NonInteractive` (on `Invoke-Shp`, `Invoke-ShpBatch`, `Initialize-Shp`) binds
+  rather than defaults, because `$false` is a real answer. It withdraws
+  `ask_user`, refuses `-Confirm` instead of silently answering yes, and refuses
+  the device-code flow **before** the browser launch and clipboard write, so both
+  are unreachable rather than conditionally skipped. The `ask_user` terminating
+  error is raised **outside** the dispatch `try`/`catch`: that catch turns every
+  dispatch failure into a tool result, which is right for a tool that failed and
+  wrong for a call that must end.
+  `$env:SHELLPILOT_API_BASE` / `$env:SHELLPILOT_API_KEY` join the backend
+  precedence below an explicit parameter and the session context, resolved by a
+  new `Resolve-ShpBackend` - and that opened a credential path that had to be
+  closed in the same change. `Invoke-Shp` previously fell back to sending the
+  **Copilot session token** to whatever `ApiBase` named when no key was set;
+  with `ApiBase` settable from the environment, anything able to set a variable
+  on a runner could have collected a live credential. An alternative backend now
+  never carries it, and both the per-iteration refresh and the 401 recovery key
+  off *is this an alternative backend* rather than *does it have a key*. URL
+  userinfo is redacted everywhere the endpoint is shown.
+  `Test-ShpCiReadiness` reports the whole resolved profile with named issues and
+  sends nothing - no chat request, no token exchange, no secret returned. It
+  exists because credential, backend and interactivity are three chains with
+  three silent fallbacks, so a misconfigured job otherwise fails minutes later
+  with whichever gave out first.
+  Two limits are written down rather than glossed: an alternative backend still
+  needs a GitHub OAuth token (the session-token exchange runs regardless of
+  where the chat request goes), and `Get-ShpModel` / `Request-ShpEmbedding` are
+  not gated.
+  Four test files now save and clear the CI profile variables in their own
+  scope - the repository's own pipeline sets `$env:CI`, so the suite would
+  otherwise have been testing its host.
+  Verified: build 7 tasks / 0 errors / 0 warnings; 1511 tests, 0 failures;
+  PSScriptAnalyzer clean across every source file; four mutations applied one at
+  a time, each rebuilt and re-run, each turning its own test red.
 
 - 2026-08-25 - A ShellPilot call can fail a pipeline step (spec 024). The gap
   was not that failures went unreported; it was that every disappointing outcome

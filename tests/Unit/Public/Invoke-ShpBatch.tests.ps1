@@ -3,9 +3,25 @@ BeforeAll {
 
     Remove-Module -Name $script:moduleName -Force -ErrorAction SilentlyContinue
     Import-Module -Name $script:moduleName -Force -ErrorAction Stop
+
+    # The batch gates on the CI profile before it fans out, and the repository's
+    # own pipeline sets $env:CI - so clear the whole profile here and restore it
+    # afterwards, or this file would test its host instead of the module.
+    $script:savedCiEnv = @{}
+    foreach ($name in 'CI', 'SHELLPILOT_API_BASE', 'SHELLPILOT_API_KEY', 'SHELLPILOT_ALLOW_COPILOT_BACKEND_IN_CI') {
+        $script:savedCiEnv[$name] = [System.Environment]::GetEnvironmentVariable($name)
+        Remove-Item -LiteralPath "Env:$name" -ErrorAction SilentlyContinue
+    }
 }
 
 AfterAll {
+    foreach ($name in @($script:savedCiEnv.Keys)) {
+        if ($null -ne $script:savedCiEnv[$name]) {
+            Set-Item -LiteralPath "Env:$name" -Value $script:savedCiEnv[$name]
+        } else {
+            Remove-Item -LiteralPath "Env:$name" -ErrorAction SilentlyContinue
+        }
+    }
     Get-Module -Name $script:moduleName -All | Remove-Module -Force -ErrorAction SilentlyContinue
 }
 
@@ -662,6 +678,81 @@ Describe 'Invoke-ShpBatch failure semantics' {
             $result = @(Invoke-ShpBatch -Prompt 'a', 'b' -FailBatchOnAnyItem)
             @($result).Count | Should -Be 2
             @($result | Where-Object Success).Count | Should -Be 2
+        }
+    }
+
+    Context 'CI profile' {
+        BeforeEach {
+            foreach ($name in 'CI', 'SHELLPILOT_ALLOW_COPILOT_BACKEND_IN_CI', 'SHELLPILOT_API_BASE', 'SHELLPILOT_API_KEY') {
+                Remove-Item -LiteralPath "Env:$name" -ErrorAction SilentlyContinue
+            }
+
+            InModuleScope $script:moduleName {
+                $script:capturedInvokeParams = $null
+                Mock Invoke-ShpParallel {
+                    $script:capturedInvokeParams = $WorkItem[0].InvokeParams
+                    foreach ($item in $WorkItem) {
+                        [pscustomobject]@{
+                            BatchResult = [pscustomobject]@{
+                                PSTypeName = 'ShellPilot.BatchResult'
+                                Index      = $item.Index; Id = $item.Id; Prompt = $item.Prompt
+                                Success    = $true; Skipped = $false; Content = 'answer'; Error = $null
+                            }
+                            UsageRecord = @(); Warning = @()
+                        }
+                    }
+                }
+            }
+        }
+
+        AfterEach {
+            foreach ($name in 'CI', 'SHELLPILOT_ALLOW_COPILOT_BACKEND_IN_CI', 'SHELLPILOT_API_BASE', 'SHELLPILOT_API_KEY') {
+                Remove-Item -LiteralPath "Env:$name" -ErrorAction SilentlyContinue
+            }
+        }
+
+        It 'Exposes a -NonInteractive switch' {
+            (Get-Command -Name 'Invoke-ShpBatch').Parameters['NonInteractive'].ParameterType |
+                Should -Be ([System.Management.Automation.SwitchParameter])
+        }
+
+        It 'Refuses the Copilot backend in CI before a single worker starts' {
+            $env:CI = 'true'
+
+            InModuleScope $script:moduleName {
+                $err = { Invoke-ShpBatch -Prompt 'a', 'b' } | Should -Throw -PassThru
+                $err.FullyQualifiedErrorId | Should -Be 'ShpCopilotBackendInCi,Invoke-ShpBatch'
+                Should -Invoke Invoke-ShpParallel -Times 0 -Exactly
+            }
+        }
+
+        It 'Permits the batch once SHELLPILOT_ALLOW_COPILOT_BACKEND_IN_CI is set' {
+            $env:CI = 'true'
+            $env:SHELLPILOT_ALLOW_COPILOT_BACKEND_IN_CI = 'true'
+
+            @(Invoke-ShpBatch -Prompt 'a', 'b') | Should -HaveCount 2
+        }
+
+        It 'Permits the batch in CI when an alternative backend is configured' {
+            $env:CI = 'true'
+            $env:SHELLPILOT_API_BASE = 'https://models.example/v1'
+
+            @(Invoke-ShpBatch -Prompt 'a') | Should -HaveCount 1
+        }
+
+        It 'Forwards the resolved unattended mode to every worker, not the caller switch' {
+            $env:CI = 'true'
+            $env:SHELLPILOT_ALLOW_COPILOT_BACKEND_IN_CI = 'true'
+
+            InModuleScope $script:moduleName {
+                # A worker re-reading $env:CI would agree here by luck. It would
+                # not agree when the caller asked for the opposite.
+                $null = Invoke-ShpBatch -Prompt 'a' -NonInteractive:$false
+                $script:capturedInvokeParams['NonInteractive'] | Should -BeFalse
+
+                $null = Invoke-ShpBatch -Prompt 'a'
+                $script:capturedInvokeParams['NonInteractive'] | Should -BeTrue
+            }
         }
     }
 }

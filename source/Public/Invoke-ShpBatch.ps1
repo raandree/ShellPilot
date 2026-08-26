@@ -151,6 +151,14 @@ function Invoke-ShpBatch {
     .PARAMETER DisableTodoList
         Do not offer the built-in manage_todo_list tool.
 
+    .PARAMETER NonInteractive
+        Run unattended. A batch already forces -DisableUserPrompts, so what this
+        adds is the rest of the profile: any would-be prompt inside an item
+        becomes a terminating error for that item, and in CI the batch is
+        refused before a single worker starts unless a backend is configured or
+        SHELLPILOT_ALLOW_COPILOT_BACKEND_IN_CI is set. It is on automatically
+        when $env:CI is truthy; pass -NonInteractive:$false to override that.
+
     .PARAMETER MaxToolIterations
         Maximum number of tool-calling iterations per item before that item is
         abandoned.
@@ -366,6 +374,8 @@ function Invoke-ShpBatch {
 
         [switch]$DisableTodoList,
 
+        [switch]$NonInteractive,
+
         [ValidateRange(1, [int]::MaxValue)]
         [int]$MaxToolIterations,
 
@@ -411,6 +421,17 @@ function Invoke-ShpBatch {
     }
 
     end {
+        # Gate the whole batch before a single worker starts. A per-item failure
+        # would be N identical errors and N runspaces spun up to produce them.
+        $backendParams = @{}
+        if ($PSBoundParameters.ContainsKey('ApiBase')) { $backendParams['ApiBase'] = $ApiBase }
+        $backend = Resolve-ShpBackend @backendParams
+
+        $ciParams = @{ ApiBase = $backend.ApiBase }
+        if ($PSBoundParameters.ContainsKey('NonInteractive')) { $ciParams['NonInteractive'] = [bool]$NonInteractive }
+        $ciProfile = Resolve-ShpCiProfile @ciParams
+        if ($ciProfile.BackendGateError) { $PSCmdlet.ThrowTerminatingError($ciProfile.BackendGateError) }
+
         # Resolve the module by full path. A worker runspace inherits no loaded
         # modules, so it has to import one itself - and left to $env:PSModulePath
         # it could pick up a different installed version than the one running here.
@@ -454,6 +475,10 @@ function Invoke-ShpBatch {
         $invokeParams['DisableStreaming'] = $true
         $invokeParams['DisableUserPrompts'] = $true
         $invokeParams['DisableProgressEvents'] = $true
+        # Forwarded as the RESOLVED value, not the caller's switch. A worker
+        # re-reading $env:CI would agree here by luck; a caller who passed
+        # -NonInteractive:$false on a runner would not.
+        $invokeParams['NonInteractive'] = $ciProfile.NonInteractive
 
         # A worker inherits neither the session context nor the registered tools,
         # so both travel on the work item and are replayed once per runspace.

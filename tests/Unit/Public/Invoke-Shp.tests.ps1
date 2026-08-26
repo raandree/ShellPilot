@@ -4,6 +4,17 @@ BeforeAll {
     Remove-Module -Name $script:moduleName -Force -ErrorAction SilentlyContinue
     Import-Module -Name $script:moduleName -Force -ErrorAction Stop
 
+    # Most of this file exercises the default Copilot backend, which the CI gate
+    # refuses when $env:CI is truthy - and the repository's own pipeline sets it.
+    # Clear the whole CI profile here so the suite tests ShellPilot rather than
+    # the machine it happens to run on, and restore it afterwards so nothing
+    # leaks into the next file.
+    $script:savedCiEnv = @{}
+    foreach ($name in 'CI', 'SHELLPILOT_API_BASE', 'SHELLPILOT_API_KEY', 'SHELLPILOT_ALLOW_COPILOT_BACKEND_IN_CI') {
+        $script:savedCiEnv[$name] = [System.Environment]::GetEnvironmentVariable($name)
+        Remove-Item -LiteralPath "Env:$name" -ErrorAction SilentlyContinue
+    }
+
     # Stand-in for the module's shared HttpClient, used where a test has to run
     # the real buffered sender (Invoke-ShpHttpRequest) instead of mocking it -
     # the API-shape fallbacks key off the error message that sender produces.
@@ -25,6 +36,13 @@ BeforeAll {
 }
 
 AfterAll {
+    foreach ($name in @($script:savedCiEnv.Keys)) {
+        if ($null -ne $script:savedCiEnv[$name]) {
+            Set-Item -LiteralPath "Env:$name" -Value $script:savedCiEnv[$name]
+        } else {
+            Remove-Item -LiteralPath "Env:$name" -ErrorAction SilentlyContinue
+        }
+    }
     Get-Module -Name $script:moduleName -All | Remove-Module -Force -ErrorAction SilentlyContinue
 }
 Describe 'Invoke-Shp' {
@@ -2407,6 +2425,222 @@ Describe 'Invoke-Shp -FailOn' {
                     Should -Throw -PassThru
 
                 $err.FullyQualifiedErrorId | Should -Be 'ShpNoContent,Invoke-Shp'
+            }
+        }
+    }
+}
+
+Describe 'Invoke-Shp CI profile' {
+    BeforeEach {
+        foreach ($name in 'CI', 'SHELLPILOT_ALLOW_COPILOT_BACKEND_IN_CI', 'SHELLPILOT_API_BASE', 'SHELLPILOT_API_KEY') {
+            Remove-Item -LiteralPath "Env:$name" -ErrorAction SilentlyContinue
+        }
+        Clear-ShpContext
+
+        InModuleScope $script:moduleName {
+            $script:ShpChat = @()
+            $script:capturedHeaders = $null
+            $script:capturedApiBase = $null
+            $script:capturedTools = $null
+            $script:turnCount = 0
+            Mock Get-ShpSessionToken { [pscustomobject]@{ token = 'session-token'; expires_at = 0; endpoints = [pscustomobject]@{ api = 'https://api.example' } } }
+            Mock Invoke-CopilotTurn {
+                $script:capturedHeaders = $Headers
+                $script:capturedApiBase = $ApiBase
+                $script:capturedTools = $Tools
+                [pscustomobject]@{
+                    Mode = 'chat'; Content = 'ok'; FinishReason = 'stop'; ToolCalls = @()
+                    AssistantMessage = [pscustomobject]@{ content = 'ok' }; Reasoning = ''
+                    PromptTokens = 1; CompletionTokens = 1; CachedTokens = 0; CacheWriteTokens = 0
+                    ModelName = $Model; CopilotUsage = $null; Raw = @{}; Response = [pscustomobject]@{ Headers = @{} }
+                }
+            }
+        }
+    }
+
+    AfterEach {
+        foreach ($name in 'CI', 'SHELLPILOT_ALLOW_COPILOT_BACKEND_IN_CI', 'SHELLPILOT_API_BASE', 'SHELLPILOT_API_KEY') {
+            Remove-Item -LiteralPath "Env:$name" -ErrorAction SilentlyContinue
+        }
+        Clear-ShpContext
+        InModuleScope $script:moduleName { $script:ShpChat = @() }
+    }
+
+    Context 'The Copilot backend gate' {
+        It 'Refuses the Copilot backend in CI with a branchable error id' {
+            $env:CI = 'true'
+
+            InModuleScope $script:moduleName {
+                $err = { Invoke-Shp -Prompt 'hi' -DisableBrowsing -DisableFileAccess -DisableTerminal } | Should -Throw -PassThru
+                $err.FullyQualifiedErrorId  | Should -Be 'ShpCopilotBackendInCi,Invoke-Shp'
+                $err.Exception.Message      | Should -BeLike '*SHELLPILOT_ALLOW_COPILOT_BACKEND_IN_CI*'
+            }
+        }
+
+        It 'Refuses BEFORE the token exchange, so nothing is spent proving the point' {
+            $env:CI = 'true'
+
+            InModuleScope $script:moduleName {
+                { Invoke-Shp -Prompt 'hi' -DisableBrowsing -DisableFileAccess -DisableTerminal } | Should -Throw
+                Should -Invoke Get-ShpSessionToken -Times 0 -Exactly
+                Should -Invoke Invoke-CopilotTurn -Times 0 -Exactly
+            }
+        }
+
+        It 'Permits the call once SHELLPILOT_ALLOW_COPILOT_BACKEND_IN_CI is set' {
+            $env:CI = 'true'
+            $env:SHELLPILOT_ALLOW_COPILOT_BACKEND_IN_CI = 'true'
+
+            InModuleScope $script:moduleName {
+                (Invoke-Shp -Prompt 'hi' -DisableBrowsing -DisableFileAccess -DisableTerminal).Content | Should -Be 'ok'
+            }
+        }
+
+        It 'Permits the call in CI when an alternative backend is configured' {
+            $env:CI = 'true'
+            $env:SHELLPILOT_API_BASE = 'https://models.example/v1'
+            $env:SHELLPILOT_API_KEY  = 'sk-env'
+
+            InModuleScope $script:moduleName {
+                (Invoke-Shp -Prompt 'hi' -DisableBrowsing -DisableFileAccess -DisableTerminal).Content | Should -Be 'ok'
+                $script:capturedApiBase | Should -Be 'https://models.example/v1'
+            }
+        }
+
+        It 'Does not gate off a runner' {
+            InModuleScope $script:moduleName {
+                (Invoke-Shp -Prompt 'hi' -DisableBrowsing -DisableFileAccess -DisableTerminal).Content | Should -Be 'ok'
+            }
+        }
+
+        It 'Still gates when the caller opted back into interactive behaviour' {
+            # -NonInteractive:$false claims a person is present; it does not claim
+            # the entitlement may be spent by the pipeline.
+            $env:CI = 'true'
+
+            InModuleScope $script:moduleName {
+                { Invoke-Shp -Prompt 'hi' -NonInteractive:$false -DisableBrowsing -DisableFileAccess -DisableTerminal } |
+                    Should -Throw -ExpectedMessage '*SHELLPILOT_ALLOW_COPILOT_BACKEND_IN_CI*'
+            }
+        }
+    }
+
+    Context 'Backend defaults from the environment' {
+        It 'Reads $env:SHELLPILOT_API_BASE below an explicit parameter' {
+            $env:SHELLPILOT_API_BASE = 'https://env.example/v1'
+
+            InModuleScope $script:moduleName {
+                $null = Invoke-Shp -Prompt 'hi' -ApiBase 'https://explicit.example/v1' -DisableBrowsing -DisableFileAccess -DisableTerminal -DisableUserPrompts
+                $script:capturedApiBase | Should -Be 'https://explicit.example/v1'
+            }
+        }
+
+        It 'Reads $env:SHELLPILOT_API_BASE above the Copilot session endpoint' {
+            $env:SHELLPILOT_API_BASE = 'https://env.example/v1'
+
+            InModuleScope $script:moduleName {
+                $null = Invoke-Shp -Prompt 'hi' -DisableBrowsing -DisableFileAccess -DisableTerminal -DisableUserPrompts
+                $script:capturedApiBase | Should -Be 'https://env.example/v1'
+            }
+        }
+
+        It 'Authenticates an environment-configured backend with $env:SHELLPILOT_API_KEY' {
+            $env:SHELLPILOT_API_BASE = 'https://env.example/v1'
+            $env:SHELLPILOT_API_KEY  = 'sk-env'
+
+            InModuleScope $script:moduleName {
+                $null = Invoke-Shp -Prompt 'hi' -DisableBrowsing -DisableFileAccess -DisableTerminal -DisableUserPrompts
+                $script:capturedHeaders.Authorization | Should -Be 'Bearer sk-env'
+            }
+        }
+
+        It 'Never sends the Copilot session token to an alternative backend' {
+            # The endpoint can now come from the environment, so shipping the
+            # bearer there would let anything that can set a variable on a runner
+            # collect a live Copilot credential.
+            $env:SHELLPILOT_API_BASE = 'https://env.example/v1'
+
+            InModuleScope $script:moduleName {
+                $null = Invoke-Shp -Prompt 'hi' -DisableBrowsing -DisableFileAccess -DisableTerminal -DisableUserPrompts
+                $script:capturedHeaders.Keys | Should -Not -Contain 'Authorization'
+            }
+        }
+
+        It 'Still sends the session token to the Copilot backend' {
+            InModuleScope $script:moduleName {
+                $null = Invoke-Shp -Prompt 'hi' -DisableBrowsing -DisableFileAccess -DisableTerminal -DisableUserPrompts
+                $script:capturedHeaders.Authorization | Should -Be 'Bearer session-token'
+            }
+        }
+
+        It 'Redacts URL credentials from the reported endpoint' {
+            InModuleScope $script:moduleName {
+                $r = Invoke-Shp -Prompt 'hi' -ApiBase 'https://alice:hunter2@models.example/v1' -DisableBrowsing -DisableFileAccess -DisableTerminal -DisableUserPrompts
+                $r.Endpoint | Should -Be 'https://***@models.example/v1/chat/completions'
+            }
+        }
+    }
+
+    Context '-NonInteractive' {
+        It 'Exposes the switch' {
+            (Get-Command -Name 'Invoke-Shp').Parameters['NonInteractive'].ParameterType |
+                Should -Be ([System.Management.Automation.SwitchParameter])
+        }
+
+        It 'Withdraws ask_user, so the model is never offered a prompt it cannot get answered' {
+            InModuleScope $script:moduleName {
+                $null = Invoke-Shp -Prompt 'hi' -NonInteractive -DisableBrowsing -DisableFileAccess -DisableTerminal
+                @($script:capturedTools.function.name) | Should -Not -Contain 'ask_user'
+            }
+        }
+
+        It 'Withdraws ask_user on a runner without the switch being passed' {
+            $env:CI = 'true'
+            $env:SHELLPILOT_ALLOW_COPILOT_BACKEND_IN_CI = 'true'
+
+            InModuleScope $script:moduleName {
+                $null = Invoke-Shp -Prompt 'hi' -DisableBrowsing -DisableFileAccess -DisableTerminal
+                @($script:capturedTools.function.name) | Should -Not -Contain 'ask_user'
+            }
+        }
+
+        It 'Keeps ask_user when the caller opts back into interactive behaviour on a runner' {
+            $env:CI = 'true'
+            $env:SHELLPILOT_ALLOW_COPILOT_BACKEND_IN_CI = 'true'
+
+            InModuleScope $script:moduleName {
+                $null = Invoke-Shp -Prompt 'hi' -NonInteractive:$false -DisableBrowsing -DisableFileAccess -DisableTerminal
+                @($script:capturedTools.function.name) | Should -Contain 'ask_user'
+            }
+        }
+
+        It 'Turns an ask_user tool call into a terminating error instead of blocking on a console' {
+            InModuleScope $script:moduleName {
+                Mock Read-ShpUserInput { throw 'Read-ShpUserInput must never be reached in a non-interactive run.' }
+                Mock Invoke-CopilotTurn {
+                    [pscustomobject]@{
+                        Mode = 'chat'; Content = ''; FinishReason = 'tool_calls'
+                        ToolCalls = @([pscustomobject]@{ Id = 'q1'; Name = 'ask_user'; Arguments = '{"question":"Which colour?"}' })
+                        AssistantMessage = [pscustomobject]@{ content = '' }; Reasoning = ''
+                        PromptTokens = 1; CompletionTokens = 1; CachedTokens = 0; CacheWriteTokens = 0
+                        ModelName = $Model; CopilotUsage = $null; Raw = @{}; Response = [pscustomobject]@{ Headers = @{} }
+                    }
+                }
+
+                $err = { Invoke-Shp -Prompt 'paint the fence' -NonInteractive -DisableBrowsing -DisableFileAccess -DisableTerminal } |
+                    Should -Throw -PassThru
+
+                $err.FullyQualifiedErrorId | Should -Be 'ShpNonInteractivePrompt,Invoke-Shp'
+                Should -Invoke Read-ShpUserInput -Times 0 -Exactly
+            }
+        }
+
+        It 'Refuses to combine -NonInteractive with -Confirm' {
+            InModuleScope $script:moduleName {
+                $err = { Invoke-Shp -Prompt 'hi' -NonInteractive -Confirm -DisableBrowsing -DisableFileAccess -DisableTerminal } |
+                    Should -Throw -PassThru
+
+                $err.FullyQualifiedErrorId | Should -Be 'ShpNonInteractiveConfirm,Invoke-Shp'
             }
         }
     }

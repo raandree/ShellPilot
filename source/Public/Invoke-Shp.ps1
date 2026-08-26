@@ -15,6 +15,11 @@ function Invoke-Shp {
         -DisableUserPrompts (ask_user). Pass -DisableStreaming for a single
         buffered reply instead of live token streaming.
 
+        For an unattended run, pass -NonInteractive (implied by a truthy
+        $env:CI): it withdraws ask_user and turns any would-be prompt into a
+        terminating error instead of a wait. In CI the call also has to name a
+        backend - see Test-ShpCiReadiness.
+
         Point -SkillPath at one or more skill roots and/or -InstructionRoot at
         one or more instruction roots to let the model discover skills and
         *.instructions.md files by name and description and pull the full body
@@ -128,6 +133,23 @@ function Invoke-Shp {
         disables it. With no interactive console the tool reports that it could
         not get an answer instead of blocking, so this switch is mainly for
         forcing the model to proceed without ever asking.
+
+    .PARAMETER NonInteractive
+        Run unattended. Implies -DisableUserPrompts, and turns any would-be
+        prompt into a terminating error instead of something that waits: a model
+        that calls ask_user anyway fails the call with ShpNonInteractivePrompt
+        rather than blocking on a console nobody is watching.
+
+        It is on automatically when $env:CI is truthy, because a runner is
+        unattended whether or not the call said so. Pass -NonInteractive:$false
+        to override that detection.
+
+        In CI it also arms the backend gate: with no alternative backend
+        configured the call is refused, because the default backend reaches the
+        Copilot endpoints on the token owner's personal entitlement. Set
+        $env:SHELLPILOT_API_BASE (with $env:SHELLPILOT_API_KEY), or set
+        SHELLPILOT_ALLOW_COPILOT_BACKEND_IN_CI to accept that. See
+        Test-ShpCiReadiness.
 
     .PARAMETER MaxToolIterations
         Maximum number of tool-calling iterations before aborting. Must be at
@@ -635,6 +657,17 @@ function Invoke-Shp {
         caller's job. The error id tells the wrapper which condition fired and
         TargetObject still carries what the abandoned turn cost.
 
+    .EXAMPLE
+        $env:SHELLPILOT_API_BASE = 'https://models.example.com/v1'
+        $env:SHELLPILOT_API_KEY  = $secretFromTheVault
+        Invoke-Shp -Prompt 'Review the diff on stdin.' -NonInteractive
+
+        The supported unattended profile. The environment names an
+        OpenAI-compatible endpoint, so the run never touches the Copilot
+        backend and passes the CI gate; -NonInteractive is redundant on a runner
+        that already sets $env:CI and is spelled out here for a scheduled task
+        that does not. Check the whole profile first with Test-ShpCiReadiness.
+
     .OUTPUTS
         System.Management.Automation.PSCustomObject
 
@@ -712,6 +745,8 @@ function Invoke-Shp {
         [switch]$DisableTerminal,
 
         [switch]$DisableUserPrompts,
+
+        [switch]$NonInteractive,
 
         [switch]$ShowThinking,
 
@@ -839,6 +874,34 @@ function Invoke-Shp {
     $effectiveRetryDelay      = $connection.RetryDelaySec
     $effectiveOutageTolerance = $connection.NetworkOutageToleranceSec
 
+    # Resolve the backend and the CI profile BEFORE the token exchange. A run
+    # that must not reach the Copilot backend must not authenticate against it
+    # either - an exchange is already a request under the caller's entitlement.
+    $backendParams = @{}
+    if ($PSBoundParameters.ContainsKey('ApiBase')) { $backendParams['ApiBase'] = $ApiBase }
+    $backend = Resolve-ShpBackend @backendParams
+
+    $ciParams = @{ ApiBase = $backend.ApiBase }
+    if ($PSBoundParameters.ContainsKey('NonInteractive')) { $ciParams['NonInteractive'] = [bool]$NonInteractive }
+    $ciProfile = Resolve-ShpCiProfile @ciParams
+    if ($ciProfile.BackendGateError) { $PSCmdlet.ThrowTerminatingError($ciProfile.BackendGateError) }
+    $unattended = $ciProfile.NonInteractive
+
+    # An unattended run cannot answer a confirmation prompt either. An explicit
+    # -Confirm is a contradiction and is refused rather than silently answered
+    # yes; a session that merely lowered $ConfirmPreference is honoured as the
+    # unattended intent it now is.
+    if ($unattended) {
+        if ($PSBoundParameters.ContainsKey('Confirm') -and [bool]$PSBoundParameters['Confirm']) {
+            $PSCmdlet.ThrowTerminatingError([System.Management.Automation.ErrorRecord]::new(
+                    [System.InvalidOperationException]::new('-NonInteractive and -Confirm cannot be combined: a confirmation prompt has nobody to answer it. Drop one of them.'),
+                    'ShpNonInteractiveConfirm',
+                    [System.Management.Automation.ErrorCategory]::InvalidArgument,
+                    $null))
+        }
+        $ConfirmPreference = 'None'
+    }
+
     # Kept whole so the tool loop can re-resolve the Session token on the same
     # terms the turn started on - a Turn is a loop that can outlive its own
     # credential, so resolving it only here is not enough.
@@ -847,19 +910,22 @@ function Invoke-Shp {
     $session = Get-ShpSessionToken @sessionTokenParams
     Write-Verbose ("Session token valid until {0}" -f [DateTimeOffset]::FromUnixTimeSeconds($session.expires_at).LocalDateTime)
 
-    # Resolve the API base and bearer token. An explicit -ApiBase, or an ApiBase
-    # set on the session context (Set-ShpContext), selects an opt-in
-    # alternative, OpenAI-compatible backend; otherwise use the Copilot session
-    # endpoint. When an alternative backend is in use and the context carries an
-    # ApiKey, authenticate with that key instead of the session token.
-    $usingAltBackend = $PSBoundParameters.ContainsKey('ApiBase') -or [bool]$script:ShpContext.ApiBase
-    $apiBase = if ($PSBoundParameters.ContainsKey('ApiBase')) { $ApiBase }
-               elseif ($script:ShpContext.ApiBase) { $script:ShpContext.ApiBase }
-               else { $session.endpoints.api }
-    # The bearer is the caller's own API key here, not a Session token, so
-    # nothing below may refresh or overwrite it.
-    $usingAltApiKey = $usingAltBackend -and [bool]$script:ShpContext.ApiKey
-    $bearer = if ($usingAltApiKey) { $script:ShpContext.ApiKey } else { $session.token }
+    # An alternative backend was already resolved above (explicit -ApiBase, the
+    # session context, then $env:SHELLPILOT_API_BASE); otherwise use the Copilot
+    # session endpoint, which is only known once the token has been exchanged.
+    $usingAltBackend = $backend.IsAlternative
+    $apiBase = if ($usingAltBackend) { $backend.ApiBase } else { $session.endpoints.api }
+
+    # A Copilot Session token is NEVER sent to an alternative backend, with or
+    # without an ApiKey to replace it. The endpoint can now come from the
+    # environment, so shipping the bearer there would let anything that can set
+    # a variable on a runner collect a live Copilot credential. No key means no
+    # Authorization header, which is what a local server expects anyway.
+    $usingAltApiKey = $usingAltBackend -and [bool]$backend.ApiKey
+    $bearer = if ($usingAltBackend) { $backend.ApiKey } else { $session.token }
+    if ($usingAltBackend -and -not $usingAltApiKey) {
+        Write-Verbose ('No API key is configured for the alternative backend {0}; the request carries no Authorization header.' -f $backend.SafeApiBase)
+    }
 
     # The context budget has a fourth level - the model's own advertised window -
     # so its whole order lives in one documented resolver. 0 disables the guard,
@@ -872,7 +938,9 @@ function Invoke-Shp {
     $browsingEnabled = -not $DisableBrowsing
     $fileAccessEnabled = -not $DisableFileAccess
     $terminalEnabled = -not $DisableTerminal
-    $userPromptsEnabled = -not $DisableUserPrompts
+    # An unattended run implies -DisableUserPrompts: a tool whose whole job is to
+    # wait for a person is not offered where there is no person.
+    $userPromptsEnabled = -not $DisableUserPrompts -and -not $unattended
 
     # Discover skills (progressive disclosure): catalog now, bodies on demand.
     $skillCatalog = @()
@@ -1059,7 +1127,6 @@ function Invoke-Shp {
     if ($tools.Count -eq 0) { $tools = $null }
 
     $apiHeaders = @{
-        Authorization            = "Bearer $bearer"
         'Editor-Version'         = $EditorVersion
         'Editor-Plugin-Version'  = $PluginVersion
         'Copilot-Integration-Id' = $IntegrationId
@@ -1067,6 +1134,7 @@ function Invoke-Shp {
         'User-Agent'             = $UserAgent
         'Content-Type'           = 'application/json'
     }
+    if ($bearer) { $apiHeaders['Authorization'] = "Bearer $bearer" }
 
     $chatMessages = New-Object System.Collections.Generic.List[hashtable]
     $respInput    = New-Object System.Collections.Generic.List[hashtable]
@@ -1322,7 +1390,7 @@ function Invoke-Shp {
             # 40 - the "IDE token expired" failure. Get-ShpSessionToken serves
             # its cache without a network call while the token is comfortably
             # valid, so this costs nothing until it is genuinely needed.
-            if (-not $usingAltApiKey) {
+            if (-not $usingAltBackend) {
                 $iterationToken = (Get-ShpSessionToken @sessionTokenParams).token
                 if ($iterationToken -and $apiHeaders.Authorization -ne "Bearer $iterationToken") {
                     $apiHeaders.Authorization = "Bearer $iterationToken"
@@ -1359,7 +1427,7 @@ function Invoke-Shp {
             # on the service's prose, and only when the bearer is a Session
             # token: a 401 from an alternative backend is a wrong API key and
             # must fail loudly rather than trigger a Copilot token exchange.
-            if (-not $usingAltApiKey -and $_.TargetObject -and $_.TargetObject.StatusCode -eq 401) {
+            if (-not $usingAltBackend -and $_.TargetObject -and $_.TargetObject.StatusCode -eq 401) {
                 if ($sessionTokenForced) {
                     # A token this call exchanged seconds ago is not expired, so
                     # the OAuth token behind it is the problem.
@@ -1498,6 +1566,20 @@ function Invoke-Shp {
                 & $writeProgress 'ToolCall' @{ Name = $tc.Name; Arguments = $tc.Arguments }
                 Write-Verbose ("-> tool: {0}({1})" -f $tc.Name, $tc.Arguments)
                 if ($ShowThinking) { Write-Host ("-> {0}({1})" -f $tc.Name, $tc.Arguments) -ForegroundColor Cyan }
+                # An unattended run refuses a prompt outright. ask_user is not
+                # offered here, so reaching this means the model invented the
+                # call - and answering it with a tool result would let the turn
+                # continue on an answer nobody gave. Raised BEFORE the try below,
+                # deliberately: that catch turns every dispatch failure into a
+                # tool result, which is right for a tool that failed and wrong
+                # for a call that must end.
+                if ($unattended -and $tc.Name -eq 'ask_user') {
+                    $PSCmdlet.ThrowTerminatingError([System.Management.Automation.ErrorRecord]::new(
+                            [System.InvalidOperationException]::new('The model called ask_user during a -NonInteractive run, which has no console to answer it. Supply the missing information in the prompt, or drop -NonInteractive.'),
+                            'ShpNonInteractivePrompt',
+                            [System.Management.Automation.ErrorCategory]::InvalidOperation,
+                            $null))
+                }
                 $toolResult = '{"error":"unknown tool"}'
                 try {
                     $fargs = $tc.Arguments | ConvertFrom-Json
@@ -1781,7 +1863,7 @@ function Invoke-Shp {
         SkillsAvailable=@($skillCatalog.Name)
         SkillsUsed=@($skillsUsed)
         DurationMs=[int]$sw.Elapsed.TotalMilliseconds
-        Endpoint="$apiBase$(if ($turn.Mode -eq 'responses') {'/responses'} else {'/chat/completions'})"
+        Endpoint="$(if ($usingAltBackend) { $backend.SafeApiBase } else { $apiBase })$(if ($turn.Mode -eq 'responses') {'/responses'} else {'/chat/completions'})"
         Headers=$rawHeaders; Raw=$turn.Raw
     }
 

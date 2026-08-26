@@ -67,6 +67,15 @@ ShellPilot talks to the same HTTP services as the Copilot Chat extension.
 
 - Uses internal Copilot endpoints intended for first-party editors; they can
   change without notice.
+- Unattended use of the DEFAULT backend spends a person's Copilot entitlement,
+  so it is refused when $env:CI is truthy unless
+  SHELLPILOT_ALLOW_COPILOT_BACKEND_IN_CI is set (spec 025). The gate covers
+  Invoke-Shp, Invoke-ShpBatch and Initialize-Shp; Get-ShpModel and
+  Request-ShpEmbedding are NOT gated, which is a stated gap.
+- An alternative backend (ApiBase) still needs a GitHub OAuth token, because
+  Invoke-Shp resolves a Copilot session token before every turn regardless of
+  where the chat request then goes. Request-ShpEmbedding has the same shape.
+  Test-ShpCiReadiness reports this rather than letting a pipeline discover it.
 - The token file protects against another principal on the machine, not against
   code running as the same user - no scheme available here changes that.
 - No path sandboxing on the file tools by default, and the run_command terminal

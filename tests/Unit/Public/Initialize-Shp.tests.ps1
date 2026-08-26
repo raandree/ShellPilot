@@ -3,9 +3,25 @@ BeforeAll {
 
     Remove-Module -Name $script:moduleName -Force -ErrorAction SilentlyContinue
     Import-Module -Name $script:moduleName -Force -ErrorAction Stop
+
+    # Signing in is gated in CI, and the repository's own pipeline sets $env:CI -
+    # so clear the profile here and restore it afterwards, or this file would
+    # test its host instead of the module.
+    $script:savedCiEnv = @{}
+    foreach ($name in 'CI', 'SHELLPILOT_ALLOW_COPILOT_BACKEND_IN_CI') {
+        $script:savedCiEnv[$name] = [System.Environment]::GetEnvironmentVariable($name)
+        Remove-Item -LiteralPath "Env:$name" -ErrorAction SilentlyContinue
+    }
 }
 
 AfterAll {
+    foreach ($name in @($script:savedCiEnv.Keys)) {
+        if ($null -ne $script:savedCiEnv[$name]) {
+            Set-Item -LiteralPath "Env:$name" -Value $script:savedCiEnv[$name]
+        } else {
+            Remove-Item -LiteralPath "Env:$name" -ErrorAction SilentlyContinue
+        }
+    }
     Get-Module -Name $script:moduleName -All | Remove-Module -Force -ErrorAction SilentlyContinue
 }
 Describe 'Initialize-Shp' {
@@ -126,6 +142,65 @@ Describe 'Initialize-Shp' {
                 if ($IsWindows) { $content | Should -Not -Match 'ghu_brand_new' }
                 Unprotect-ShpTokenValue -Content $content | Should -Be 'ghu_brand_new'
             }
+        }
+    }
+
+    Context 'CI profile' {
+        BeforeEach {
+            foreach ($name in 'CI', 'SHELLPILOT_ALLOW_COPILOT_BACKEND_IN_CI') {
+                Remove-Item -LiteralPath "Env:$name" -ErrorAction SilentlyContinue
+            }
+        }
+
+        AfterEach {
+            foreach ($name in 'CI', 'SHELLPILOT_ALLOW_COPILOT_BACKEND_IN_CI') {
+                Remove-Item -LiteralPath "Env:$name" -ErrorAction SilentlyContinue
+            }
+        }
+
+        It 'Exposes a -NonInteractive switch' {
+            (Get-Command -Name 'Initialize-Shp').Parameters['NonInteractive'].ParameterType |
+                Should -Be ([System.Management.Automation.SwitchParameter])
+        }
+
+        It 'Refuses to sign in from CI without the explicit opt-out' {
+            $env:CI = 'true'
+            $tokenFile = Join-Path $TestDrive 'ci-refused.token'
+
+            $err = { Initialize-Shp -TokenPath $tokenFile } | Should -Throw -PassThru
+            $err.FullyQualifiedErrorId | Should -Be 'ShpCopilotBackendInCi,Initialize-Shp'
+            Test-Path -LiteralPath $tokenFile | Should -BeFalse
+        }
+
+        It 'Refuses the device-code flow when unattended, instead of polling for a browser nobody opens' {
+            $tokenFile = Join-Path $TestDrive 'noninteractive.token'
+
+            InModuleScope $script:moduleName -Parameters @{ TokenFile = $tokenFile } {
+                param($TokenFile)
+                Mock Invoke-RestMethod { throw 'Initialize-Shp must not start a device-code flow when unattended.' }
+                Mock Start-Process { throw 'Initialize-Shp must not open a browser when unattended.' }
+                Mock Set-Clipboard { throw 'Initialize-Shp must not write to the clipboard when unattended.' }
+                Mock Write-Host { }
+
+                $err = { Initialize-Shp -TokenPath $TokenFile -NonInteractive } | Should -Throw -PassThru
+
+                $err.FullyQualifiedErrorId | Should -Be 'ShpNonInteractiveSignIn,Initialize-Shp'
+                $err.Exception.Message     | Should -BeLike '*SHELLPILOT_GITHUB_TOKEN*'
+                Should -Invoke Invoke-RestMethod -Times 0 -Exactly
+                Should -Invoke Start-Process -Times 0 -Exactly
+                Should -Invoke Set-Clipboard -Times 0 -Exactly
+            }
+        }
+
+        It 'Still returns a pre-seeded token file when unattended' {
+            # Reading a file needs nobody. Only the flow that needs a person is
+            # refused.
+            $tokenFile = Join-Path $TestDrive 'preseeded.token'
+            Set-Content -LiteralPath $tokenFile -Value 'ghu_preseeded' -NoNewline
+
+            $result = Initialize-Shp -TokenPath $tokenFile -NonInteractive
+
+            $result.FullName | Should -Be (Get-Item -LiteralPath $tokenFile -Force).FullName
         }
     }
 }
