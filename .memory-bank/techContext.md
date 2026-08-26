@@ -99,7 +99,7 @@ ShellPilot talks to the same HTTP services as the Copilot Chat extension.
 - A full local Pester run previously crashed with a .NET 10 native access
   violation (exit 0xC0000005) on PowerShell 7.6.1 / .NET 10.0.6. The exact
   detached `build.ps1 -AutoRestore -Tasks test` gate completed on PowerShell
-  7.6.5 on 2026-08-26 (1,631 tests, zero failures, 88.95% coverage), so the
+  7.6.5 on 2026-08-26 (1,656 tests, zero failures, 89.08% coverage), so the
   fault is not treated as current on that runtime. Builds and tests still run
   out-of-band through the detached launcher; CI on Ubuntu remains the
   clean-checkout gate.

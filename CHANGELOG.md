@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`ConvertTo-ShpAnnotation` surfaces structured findings in CI.** Pipe a
+  `ShellPilot.Result` from `Invoke-Shp -JsonSchema`, or any plain finding
+  object, into the cmdlet to produce GitHub Actions annotations, Azure DevOps
+  `task.logissue` commands, or readable text. `Level`, `Path`, `Line`,
+  `Column`, `Title`, and `Message` are matched case-insensitively and can be
+  redirected with `-PropertyMap`; an unknown or missing level is always a
+  warning. Vendor-specific escaping keeps newlines and delimiters from
+  corrupting a workflow command. Output stays on the success stream unless
+  `-Emit` writes it to the host, and `-Summary` appends a Markdown table to
+  `$env:GITHUB_STEP_SUMMARY` when available.
+  See [specs/028-ci-annotations.md](specs/028-ci-annotations.md).
+
 - **`Invoke-Shp -EventStream <path>` writes a headless JSONL event stream.** A
   CI log collector reads lines, not prose: everything the module said about a
   running turn was aimed at a person, so a nineteen-iteration turn that was

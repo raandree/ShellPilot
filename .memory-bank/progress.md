@@ -4,19 +4,20 @@ Chronological record of shipped changes and remaining work. Latest first.
 
 ## Current state
 
-- ShellPilot is a Sampler-built PowerShell module (cmdlet prefix Shp) with 34
+- ShellPilot is a Sampler-built PowerShell module (cmdlet prefix Shp) with 35
   public cmdlets, Pester 5 tests, QA gates (TestQuality, helpQuality),
   GitVersion, and a GitHub Actions CI. main builds at 0.2.0-preview0001.
 - All 13 migration specs (002-014) are implemented, plus 015 (batch execution),
   016 (failed-call usage accounting), 017 (context-window budget resolved
   from the model), 024 (pipeline failure semantics), 025 (CI profile), 026
-  (egress redaction) and 027 (headless JSONL event stream and the job model);
+  (egress redaction), 027 (headless JSONL event stream and the job model), and
+  028 (CI annotation formatter);
   the backend-dependent ones are live-verified. Server-side
   state (011) is implemented but the Copilot proxy does not support it, so it
   falls back to client-side history.
-- The full Pester run crashes locally on a .NET 10 native access violation
-  (see techContext); changes are verified out-of-band and the full suite runs
-  on CI.
+- The exact detached Sampler gate is currently healthy on PowerShell 7.6.5:
+  1,656 tests passed with 89.08% coverage on 2026-08-26. A prior .NET 10 native
+  access violation on PowerShell 7.6.1 remains historical context only.
 
 ## What is left
 
@@ -42,6 +43,23 @@ Chronological record of shipped changes and remaining work. Latest first.
   `Deserialized.*` copy and break the "same result object" contract.
 
 ## Log
+
+- 2026-08-26 - Structured findings now surface in CI through
+  `ConvertTo-ShpAnnotation` (spec 028). The public cmdlet accepts either a
+  `ShellPilot.Result` or a plain pipeline object, unwraps one or many findings
+  from a result's `ContentObject`, maps `Level`, `Path`, `Line`, `Column`,
+  `Title`, and `Message` case-insensitively, and supports caller-specific names
+  through `-PropertyMap`. It returns exact GitHub Actions, Azure DevOps, or Text
+  strings; `-Emit` writes workflow commands to the host and `-Summary` appends
+  an escaped Markdown table to `$env:GITHUB_STEP_SUMMARY`. Format detection
+  prefers `$env:GITHUB_ACTIONS`, then `$env:TF_BUILD`, then Text. Missing or
+  unknown levels are warnings. Vendor escaping is pinned to official sources
+  in the spec. Independent public-API review found and closed one Major: a
+  plain finding whose schema contained `ContentObject` was incorrectly
+  unwrapped. A red counter-test drove a PSTypeName guard, and scoped re-review
+  approved with no Blocker or Major. Verified with 19/19 focused tests, clean
+  AST/PSScriptAnalyzer, and the exact detached Sampler gate: 1,656/1,656 tests,
+  89.08% coverage, 9 tasks, zero errors or warnings.
 
 - 2026-08-26 - Spec 027 follow-up restored the original per-chunk reasoning
   contract and made append ordering hold across sequential calls. The existing

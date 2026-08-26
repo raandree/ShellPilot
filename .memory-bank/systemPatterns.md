@@ -229,6 +229,17 @@ construction, which is why a `-JsonSchema` reply parses onto `ContentObject`
 identically whether or not an earlier tool result in the same turn was
 redacted, with no special case required to keep that true.
 
+### Wrapper unwrapping keys on PSTypeName, never property presence
+
+`ConvertTo-ShpAnnotation` accepts both a `ShellPilot.Result` wrapper and a plain
+finding object. Both may legally contain a `ContentObject` property, so property
+presence cannot decide which shape arrived. Only an input whose
+`PSObject.TypeNames` contains `ShellPilot.Result` is unwrapped; every other
+object remains the finding. This is the module-wide rule for a public cmdlet
+that accepts a typed wrapper and an open caller-defined schema: discriminate at
+the declared type boundary before interpreting members. Keep a collision test
+where the plain schema uses the wrapper member name.
+
 ### A failure is opt-in, evaluated last, and carries its own evidence
 
 Every disappointing outcome is data by default - a budget stop warns and sets

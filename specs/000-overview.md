@@ -46,6 +46,7 @@ proof of concept, what is partial, and what is still to be decided.
 | Interactive session / history | Start-ShpChat | Done |
 | Slash commands | Start-ShpChat (/model, /models, /clear, /history, /retry, /usage, /exit, /help) | Partial |
 | Structured output | -ResponseFormat / -JsonSchema to ContentObject | Done |
+| CI annotations | ConvertTo-ShpAnnotation | Done |
 | Vision (image input) | Invoke-Shp -Image | Done |
 | File attachments (any format) | Invoke-Shp -Attachment | Done |
 | Embeddings and similarity | Request-ShpEmbedding, Get-ShpCosineSimilarity | Done |
@@ -65,7 +66,7 @@ proof of concept, what is partial, and what is still to be decided.
 | Job model (-AsJob) | Invoke-Shp -AsJob, Invoke-ShpBatch -AsJob | Done |
 
 Each implemented capability above has a numbered spec under this folder
-(002-027); see [the specs index](README.md). The remaining TBD items depend on
+(002-028); see [the specs index](README.md). The remaining TBD items depend on
 the open decisions.
 
 > A 2026-07-28 web gap analysis moved **MCP server tools** from TBD to Planned:
