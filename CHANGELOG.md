@@ -16,17 +16,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and then stopped on `-MaxBudgetUSD` left one object saying
   `BudgetExceeded = $true` and nothing about the shape of the failure. The
   stream appends one JSON object per line - `turn.start`, `model.request`,
-  `usage`, `reasoning` (under `-ShowThinking`), `tool.call`, `tool.result`,
-  `todo`, `retry`, `error`, `final` - each carrying `schemaVersion`, a
-  monotonic `sequence`, an ISO 8601 UTC `timestamp`, a `type` and a flat
-  `data` object. Pass `-` to write the records to the Information stream
-  instead of a file. Every line is appended whole, so a run killed mid-turn
-  still leaves a file that parses up to its last complete line. Every string
-  payload goes through the same redaction seam the request body does, so a
-  secret a tool printed does not reach the stream verbatim; a `run_command`
-  tool-call record names the tool and the policy decision but never the
-  command line. `-DisableProgressEvents` no longer switches this off - the two
-  sinks are gated independently.
+  `usage`, `reasoning` (one per streamed chunk under `-ShowThinking`),
+  `tool.call`, `tool.result`, `todo`, `retry`, `error`, `final` - each carrying
+  `schemaVersion`, a monotonic `sequence`, an ISO 8601 UTC `timestamp`, a
+  `type` and a flat `data` object. Pass `-` to write the records to the
+  Information stream instead of a file. Every line is appended whole, so a run
+  killed mid-turn still leaves a file that parses up to its last complete line;
+  a later call appending to that valid stream continues the sequence. Every
+  string payload goes through the same redaction seam the request body does, so
+  a secret a tool printed does not reach the stream verbatim; a `run_command`
+  tool-call record names the tool and the policy decision but never the command
+  line. The complete streamed reasoning trace is redacted before it is divided
+  back into Event records, so an SSE boundary cannot split a secret around the
+  redaction seam; partial reasoning is retained before a `retry` or `error`.
+  Transient HTTP and network-outage retries from the shared request wrapper are
+  recorded with attempt, delay and status data, and an invented `ask_user` call
+  in a non-interactive turn records its denied Tool call and terminal error
+  before the call stops. `-DisableProgressEvents` no longer switches this off -
+  the two sinks are gated independently.
   See [specs/027-headless-event-stream.md](specs/027-headless-event-stream.md).
 
 - **`Invoke-Shp -AsJob` and `Invoke-ShpBatch -AsJob` run a call in the

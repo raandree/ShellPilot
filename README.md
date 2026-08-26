@@ -203,10 +203,15 @@ Get-Content ./shp-events.jsonl | ConvertFrom-Json | Where-Object type -eq 'tool.
 Every record carries `schemaVersion`, a monotonic `sequence`, an ISO 8601 UTC
 `timestamp`, a `type` (`turn.start`, `model.request`, `usage`, `reasoning`,
 `tool.call`, `tool.result`, `todo`, `retry`, `error`, `final`) and a flat `data`
-object. Every string payload goes through the same redaction seam the request
-body does, and a `run_command` record names the tool and the policy decision but
-never the command line. A run killed mid-turn still leaves a file that parses up
-to its last complete line. See
+object. Under `-ShowThinking`, each streamed reasoning chunk gets its own
+`reasoning` record after the complete trace has been redacted, including a
+secret split across chunk boundaries. Partial reasoning flushes before a
+request's `retry` or `error` record. Every string payload goes through the same
+redaction seam the request body does, and a `run_command` record names the tool
+and the policy decision but never the command line. A run killed mid-turn still
+leaves a file that parses up to its last complete line. Sequential calls can
+append to one path and continue its sequence; concurrent calls need distinct
+paths. See
 [specs/027-headless-event-stream.md](specs/027-headless-event-stream.md).
 
 `Invoke-Shp -AsJob` and `Invoke-ShpBatch -AsJob` run the call in a background

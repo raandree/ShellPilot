@@ -4,88 +4,57 @@ Current working focus for ShellPilot. Overwrite this file as the focus shifts.
 
 ## Focus
 
-A turn now leaves a machine-readable record, and a long run can happen in the
-background without giving that record up (spec 027). Both were TBD rows in the
-feature map; both are now Done.
+Spec 027 remains complete: `Invoke-Shp -EventStream` writes the durable Event
+stream, and `Invoke-Shp -AsJob` / `Invoke-ShpBatch -AsJob` use the Job model.
+This follow-up closes the remaining contract gaps found by reading the original
+prompt against the committed implementation.
 
-**Everything ShellPilot said about a running turn was aimed at a person.**
-`-ShowThinking` writes coloured text to the host, `Write-Verbose` writes
-sentences, and the `ShpProgress` Information records are live PowerShell
-objects that exist only in the session that produced them. None of it survives
-the step. A nineteen-iteration turn that was refused twice by the tool policy,
-retried once on an expired session token and then stopped on `-MaxBudgetUSD`
-left one object saying `BudgetExceeded = $true` - the shape of the failure was
-gone. `-EventStream <path>` appends one JSON object per line for `turn.start`,
-`model.request`, `usage`, `reasoning` (under `-ShowThinking`), `tool.call`,
-`tool.result`, `todo`, `retry`, `error` and `final`; `-` writes to the
-Information stream instead.
+**Streamed reasoning now keeps its real boundaries.** `Read-ShpChatStream`
+already normalised `reasoning_text`, `reasoning_content` and `reasoning`
+deltas. Its new optional callback carries each delta through
+`Invoke-CopilotTurn` to the existing `Invoke-Shp` emitter, so under
+`-ShowThinking` every streamed reasoning chunk becomes one ordered, redacted
+`reasoning` Event record. The chunks are buffered until the request completes,
+then the combined trace is redacted before it is divided back into the same
+number of records; this catches a secret split across SSE frames. Buffered and
+Responses API traces still produce one summary record. The aggregate path is
+suppressed for a streaming chat turn, so collectors never receive a duplicate
+trace. The same flush runs in the catch path before `retry` or `error`, so a
+partially failed request does not discard chunks already exposed by the model;
+each record's `length` is its emitted `text` length.
 
-**The existing emitter was extended, and its two sinks split.** There is one
-`& $emit '<type>' @{...}` per observable moment; it fans out to the
-`ShpProgress` record a host renders live and to the JSONL stream a collector
-reads afterwards. Gating them independently was not tidiness:
-`-DisableProgressEvents` used to short-circuit the whole emitter and
-`Invoke-ShpBatch` forces it on every worker, so a shared gate would have made
-"run this in a batch" silently mean "keep no audit record" - and `-AsJob`
-would have inherited the same defect.
+**Append-only now also means monotonic across sequential calls.** Before
+authentication, `Invoke-Shp` reads a valid existing stream's final record and
+continues its sequence. An incompatible record or a tail without the required
+LF is refused as `ShpEventStreamInvalidTail`; appending after it would move a
+recoverable fragment into the middle of the file. Concurrent writers remain
+out of scope and must use distinct paths.
 
-**`data` is flat scalars, and that is what makes redaction sound.** Each
-string VALUE is scrubbed before the record is serialised, never the finished
-line. Applied to the line, the multi-line PEM pattern matches from a
-`-----BEGIN PRIVATE KEY-----` in one field to an `-----END PRIVATE KEY-----`
-in another and replaces the `","` between them - a redaction control that
-corrupts the artifact it exists to protect. There is a test for exactly that,
-and it stays green only because values are scrubbed one at a time.
+**A retry is emitted where the retry decision lives.** API-shape and
+Session-token retries stay in `Invoke-Shp`; `Invoke-ShpWithRetry` now reports
+each actual transient HTTP or network-outage retry through an optional callback
+that `Invoke-CopilotTurn` forwards for model requests. Attempt, delay, status and
+detail reach the existing emitter, and detail is redacted there. The
+non-interactive `ask_user` guard likewise emits its denied Tool call and
+`UserPromptUnavailable` before throwing the same `ShpNonInteractivePrompt`
+ErrorRecord.
 
-**Redaction reaches the model's answer here, and nowhere else.**
-`Protect-ShpEgressContent` skips the assistant turn by design; the stream is
-different in the one respect that changes the answer - it is a durable
-artifact a CI system collects and keeps - so the `final` event's `content`
-goes through the seam while `$result.Content` stays untouched. The two code
-paths do not intersect, so no special case was needed to keep that true.
+The original security and Job model boundaries are unchanged: every string
+value is redacted before JSON serialisation, `run_command` arguments are never
+written, the live Progress event and durable Event stream remain independently
+gated, and the thread job replays session context, defaults, model limits, Tool
+policy, redaction policy and User tools while leaving MCP servers behind.
 
-**A `run_command` event names the tool and the decision, never the command
-line.** That is where a credential passed as an argument ends up, and no
-pattern covers a bespoke one. Carrying the DECISION rather than the intent
-meant hoisting the JSON parse and `Test-ShpToolAccess` ahead of the emit; the
-held error is rethrown inside the dispatch `try` unchanged, so a
-malformed-argument call still becomes the same `{"error":...}` tool result it
-always did. The live `ShpProgress` record still carries the command - that one
-is rendered in the session that issued it and never written to disk.
-
-**Append-only, one complete line at a time**, with no open handle and no
-buffer, so a run killed mid-turn leaves a file that parses up to its last
-complete line. A failed write warns once and disables the stream rather than
-throwing away a turn that has already been billed; the common
-misconfiguration is caught earlier, because `-EventStream`'s folder is checked
-BEFORE the token exchange.
-
-**`-AsJob` is a thread job because a process job cannot keep the contract.**
-`Start-Job` serialises, so a `ShellPilot.Result` would come back as a
-`Deserialized.ShellPilot.Result` - measured, not assumed. `Start-ShpJob`
-replays what a runspace does not inherit (session context, defaults, model
-limits, tool policy, redaction policy, registered tools) and imports the
-module by path, exactly as `Invoke-ShpBatchItem` does; MCP servers do not
-travel, for the reason a batch already gives. `Invoke-Shp -AsJob` is seeded
-from a snapshot of the session conversation and never writes back, because a
-job finishing at an arbitrary time would race the caller's next call. The CI
-entitlement gate stays at the CALL SITE - a job that fails silently in the
-background of a green build is the exact failure mode `-FailOn` exists to
-stop.
-
-The "same shape" claim is proved on `Invoke-ShpBatch`'s malformed-input path,
-which builds real `ShellPilot.BatchResult` objects in the cmdlet itself and
-dispatches no worker, so the comparison is about the job transport and nothing
-else.
-
-Verified: build 7 tasks / 0 errors / 0 warnings; PSScriptAnalyzer clean on
-every changed source and new test file; **841 tests, 0 failures** (QA gate,
-`Invoke-Shp`, `Invoke-ShpBatch`, `Invoke-ShpBatchItem` and the two new
-private-helper files), run out-of-band in a detached child process per
-techContext. Three mutations, applied **one at a time** and each rebuilt and
-re-run, each turned only its own test red: disarming the sink's redaction,
-disarming the `run_command` withholding, and putting both sinks behind one
-gate.
+Red was proved across twelve intended failures: callback delivery at both
+reasoning boundaries, per-chunk Event records, sequence continuation,
+cross-chunk secret redaction, emitted-length semantics, partial reasoning on
+error, retry-helper notification, request-boundary forwarding, the durable
+transient-retry record, the non-interactive terminal-error record and its denied
+Tool call. Focused green is 203/203 on the retry/Event stream slice and 165/165
+on the final public regression. The authoritative detached Sampler gate completed
+with **1,631 tests, zero failures, 88.95% coverage, and 9 build tasks with zero
+errors or warnings**. AST parsing and PSScriptAnalyzer are clean on all changed
+source files. Independent security review found no Blocker or Major.
 
 ## Superseded focus (2026-08-26) - egress redaction
 

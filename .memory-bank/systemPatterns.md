@@ -341,6 +341,18 @@ host renders live and the JSONL event stream (-EventStream) a CI log collector
 reads afterwards. A second emitter would let a new emission point reach one sink
 and forget the other; there is only one place to add one.
 
+The streaming reader owns the boundary for a reasoning chunk. It invokes an
+optional callback after normalising `reasoning_text`, `reasoning_content` or
+`reasoning`; `Invoke-CopilotTurn` forwards the callback and `Invoke-Shp` routes
+it through the same emitter. Under `-ShowThinking`, chunks are buffered until
+the request finishes so the combined available trace can be redacted before it
+is divided back into the same number of Event records. That whole-trace pass is
+required because custom patterns have no finite maximum overlap and an SSE
+boundary may split a secret. The flush runs before usage on success and before
+retry/error on failure; each record reports its emitted text length. The later
+aggregate path is used only for a buffered or Responses API trace, preventing a
+duplicate Event record.
+
 The gates are SEPARATE, and that is the point rather than a detail.
 -DisableProgressEvents used to short-circuit the whole emitter, and
 Invoke-ShpBatch forces it on every worker (N interleaved token streams are not
@@ -377,7 +389,22 @@ killed mid-turn leaves a file that parses up to its last complete line - the
 only durability property a collector needs. A failed write warns ONCE and
 disables the stream: a log sink must not throw away a turn that has already been
 billed. The common misconfiguration is caught earlier instead, because the
-path's folder is checked before the token exchange.
+path's folder is checked before the token exchange. Sequential calls appending
+to a valid stream continue the final sequence; an incompatible or non-LF tail
+is refused before authentication. Concurrent writers use distinct paths.
+
+Retry Events originate at the abstraction that makes the decision. `Invoke-Shp`
+owns API-shape and Session-token retries. `Invoke-ShpWithRetry` owns transient
+HTTP and network-outage retries and invokes an optional callback only after it
+has decided another attempt will occur and calculated the delay;
+`Invoke-CopilotTurn` forwards that callback for model requests. This keeps one
+Event per actual retry without teaching the outer loop to infer lower-level
+behavior from verbose text.
+
+A terminal Tool guard still records the Tool call. The non-interactive
+`ask_user` path cannot enter the ordinary dispatch catch (which would turn the
+termination into a Tool result), so it emits a denied `tool.call`, emits
+`UserPromptUnavailable`, then throws the same ErrorRecord outside that catch.
 
 ### A job is a thread job, and it replays what a runspace does not inherit
 

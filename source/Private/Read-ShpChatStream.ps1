@@ -28,6 +28,11 @@ function Read-ShpChatStream {
         it arrives, under a 'thinking:' label, so it is visually distinct from
         the answer. Host-only; the full reasoning is also returned on Reasoning.
 
+    .PARAMETER OnReasoningChunk
+        Optional callback invoked once for each streamed reasoning delta, in
+        arrival order. The callback's output is suppressed; the assembled
+        reasoning is still returned on Reasoning.
+
     .EXAMPLE
         $turn = Read-ShpChatStream -Reader ([System.IO.StringReader]::new($sse))
 
@@ -48,7 +53,9 @@ function Read-ShpChatStream {
 
         [switch]$Echo,
 
-        [switch]$EchoReasoning
+        [switch]$EchoReasoning,
+
+        [scriptblock]$OnReasoningChunk
     )
 
     $contentSb   = [System.Text.StringBuilder]::new()
@@ -109,6 +116,7 @@ function Read-ShpChatStream {
         }
         if ($null -ne $reasoningDelta) {
             $null = $reasoningSb.Append($reasoningDelta)
+            if ($OnReasoningChunk) { $null = & $OnReasoningChunk $reasoningDelta }
             if ($EchoReasoning) {
                 if (-not $reasoningEchoed) { Write-Host "`nthinking:" -ForegroundColor DarkGray; $reasoningEchoed = $true }
                 Write-Host ("{0}{1}{2}" -f $reasoningStyleOn, $reasoningDelta, $reasoningStyleOff) -NoNewline

@@ -108,14 +108,21 @@ Each event is one `File.AppendAllText` of one line terminated by LF. There is no
 open handle and no buffer, so a run killed mid-turn leaves a file that parses up
 to its last complete line - which is the only durability property a log
 collector actually needs. `sequence` is issued before the write and increments
-monotonically from 1, so sorting on it recovers emission order even if a reader
-merges the file with another source.
+monotonically from 1. A later call appending to a valid stream reads the last
+record and continues from its sequence; an incompatible or truncated tail is
+refused before authentication instead of becoming corruption in the middle of
+the file.
 
-The cost is one open/close per event. A turn emits on the order of a hundred
-records (bounded by `-MaxToolIterations`), not thousands, because a `reasoning`
-event is one per round-trip rather than one per streamed delta and a
-`tool.result` event carries a 200-character preview rather than a capped-at-100k
-tool result.
+The cost is one open/close per event. Most event types are bounded by
+`-MaxToolIterations`, and a `tool.result` event carries a 200-character preview
+rather than a capped-at-100k Tool result. Streamed reasoning is deliberately
+different: under `-ShowThinking`, the callback preserves every reasoning delta
+boundary, but `Invoke-Shp` buffers those chunks until the request finishes.
+The complete available trace is redacted once before it is divided back into
+the same number of Event records, so a secret split by an SSE frame cannot pass
+between per-value matches. The records flush before `usage`, `retry` or `error`,
+so a partially failed stream keeps the reasoning it already exposed. A buffered
+or Responses API reasoning trace produces one summary record instead.
 
 ### A write failure disables the stream; it does not fail the turn
 
@@ -125,6 +132,17 @@ the stream for the rest of the call. The common misconfiguration is caught
 earlier instead: `-EventStream` resolves against PowerShell's location and its
 folder is checked **before the token exchange**, so a mistyped path costs
 nothing.
+
+### A retry is recorded where it is decided
+
+API-shape and Session-token retries are decided by `Invoke-Shp`, so their Event
+records originate there. Transient HTTP response and network-outage retries are
+decided lower down by `Invoke-ShpWithRetry`; its optional callback reports only
+an attempt that will actually occur, after classification and backoff
+calculation. `Invoke-CopilotTurn` forwards that callback for each model request,
+and `Invoke-Shp` routes it through the same emitter. Token exchange, model-list
+and embedding calls also use the wrapper but do not pass the callback, because
+they are outside an `Invoke-Shp` turn.
 
 ### `-AsJob` is a thread job, and it replays what a runspace does not inherit
 
@@ -184,12 +202,12 @@ Every record has these five fields:
 | `turn.start` | `model`, `apiMode`, `prompt`, `promptLength`, `endpoint`, `toolCount`, `attachmentCount`, `maxToolIterations`, `contextBudget`, `streaming`, `unattended`, `redaction` |
 | `model.request` | `iteration`, `model`, `apiMode`, `endpoint`, `messageCount`, `toolCount`, `streaming` |
 | `usage` | `iteration`, `model`, `apiMode`, `finishReason`, `promptTokens`, `completionTokens`, `cachedTokens`, `cacheWriteTokens`, `contextTokens` |
-| `reasoning` | `iteration`, `text`, `length`. Emitted only under `-ShowThinking`, once per round-trip that exposed a trace |
+| `reasoning` | `iteration`, `text`, `length` (emitted text characters). Under `-ShowThinking`, one per streamed reasoning chunk; one summary for a buffered or Responses API trace |
 | `tool.call` | `iteration`, `tool`, `callId`, `policy` (`allowed`/`denied`/`error`), `reason`, and either `arguments` or `argumentsWithheld` (`run_command`) |
 | `tool.result` | `iteration`, `tool`, `callId`, `preview` (first 200 characters), `length`, `truncated` |
 | `todo` | `iteration`, `total`, `completed`, `current` |
-| `retry` | `iteration`, `reason` (`SessionTokenExpired`, `ServerSideStateUnsupported`, `ApiShapeSwitch`, `ReasoningSummaryRejected`), `detail` |
-| `error` | `iteration`, `reason` (`RequestFailed`, `ToolIterationLimit`, `FailOn`), `message`, and `errorId` / `statusCode` / `errorCode` where they exist |
+| `retry` | `iteration`, `reason` (`TransientHttpFailure`, `NetworkOutage`, `SessionTokenExpired`, `ServerSideStateUnsupported`, `ApiShapeSwitch`, `ReasoningSummaryRejected`), `detail`; request-wrapper retries also carry `attempt`, `delaySeconds`, `statusCode` |
+| `error` | `iteration`, `reason` (`RequestFailed`, `ToolIterationLimit`, `UserPromptUnavailable`, `FailOn`), `message`, and `errorId` / `statusCode` / `errorCode` where they exist |
 | `final` | `model`, `finishReason`, `iterations`, `content`, `contentLength`, `toolCallCount`, `promptTokens`, `completionTokens`, `contextTokens`, `costUSD`, `credits`, `budgetExceeded`, `durationMs` |
 
 ### The compatibility promise
@@ -215,13 +233,12 @@ keeps its name and meaning.
 - **Resuming a run from a stream.** Session persistence is a separate TBD in
   [the feature map](000-overview.md); a stream is a record of what happened, not
   a checkpoint.
-- **Per-delta reasoning events.** `Read-ShpChatStream` sees the individual
-  `reasoning_text` deltas, but surfacing them would need a callback threaded
-  through `Invoke-CopilotTurn` and would make the stream mostly reasoning. One
-  event per round-trip is the seam that exists.
 - **`-EventStream` on `Invoke-ShpBatch`.** N concurrent workers writing one file
   cannot guarantee a single ordered `sequence`, which is the property the stream
   sells. A batch item's own turn is where the stream belongs.
+- **Concurrent writers to one path.** Sequential calls continue the existing
+  sequence, but concurrently running calls must use distinct paths; coordinating
+  sequence allocation across processes is not part of this stream.
 
 ## Verification
 
@@ -239,6 +256,20 @@ keeps its name and meaning.
   leaves the file intact; `-DisableRedaction` restores the verbatim value; a
   path whose folder does not exist is refused before `Invoke-CopilotTurn` is
   ever called.
+- Streamed `reasoning_text` / `reasoning_content` deltas invoke the callback in
+  arrival order; a GitHub token split across two chunks is redacted from their
+  combined trace before they become separately ordered `reasoning` records.
+  Their `length` matches the emitted `text`, and partial reasoning precedes the
+  redacted `error` record on a failed request. `retry` records are also exercised
+  on a recovered failure path.
+- A transient HTTP retry callback is verified at `Invoke-ShpWithRetry`,
+  forwarded through `Invoke-CopilotTurn`, and emitted with redacted detail,
+  attempt, delay and status data. A non-interactive `ask_user` call emits
+  a denied `tool.call` and then `UserPromptUnavailable` before raising
+  `ShpNonInteractivePrompt`.
+- Two sequential calls appending to one path continue a strictly increasing
+  sequence; a truncated tail or incompatible schema version is refused before
+  authentication.
 - `-AsJob`: the handoff forwards the caller's parameters without `AsJob`,
   seeds `History` from the session snapshot, resolves `-EventStream` to a full
   path, and reaches neither `Get-ShpSessionToken` nor `Invoke-CopilotTurn` in

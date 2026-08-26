@@ -81,6 +81,28 @@ Describe 'Read-ShpChatStream' {
         }
     }
 
+    It 'Forwards each streamed reasoning chunk in arrival order' {
+        InModuleScope $script:moduleName {
+            $sse = @(
+                'data: {"choices":[{"delta":{"reasoning_text":"First "}}]}'
+                'data: {"choices":[{"delta":{"reasoning_content":"second "}}]}'
+                'data: {"choices":[{"delta":{"reasoning":"third"}}]}'
+                'data: {"choices":[{"delta":{"content":"done"},"finish_reason":"stop"}]}'
+                'data: [DONE]'
+            ) -join "`n"
+            $capturedChunks = [System.Collections.Generic.List[string]]::new()
+            $captureChunk = {
+                param([string]$Chunk)
+                $null = $capturedChunks.Add($Chunk)
+            }.GetNewClosure()
+
+            $turn = Read-ShpChatStream -Reader ([System.IO.StringReader]::new($sse)) -OnReasoningChunk $captureChunk
+
+            $capturedChunks.ToArray() | Should -Be @('First ', 'second ', 'third')
+            $turn.Reasoning           | Should -Be 'First second third'
+        }
+    }
+
     It 'Skips comments, blank lines and malformed frames' {
         InModuleScope $script:moduleName {
             $sse = @(

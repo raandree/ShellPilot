@@ -2818,6 +2818,40 @@ Describe 'Invoke-Shp -EventStream' {
                 Should -Invoke Invoke-CopilotTurn -Times 0 -Exactly
             }
         }
+
+        It 'Should refuse a truncated existing stream before authentication' {
+            $path = Join-Path -Path $script:streamRoot -ChildPath 'truncated.jsonl'
+            [System.IO.File]::WriteAllText($path, '{"schemaVersion":1,"sequence":1')
+
+            InModuleScope $script:moduleName -Parameters @{ Path = $path } {
+                param($Path)
+
+                $eventPath = $Path
+                $err = { Invoke-Shp -Prompt 'hi' -EventStream $eventPath -DisableBrowsing -DisableFileAccess -DisableTerminal -DisableUserPrompts } |
+                    Should -Throw -PassThru
+
+                $err.FullyQualifiedErrorId | Should -Be 'ShpEventStreamInvalidTail,Invoke-Shp'
+                Should -Invoke Get-ShpSessionToken -Times 0 -Exactly
+                Should -Invoke Invoke-CopilotTurn -Times 0 -Exactly
+            }
+        }
+
+        It 'Should refuse an existing stream with an incompatible schema version' {
+            $path = Join-Path -Path $script:streamRoot -ChildPath 'incompatible.jsonl'
+            [System.IO.File]::WriteAllText($path, '{"schemaVersion":99,"sequence":1,"timestamp":"2026-08-26T00:00:00Z","type":"final","data":{}}' + "`n")
+
+            InModuleScope $script:moduleName -Parameters @{ Path = $path } {
+                param($Path)
+
+                $eventPath = $Path
+                $err = { Invoke-Shp -Prompt 'hi' -EventStream $eventPath -DisableBrowsing -DisableFileAccess -DisableTerminal -DisableUserPrompts } |
+                    Should -Throw -PassThru
+
+                $err.FullyQualifiedErrorId | Should -Be 'ShpEventStreamInvalidTail,Invoke-Shp'
+                Should -Invoke Get-ShpSessionToken -Times 0 -Exactly
+                Should -Invoke Invoke-CopilotTurn -Times 0 -Exactly
+            }
+        }
     }
 
     Context 'The stream a turn produces' {
@@ -2889,6 +2923,177 @@ Describe 'Invoke-Shp -EventStream' {
             $final.data.finishReason | Should -Be 'stop'
             $final.data.promptTokens | Should -Be 28
             $final.data.iterations | Should -Be 2
+        }
+    }
+
+    Context 'Reasoning and failure-path records' {
+        It 'Should emit each streamed reasoning chunk in order without an aggregate duplicate' {
+            $path = Join-Path -Path $script:streamRoot -ChildPath ('reasoning-{0}.jsonl' -f [guid]::NewGuid().ToString('N'))
+            InModuleScope $script:moduleName -Parameters @{ Path = $path } {
+                param($Path)
+
+                Mock Invoke-CopilotTurn {
+                    $chunks = @('First ghp_1234567890abc', 'defghijklmnopqrstuvwxyz')
+                    foreach ($chunk in $chunks) { & $OnReasoningChunk $chunk }
+                    [pscustomobject]@{
+                        Mode = 'chat'; Content = 'done'; FinishReason = 'stop'; ToolCalls = @()
+                        AssistantMessage = [pscustomobject]@{ content = 'done' }; AssistantItems = @(); Reasoning = ($chunks -join '')
+                        PromptTokens = 7; CompletionTokens = 2; CachedTokens = 0; CacheWriteTokens = 0
+                        ModelName = $Model; ResponseId = $null; CopilotUsage = $null; Raw = @{}; Response = [pscustomobject]@{ Headers = @{} }
+                    }
+                }
+
+                $null = Invoke-Shp -Prompt 'think' -ShowThinking -EventStream $Path -DisableBrowsing -DisableFileAccess -DisableTerminal -DisableUserPrompts
+            }
+
+            $events = @(Get-Content -LiteralPath $path | ConvertFrom-Json)
+            @($events.type) | Should -Be @('turn.start', 'model.request', 'reasoning', 'reasoning', 'usage', 'final')
+            $reasoning = @($events | Where-Object type -eq 'reasoning')
+            @($reasoning.data.text) -join '' | Should -Be 'First [redacted:github-token]'
+            foreach ($record in $reasoning) { $record.data.length | Should -Be ([string]$record.data.text).Length }
+            Get-Content -LiteralPath $path -Raw | Should -Not -Match 'ghp_1234567890abcdefghijklmnopqrstuvwxyz'
+        }
+
+        It 'Should emit a retry record before a recovered request is sent again' {
+            $path = Join-Path -Path $script:streamRoot -ChildPath ('retry-{0}.jsonl' -f [guid]::NewGuid().ToString('N'))
+            InModuleScope $script:moduleName -Parameters @{ Path = $path } {
+                param($Path)
+
+                $script:eventRetryTurnCount = 0
+                Mock Invoke-CopilotTurn {
+                    $script:eventRetryTurnCount++
+                    if ($script:eventRetryTurnCount -eq 1) { throw 'unsupported_api_for_model' }
+                    [pscustomobject]@{
+                        Mode = 'responses'; Content = 'done'; FinishReason = 'completed'; ToolCalls = @()
+                        AssistantItems = @(); Reasoning = ''; PromptTokens = 5; CompletionTokens = 1
+                        CachedTokens = 0; CacheWriteTokens = 0; ModelName = $Model; ResponseId = $null
+                        CopilotUsage = $null; Raw = @{}; Response = [pscustomobject]@{ Headers = @{} }
+                    }
+                }
+
+                $null = Invoke-Shp -Prompt 'retry' -EventStream $Path -DisableBrowsing -DisableFileAccess -DisableTerminal -DisableUserPrompts
+            }
+
+            $events = @(Get-Content -LiteralPath $path | ConvertFrom-Json)
+            @($events.type) | Should -Be @('turn.start', 'model.request', 'retry', 'model.request', 'usage', 'final')
+            @($events | Where-Object type -eq 'retry')[0].data.reason | Should -Be 'ApiShapeSwitch'
+        }
+
+        It 'Should emit a redacted retry record for a transient model request failure' {
+            $path = Join-Path -Path $script:streamRoot -ChildPath ('transient-retry-{0}.jsonl' -f [guid]::NewGuid().ToString('N'))
+            InModuleScope $script:moduleName -Parameters @{ Path = $path } {
+                param($Path)
+
+                Mock Invoke-CopilotTurn {
+                    $null = & $OnRetry ([pscustomobject]@{
+                            Reason = 'TransientHttpFailure'; Attempt = 1; DelaySeconds = 0
+                            StatusCode = 503; Message = 'retry ghp_1234567890abcdefghijklmnopqrstuvwxyz'
+                        })
+                    [pscustomobject]@{
+                        Mode = 'chat'; Content = 'done'; FinishReason = 'stop'; ToolCalls = @()
+                        AssistantMessage = [pscustomobject]@{ content = 'done' }; AssistantItems = @(); Reasoning = ''
+                        PromptTokens = 5; CompletionTokens = 1; CachedTokens = 0; CacheWriteTokens = 0
+                        ModelName = $Model; ResponseId = $null; CopilotUsage = $null; Raw = @{}; Response = [pscustomobject]@{ Headers = @{} }
+                    }
+                }
+
+                $null = Invoke-Shp -Prompt 'retry' -EventStream $Path -DisableBrowsing -DisableFileAccess -DisableTerminal -DisableUserPrompts
+            }
+
+            $events = @(Get-Content -LiteralPath $path | ConvertFrom-Json)
+            @($events.type) | Should -Be @('turn.start', 'model.request', 'retry', 'usage', 'final')
+            $retry = @($events | Where-Object type -eq 'retry')[0]
+            $retry.data.reason       | Should -Be 'TransientHttpFailure'
+            $retry.data.attempt      | Should -Be 1
+            $retry.data.delaySeconds | Should -Be 0
+            $retry.data.statusCode   | Should -Be 503
+            $retry.data.detail       | Should -Be 'retry [redacted:github-token]'
+            Get-Content -LiteralPath $path -Raw | Should -Not -Match 'ghp_1234567890abcdefghijklmnopqrstuvwxyz'
+        }
+
+        It 'Should emit and redact a request error before rethrowing it' {
+            $path = Join-Path -Path $script:streamRoot -ChildPath ('error-{0}.jsonl' -f [guid]::NewGuid().ToString('N'))
+            InModuleScope $script:moduleName -Parameters @{ Path = $path } {
+                param($Path)
+
+                $eventPath = $Path
+                Mock Invoke-CopilotTurn {
+                    & $OnReasoningChunk 'Partial ghp_1234567890abc'
+                    & $OnReasoningChunk 'defghijklmnopqrstuvwxyz'
+                    throw 'proxy echoed ghp_1234567890abcdefghijklmnopqrstuvwxyz'
+                }
+                { Invoke-Shp -Prompt 'fail' -ShowThinking -EventStream $eventPath -DisableBrowsing -DisableFileAccess -DisableTerminal -DisableUserPrompts } |
+                    Should -Throw
+            }
+
+            $raw = Get-Content -LiteralPath $path -Raw
+            $events = @($raw -split "`r?`n" | Where-Object { $_ } | ConvertFrom-Json)
+            @($events.type) | Should -Be @('turn.start', 'model.request', 'reasoning', 'reasoning', 'error')
+            @($events | Where-Object type -eq 'reasoning' | ForEach-Object { $_.data.text }) -join '' |
+                Should -Be 'Partial [redacted:github-token]'
+            @($events | Where-Object type -eq 'error')[0].data.message | Should -Be 'proxy echoed [redacted:github-token]'
+            $raw | Should -Not -Match 'ghp_1234567890abcdefghijklmnopqrstuvwxyz'
+        }
+
+        It 'Should emit an error before a non-interactive ask_user call terminates the turn' {
+            $path = Join-Path -Path $script:streamRoot -ChildPath ('user-prompt-error-{0}.jsonl' -f [guid]::NewGuid().ToString('N'))
+            InModuleScope $script:moduleName -Parameters @{ Path = $path } {
+                param($Path)
+
+                $eventPath = $Path
+                Mock Read-ShpUserInput { throw 'Read-ShpUserInput must never be reached.' }
+                Mock Invoke-CopilotTurn {
+                    [pscustomobject]@{
+                        Mode = 'chat'; Content = ''; FinishReason = 'tool_calls'
+                        ToolCalls = @([pscustomobject]@{ Id = 'q1'; Name = 'ask_user'; Arguments = '{"question":"Which colour?"}' })
+                        AssistantMessage = [pscustomobject]@{ content = '' }; AssistantItems = @(); Reasoning = ''
+                        PromptTokens = 1; CompletionTokens = 1; CachedTokens = 0; CacheWriteTokens = 0
+                        ModelName = $Model; ResponseId = $null; CopilotUsage = $null; Raw = @{}; Response = [pscustomobject]@{ Headers = @{} }
+                    }
+                }
+
+                $err = { Invoke-Shp -Prompt 'paint' -NonInteractive -EventStream $eventPath -DisableBrowsing -DisableFileAccess -DisableTerminal } |
+                    Should -Throw -PassThru
+
+                $err.FullyQualifiedErrorId | Should -Be 'ShpNonInteractivePrompt,Invoke-Shp'
+                Should -Invoke Read-ShpUserInput -Times 0 -Exactly
+            }
+
+            $events = @(Get-Content -LiteralPath $path | ConvertFrom-Json)
+            @($events.type) | Should -Be @('turn.start', 'model.request', 'usage', 'tool.call', 'error')
+            $toolCall = @($events | Where-Object type -eq 'tool.call')[0]
+            $toolCall.data.tool   | Should -Be 'ask_user'
+            $toolCall.data.callId | Should -Be 'q1'
+            $toolCall.data.policy | Should -Be 'denied'
+            $errorEvent = @($events | Where-Object type -eq 'error')[0]
+            $errorEvent.data.reason  | Should -Be 'UserPromptUnavailable'
+            $errorEvent.data.errorId | Should -Be 'ShpNonInteractivePrompt'
+        }
+    }
+
+    Context 'Appending to an existing stream' {
+        It 'Should continue the sequence across consecutive calls to the same path' {
+            $path = Join-Path -Path $script:streamRoot -ChildPath ('append-{0}.jsonl' -f [guid]::NewGuid().ToString('N'))
+            InModuleScope $script:moduleName -Parameters @{ Path = $path } {
+                param($Path)
+
+                Mock Invoke-CopilotTurn {
+                    [pscustomobject]@{
+                        Mode = 'chat'; Content = 'done'; FinishReason = 'stop'; ToolCalls = @()
+                        AssistantMessage = [pscustomobject]@{ content = 'done' }; AssistantItems = @(); Reasoning = ''
+                        PromptTokens = 1; CompletionTokens = 1; CachedTokens = 0; CacheWriteTokens = 0
+                        ModelName = $Model; ResponseId = $null; CopilotUsage = $null; Raw = @{}; Response = [pscustomobject]@{ Headers = @{} }
+                    }
+                }
+
+                foreach ($call in 1..2) {
+                    $null = Invoke-Shp -Prompt "call $call" -History @() -EventStream $Path -DisableBrowsing -DisableFileAccess -DisableTerminal -DisableUserPrompts
+                }
+            }
+
+            $events = @(Get-Content -LiteralPath $path | ConvertFrom-Json)
+            @($events | Where-Object type -eq 'turn.start').Count | Should -Be 2
+            @($events.sequence) | Should -Be @(1..$events.Count)
         }
     }
 

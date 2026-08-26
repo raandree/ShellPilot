@@ -61,6 +61,11 @@ function Invoke-ShpWithRetry {
         measure the outage budget. Defaults to a real stopwatch; a test injects a
         deterministic provider to exercise the time bound without real waiting.
 
+    .PARAMETER OnRetry
+        Optional callback invoked once for each retry that will actually occur.
+        Receives Reason, Attempt, DelaySeconds, StatusCode and Message. Callback
+        output is suppressed.
+
     .EXAMPLE
         Invoke-ShpWithRetry -ScriptBlock { param($p) Invoke-WebRequest @p } -ArgumentList $requestSplat
 
@@ -91,7 +96,9 @@ function Invoke-ShpWithRetry {
 
         [scriptblock]$RetryOn,
 
-        [scriptblock]$ElapsedProvider
+        [scriptblock]$ElapsedProvider,
+
+        [scriptblock]$OnRetry
     )
 
     # Classifier for a connection-level failure: an error that carries no usable
@@ -133,10 +140,10 @@ function Invoke-ShpWithRetry {
             # no status is a candidate connection-level failure (retry by the
             # wall-clock outage budget).
             $isConnectionLevel = $false
+            $status = $null
             if ($RetryOn) {
                 $retryable = [bool](& $RetryOn $errorRecord)
             } else {
-                $status = $null
                 $exn = $errorRecord.Exception
                 if ($exn -and $exn.PSObject.Properties.Match('Response').Count -gt 0 -and $exn.Response) {
                     try { $status = [int]$exn.Response.StatusCode } catch { $status = $null }
@@ -178,6 +185,24 @@ function Invoke-ShpWithRetry {
             # Half the backoff is kept so it still backs off; RetryDelaySec 0
             # still yields exactly 0.
             if ($delay -gt 0) { $delay = ($delay / 2) + (Get-Random -Minimum 0.0 -Maximum ($delay / 2)) }
+            if ($OnRetry) {
+                $retryMessage = $errorRecord.ErrorDetails.Message
+                if ([string]::IsNullOrWhiteSpace($retryMessage)) { $retryMessage = $errorRecord.Exception.Message }
+                $retryReason = if ($isConnectionLevel) {
+                    'NetworkOutage'
+                } elseif ($null -ne $status) {
+                    'TransientHttpFailure'
+                } else {
+                    'PredicateRetry'
+                }
+                $null = & $OnRetry ([pscustomobject]@{
+                        Reason       = $retryReason
+                        Attempt      = $attempt
+                        DelaySeconds = [double]$delay
+                        StatusCode   = $status
+                        Message      = [string]$retryMessage
+                    })
+            }
             if ($isConnectionLevel) {
                 Write-Verbose ("ShellPilot network outage; retry {0} after {1}s (tolerating up to {2}s)." -f $attempt, $delay, $NetworkOutageToleranceSec)
             } else {

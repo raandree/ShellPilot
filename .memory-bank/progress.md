@@ -43,6 +43,30 @@ Chronological record of shipped changes and remaining work. Latest first.
 
 ## Log
 
+- 2026-08-26 - Spec 027 follow-up restored the original per-chunk reasoning
+  contract and made append ordering hold across sequential calls. The existing
+  `Read-ShpChatStream` reasoning-delta seam now invokes an optional callback,
+  forwarded by `Invoke-CopilotTurn` to the single `Invoke-Shp` emitter; under
+  `-ShowThinking`, every streamed chunk becomes one ordered, redacted
+  `reasoning` Event record, while buffered and Responses API traces retain one
+  summary record. The complete streamed trace is redacted before it is divided
+  back into records, so a secret split across SSE frames is still removed;
+  partial reasoning flushes before `retry` / `error`, and `length` reports the
+  emitted text length. A later call appending to a valid Event stream continues
+  its final sequence; an incompatible or non-LF tail is refused before
+  authentication as `ShpEventStreamInvalidTail`, and concurrent writers use
+  distinct paths. Added integration coverage for `reasoning`, `retry`, redacted
+  `error`, sequential append, schema mismatch and the truncated-tail guard. The
+  shared retry wrapper now reports each actual transient HTTP or network-outage
+  retry through a callback forwarded for model requests, and a non-interactive
+  `ask_user` call emits its denied Tool call and `UserPromptUnavailable` before
+  terminating. Red was confirmed across twelve intended failures; focused green
+  is 203/203 plus a final 165/165 public regression. The authoritative detached
+  Sampler gate completed with 1,631 tests, zero failures, 88.95% coverage and
+  9 build tasks with zero errors or warnings. AST parsing and PSScriptAnalyzer
+  are clean on all changed source files; independent security review found no
+  Blocker or Major.
+
 - 2026-08-26 - Headless JSONL event stream and the job model shipped
   (spec 027), closing the last two TBD rows in the feature map.
   `Invoke-Shp -EventStream <path>` appends one JSON object per line -

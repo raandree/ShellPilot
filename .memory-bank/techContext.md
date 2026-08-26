@@ -96,10 +96,10 @@ ShellPilot talks to the same HTTP services as the Copilot Chat extension.
   the tool only by its index, and Invoke-Shp's chat-to-responses fallback then
   masks it as "model ... does not support Responses API".
 - Pricing in data/PriceTable.psd1 is illustrative and must be kept current.
-- The full local Pester run crashes with a .NET 10 native access violation
-  (exit 0xC0000005) on the local runtime (PowerShell 7.6.1 / .NET 10.0.6). It is
-  a runtime fault, not a ShellPilot defect, and is non-deterministic per test
-  block but compounds to ~100% over a full run. Verify changes out-of-band
-  (build-only task, isolated child-process Pester, standalone PSScriptAnalyzer,
-  AST parse); CI on Ubuntu runs the full suite. The package workflow is verified
-  separately under PowerShell 7.6.3 / .NET 10.0.9.
+- A full local Pester run previously crashed with a .NET 10 native access
+  violation (exit 0xC0000005) on PowerShell 7.6.1 / .NET 10.0.6. The exact
+  detached `build.ps1 -AutoRestore -Tasks test` gate completed on PowerShell
+  7.6.5 on 2026-08-26 (1,631 tests, zero failures, 88.95% coverage), so the
+  fault is not treated as current on that runtime. Builds and tests still run
+  out-of-band through the detached launcher; CI on Ubuntu remains the
+  clean-checkout gate.

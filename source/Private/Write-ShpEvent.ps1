@@ -90,7 +90,7 @@ function Write-ShpEvent {
         }
     }
 
-    $State['Sequence'] = [int]$State['Sequence'] + 1
+    $State['Sequence'] = [long]$State['Sequence'] + 1
 
     $record = [ordered]@{
         schemaVersion = $script:ShpEventSchemaVersion

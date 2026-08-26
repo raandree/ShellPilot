@@ -452,14 +452,22 @@ function Invoke-Shp {
     .PARAMETER EventStream
         Write a headless JSONL event stream to this path - one JSON object per
         line, appended as it happens, covering the turn start, every model
-        request, every tool call and result, usage, retries, errors and the
-        final answer. Pass '-' to write the lines to the Information stream
-        (tag 'ShpEvent') instead of a file.
+        request, each streamed reasoning chunk under -ShowThinking, every tool
+        call and result, usage, retries, errors and the final answer. Pass '-'
+        to write the lines to the Information stream (tag 'ShpEvent') instead
+        of a file.
 
         Every record carries schemaVersion, a monotonic sequence, an ISO 8601
         UTC timestamp, a type and a flat data object; see spec 027 for the
         type-to-data table. Because each line is appended whole, a run killed
         mid-turn still leaves a file that parses up to its last complete line.
+        A later call appending to a valid stream continues its sequence. Use a
+        distinct path for each concurrently running call.
+
+        Streamed reasoning boundaries are preserved, but their records flush
+        after the model request finishes (successfully or with an error) so the
+        complete available trace can be redacted before it is divided back into
+        chunks. This catches secrets split by an SSE frame boundary.
 
         Every string in every payload goes through the same redaction seam the
         request body does, so a secret in a tool result does not reach the
@@ -985,6 +993,7 @@ function Invoke-Shp {
     # exchange: a mistyped path should cost nothing, and a stream that only
     # fails on its first write fails after a billable request.
     $eventStreamPath = $null
+    $eventStreamSequence = [long]0
     if (-not [string]::IsNullOrWhiteSpace($EventStream)) {
         if ($EventStream -eq '-') {
             $eventStreamPath = '-'
@@ -997,6 +1006,53 @@ function Invoke-Shp {
                         'ShpEventStreamPathNotFound',
                         [System.Management.Automation.ErrorCategory]::ObjectNotFound,
                         $EventStream))
+            }
+
+            # A path is append-only across calls, so continue the last sequence
+            # rather than starting again at 1. Refuse an incompatible or
+            # truncated tail before the token exchange: appending after it
+            # would turn a recoverable final fragment into corruption in the
+            # middle of the stream. Resuming a truncated stream remains out of
+            # scope; use a new path for that run.
+            if (Test-Path -LiteralPath $eventStreamPath -PathType Leaf) {
+                try {
+                    $eventFile = [System.IO.File]::Open(
+                        $eventStreamPath,
+                        [System.IO.FileMode]::Open,
+                        [System.IO.FileAccess]::Read,
+                        [System.IO.FileShare]::ReadWrite)
+                    try {
+                        if ($eventFile.Length -gt 0) {
+                            $null = $eventFile.Seek(-1, [System.IO.SeekOrigin]::End)
+                            if ($eventFile.ReadByte() -ne 10) {
+                                throw [System.IO.InvalidDataException]::new('The existing stream does not end with an LF-terminated complete record.')
+                            }
+                        }
+                    } finally {
+                        $eventFile.Dispose()
+                    }
+
+                    $tail = @(Get-Content -LiteralPath $eventStreamPath -Tail 1 -ErrorAction Stop)
+                    if ($tail.Count -gt 0 -and -not [string]::IsNullOrWhiteSpace([string]$tail[0])) {
+                        $lastRecord = $tail[0] | ConvertFrom-Json -ErrorAction Stop
+                        $parsedSequence = [long]0
+                        $hasSchema = $lastRecord.PSObject.Properties.Match('schemaVersion').Count -gt 0
+                        $hasSequence = $lastRecord.PSObject.Properties.Match('sequence').Count -gt 0
+                        if (-not $hasSchema -or [int]$lastRecord.schemaVersion -ne $script:ShpEventSchemaVersion -or
+                            -not $hasSequence -or -not [long]::TryParse([string]$lastRecord.sequence, [ref]$parsedSequence) -or
+                            $parsedSequence -lt 0) {
+                            throw [System.IO.InvalidDataException]::new('The existing stream tail is not a compatible ShellPilot Event record.')
+                        }
+                        $eventStreamSequence = $parsedSequence
+                    }
+                } catch {
+                    $tailError = $_
+                    $PSCmdlet.ThrowTerminatingError([System.Management.Automation.ErrorRecord]::new(
+                            [System.IO.InvalidDataException]::new(("-EventStream cannot append to '{0}': {1} Use a new path; resuming a truncated stream is not supported." -f $eventStreamPath, $tailError.Exception.Message), $tailError.Exception),
+                            'ShpEventStreamInvalidTail',
+                            [System.Management.Automation.ErrorCategory]::InvalidData,
+                            $EventStream))
+                }
             }
         }
     }
@@ -1425,7 +1481,7 @@ function Invoke-Shp {
     $eventState = @{
         Enabled  = ($null -ne $eventStreamPath)
         Path     = $eventStreamPath
-        Sequence = 0
+        Sequence = $eventStreamSequence
         Redact   = -not $DisableRedaction
     }
     $emit = {
@@ -1603,10 +1659,75 @@ function Invoke-Shp {
                 toolCount    = @($tls).Count
                 streaming    = ($streamingEnabled -and $mode -eq 'chat')
             }
-            $turn = Invoke-CopilotTurn -Mode $mode -Model $Model -ApiBase $apiBase -Headers $apiHeaders -Conversation $conv -Tools $tls -RequestReasoningSummary:($mode -eq 'responses' -and $requestReasoning) -ReasoningEffort $ReasoningEffort -MaxOutputTokens $MaxOutputTokens -Stream:($streamingEnabled -and $mode -eq 'chat') -EchoReasoning:($ShowThinking -and $streamingEnabled -and $mode -eq 'chat') -Store:($serverSideActive -and $mode -eq 'responses') -PreviousResponseId $previousResponseId @structuredParams @samplingParams @connectionParams
+            $reasoningChunks = [System.Collections.Generic.List[string]]::new()
+            $onRequestRetry = $null
+            if ($eventState.Enabled) {
+                $requestIteration = $iteration
+                $onRequestRetry = {
+                    param($Retry)
+
+                    & $emit 'retry' @{
+                        iteration   = $requestIteration
+                        reason      = [string]$Retry.Reason
+                        detail      = [string]$Retry.Message
+                        attempt     = [int]$Retry.Attempt
+                        delaySeconds = [double]$Retry.DelaySeconds
+                        statusCode  = $Retry.StatusCode
+                    }
+                }.GetNewClosure()
+            }
+            $onReasoningChunk = $null
+            if ($eventState.Enabled -and $ShowThinking -and $streamingEnabled -and $mode -eq 'chat') {
+                $onReasoningChunk = {
+                    param([string]$Chunk)
+
+                    $null = $reasoningChunks.Add($Chunk)
+                }.GetNewClosure()
+            }
+
+            # Redact the COMPLETE reasoning trace before dividing it back into
+            # Event records. Redacting each streamed chunk independently leaks
+            # a secret when an SSE boundary splits the matching span, and a
+            # custom pattern has no finite maximum overlap a rolling buffer can
+            # safely assume. Keep one record per original chunk; replacements
+            # may shift the text boundary, but concatenating the records yields
+            # the correctly redacted trace. This flush runs on both success and
+            # failure, before usage / retry / error records.
+            $flushReasoningChunks = {
+                if ($reasoningChunks.Count -eq 0) { return }
+
+                $eventReasoning = $reasoningChunks -join ''
+                if (-not $DisableRedaction) {
+                    $reasoningMessage = @(@{ role = 'tool'; content = $eventReasoning })
+                    $null = Protect-ShpEgressContent -Message $reasoningMessage
+                    $eventReasoning = [string]$reasoningMessage[0]['content']
+                }
+
+                $reasoningOffset = 0
+                for ($chunkIndex = 0; $chunkIndex -lt $reasoningChunks.Count; $chunkIndex++) {
+                    $originalLength = $reasoningChunks[$chunkIndex].Length
+                    $remainingLength = $eventReasoning.Length - $reasoningOffset
+                    $emittedLength = if ($chunkIndex -eq $reasoningChunks.Count - 1) {
+                        $remainingLength
+                    } else {
+                        [Math]::Min($originalLength, $remainingLength)
+                    }
+                    $eventChunk = $eventReasoning.Substring($reasoningOffset, $emittedLength)
+                    & $emit 'reasoning' @{
+                        iteration = $iteration
+                        text      = $eventChunk
+                        length    = $eventChunk.Length
+                    }
+                    $reasoningOffset += $emittedLength
+                }
+                $reasoningChunks.Clear()
+            }
+            $turn = Invoke-CopilotTurn -Mode $mode -Model $Model -ApiBase $apiBase -Headers $apiHeaders -Conversation $conv -Tools $tls -RequestReasoningSummary:($mode -eq 'responses' -and $requestReasoning) -ReasoningEffort $ReasoningEffort -MaxOutputTokens $MaxOutputTokens -Stream:($streamingEnabled -and $mode -eq 'chat') -EchoReasoning:($ShowThinking -and $streamingEnabled -and $mode -eq 'chat') -OnReasoningChunk $onReasoningChunk -OnRetry $onRequestRetry -Store:($serverSideActive -and $mode -eq 'responses') -PreviousResponseId $previousResponseId @structuredParams @samplingParams @connectionParams
         } catch {
             $errText = $_.ErrorDetails.Message
-            if ([string]::IsNullOrWhiteSpace($errText)) { $errText = $_.Exception.Message }            # The Session token died between the per-iteration refresh above and
+            if ([string]::IsNullOrWhiteSpace($errText)) { $errText = $_.Exception.Message }
+            & $flushReasoningChunks
+            # The Session token died between the per-iteration refresh above and
             # this request. Recover the same way the other fallbacks do - retry
             # this iteration - so a Turn that has already completed 40 iterations
             # of work is not thrown away. Matched on the STRUCTURED status, never
@@ -1682,6 +1803,8 @@ function Invoke-Shp {
             throw
         }
 
+        & $flushReasoningChunks
+
         # This iteration completed, so the one-shot token refresh is available
         # again for a later iteration of the same (possibly very long) Turn.
         $sessionTokenForced = $false
@@ -1745,7 +1868,7 @@ function Invoke-Shp {
             # -ShowThinking, the same switch that reveals it anywhere else. A
             # caller who did not ask to see the model's thinking has not asked
             # for it to be written to a file a CI system keeps either.
-            if ($ShowThinking) {
+            if ($ShowThinking -and -not ($streamingEnabled -and $turn.Mode -eq 'chat')) {
                 & $emit 'reasoning' @{ iteration = $iteration; text = [string]$turn.Reasoning; length = ([string]$turn.Reasoning).Length }
             }
             # When streaming the chat shape, Read-ShpChatStream already echoed the
@@ -1784,11 +1907,27 @@ function Invoke-Shp {
                 # tool result, which is right for a tool that failed and wrong
                 # for a call that must end.
                 if ($unattended -and $tc.Name -eq 'ask_user') {
-                    $PSCmdlet.ThrowTerminatingError([System.Management.Automation.ErrorRecord]::new(
+                    $userPromptReason = 'ask_user is unavailable in a non-interactive turn.'
+                    & $emit 'tool.call' @{
+                        iteration = $iteration
+                        tool      = $tc.Name
+                        callId    = $tc.Id
+                        arguments = $tc.Arguments
+                        policy    = 'denied'
+                        reason    = $userPromptReason
+                    }
+                    $userPromptError = [System.Management.Automation.ErrorRecord]::new(
                             [System.InvalidOperationException]::new('The model called ask_user during a -NonInteractive run, which has no console to answer it. Supply the missing information in the prompt, or drop -NonInteractive.'),
                             'ShpNonInteractivePrompt',
                             [System.Management.Automation.ErrorCategory]::InvalidOperation,
-                            $null))
+                            $null)
+                    & $emit 'error' @{
+                        iteration = $iteration
+                        reason    = 'UserPromptUnavailable'
+                        message   = $userPromptError.Exception.Message
+                        errorId   = $userPromptError.FullyQualifiedErrorId
+                    }
+                    $PSCmdlet.ThrowTerminatingError($userPromptError)
                 }
                 $toolResult = '{"error":"unknown tool"}'
                 # Parsed and policy-checked BEFORE the event is emitted, so a

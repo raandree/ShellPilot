@@ -45,6 +45,14 @@ function Invoke-CopilotTurn {
         the same thinking trace VS Code shows. Host-only; ignored for the
         non-streaming and responses paths.
 
+    .PARAMETER OnReasoningChunk
+        Optional callback invoked once for each streamed chat reasoning delta.
+        Ignored for non-streaming and responses requests.
+
+    .PARAMETER OnRetry
+        Optional callback forwarded to the HTTP retry wrapper for each model
+        request retry that will actually occur.
+
     .PARAMETER ReasoningEffort
         Reasoning effort level to request (for example low, medium, high,
         xhigh, max). Sent as the top-level reasoning_effort field on
@@ -128,6 +136,8 @@ function Invoke-CopilotTurn {
         [switch]$RequestReasoningSummary,
         [switch]$Stream,
         [switch]$EchoReasoning,
+        [scriptblock]$OnReasoningChunk,
+        [scriptblock]$OnRetry,
         [string]$ReasoningEffort,
         [int]$MaxOutputTokens,
         [ValidateRange(0.0, 2.0)]
@@ -177,7 +187,7 @@ function Invoke-CopilotTurn {
         # so 429/5xx and network-outage handling are unchanged.
         $reqOptions = @{ Method = 'Post'; Uri = "$ApiBase/responses"; Headers = $Headers; Body = $body }
         if ($TimeoutSec -gt 0) { $reqOptions.TimeoutSec = $TimeoutSec }
-        $response = Invoke-ShpWithRetry -MaxRetryCount $MaxRetryCount -RetryDelaySec $RetryDelaySec -NetworkOutageToleranceSec $NetworkOutageToleranceSec -ArgumentList $reqOptions -ScriptBlock { param($p) Invoke-ShpHttpRequest @p }
+        $response = Invoke-ShpWithRetry -MaxRetryCount $MaxRetryCount -RetryDelaySec $RetryDelaySec -NetworkOutageToleranceSec $NetworkOutageToleranceSec -OnRetry $OnRetry -ArgumentList $reqOptions -ScriptBlock { param($p) Invoke-ShpHttpRequest @p }
         $parsed = $response.Content | ConvertFrom-Json
         $textContent = ''; $toolCalls = @(); $assistantItems = @(); $reasoningText = ''
         foreach ($item in @($parsed.output)) {
@@ -236,9 +246,9 @@ function Invoke-CopilotTurn {
         # HttpRequestException carries no response, so 429/5xx stay count-bounded
         # while a true no-response failure uses the network-outage budget.
         $streamRequest = @{ Uri = "$ApiBase/chat/completions"; Headers = $Headers; Body = $body }
-        $req = Invoke-ShpWithRetry -MaxRetryCount $MaxRetryCount -RetryDelaySec $RetryDelaySec -NetworkOutageToleranceSec $NetworkOutageToleranceSec -ArgumentList $streamRequest -ScriptBlock { param($p) Invoke-ShpStreamRequest @p }
+        $req = Invoke-ShpWithRetry -MaxRetryCount $MaxRetryCount -RetryDelaySec $RetryDelaySec -NetworkOutageToleranceSec $NetworkOutageToleranceSec -OnRetry $OnRetry -ArgumentList $streamRequest -ScriptBlock { param($p) Invoke-ShpStreamRequest @p }
         try {
-            $turn = Read-ShpChatStream -Reader $req.Reader -Echo:$Stream -EchoReasoning:$EchoReasoning
+            $turn = Read-ShpChatStream -Reader $req.Reader -Echo:$Stream -EchoReasoning:$EchoReasoning -OnReasoningChunk $OnReasoningChunk
             $respHeaders = @{}
             if ($req.Response -and $req.Response.Headers) {
                 foreach ($h in $req.Response.Headers) { $respHeaders[[string]$h.Key] = (@($h.Value) -join ', ') }
@@ -258,7 +268,7 @@ function Invoke-CopilotTurn {
     # so 429/5xx and network-outage handling are unchanged.
     $reqOptions = @{ Method = 'Post'; Uri = "$ApiBase/chat/completions"; Headers = $Headers; Body = $body }
     if ($TimeoutSec -gt 0) { $reqOptions.TimeoutSec = $TimeoutSec }
-    $response = Invoke-ShpWithRetry -MaxRetryCount $MaxRetryCount -RetryDelaySec $RetryDelaySec -NetworkOutageToleranceSec $NetworkOutageToleranceSec -ArgumentList $reqOptions -ScriptBlock { param($p) Invoke-ShpHttpRequest @p }
+    $response = Invoke-ShpWithRetry -MaxRetryCount $MaxRetryCount -RetryDelaySec $RetryDelaySec -NetworkOutageToleranceSec $NetworkOutageToleranceSec -OnRetry $OnRetry -ArgumentList $reqOptions -ScriptBlock { param($p) Invoke-ShpHttpRequest @p }
     $parsed = $response.Content | ConvertFrom-Json
     $msg = $parsed.choices[0].message
     $toolCalls = @()

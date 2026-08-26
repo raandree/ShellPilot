@@ -234,6 +234,69 @@ Describe 'Invoke-CopilotTurn' {
         }
     }
 
+    It 'Forwards streamed reasoning chunks from the stream reader' {
+        InModuleScope $script:moduleName {
+            Mock Invoke-ShpStreamRequest {
+                $sse = @(
+                    'data: {"model":"stream-model","choices":[{"delta":{"reasoning_text":"Think "}}]}'
+                    'data: {"choices":[{"delta":{"reasoning_text":"again."}}]}'
+                    'data: {"choices":[{"delta":{"content":"Done"},"finish_reason":"stop"}]}'
+                    'data: [DONE]'
+                ) -join "`n"
+                [pscustomobject]@{
+                    Reader   = [System.IO.StringReader]::new($sse)
+                    Response = [pscustomobject]@{ Headers = @() }
+                    Client   = $null
+                }
+            }
+            Mock Invoke-ShpWithRetry { & $ScriptBlock @ArgumentList }
+            $capturedChunks = [System.Collections.Generic.List[string]]::new()
+            $captureChunk = {
+                param([string]$Chunk)
+                $null = $capturedChunks.Add($Chunk)
+            }.GetNewClosure()
+
+            $turn = Invoke-CopilotTurn -Mode 'chat' -Model 'm' -ApiBase 'https://api.example' -Headers @{} -Conversation @(@{ role = 'user'; content = 'hi' }) -Stream -OnReasoningChunk $captureChunk
+
+            $capturedChunks.ToArray() | Should -Be @('Think ', 'again.')
+            $turn.Reasoning           | Should -Be 'Think again.'
+        }
+    }
+
+    It 'Forwards request retry notifications from the retry wrapper' {
+        InModuleScope $script:moduleName {
+            Mock Invoke-ShpStreamRequest {
+                $sse = @(
+                    'data: {"model":"stream-model","choices":[{"delta":{"content":"Done"},"finish_reason":"stop"}]}'
+                    'data: [DONE]'
+                ) -join "`n"
+                [pscustomobject]@{
+                    Reader   = [System.IO.StringReader]::new($sse)
+                    Response = [pscustomobject]@{ Headers = @() }
+                    Client   = $null
+                }
+            }
+            Mock Invoke-ShpWithRetry {
+                $null = & $OnRetry ([pscustomobject]@{
+                        Reason = 'TransientHttpFailure'; Attempt = 1; DelaySeconds = 0
+                        StatusCode = 503; Message = 'service unavailable'
+                    })
+                & $ScriptBlock @ArgumentList
+            }
+            $reportedRetries = [System.Collections.Generic.List[object]]::new()
+            $captureRetry = {
+                param($Retry)
+                $null = $reportedRetries.Add($Retry)
+            }.GetNewClosure()
+
+            $turn = Invoke-CopilotTurn -Mode 'chat' -Model 'm' -ApiBase 'https://api.example' -Headers @{} -Conversation @(@{ role = 'user'; content = 'hi' }) -Stream -OnRetry $captureRetry
+
+            $turn.Content | Should -Be 'Done'
+            $reportedRetries | Should -HaveCount 1
+            $reportedRetries[0].Reason | Should -Be 'TransientHttpFailure'
+        }
+    }
+
     It 'Maps -ResponseFormat json_object onto response_format' {
         InModuleScope $script:moduleName {
             $script:capturedBody = $null

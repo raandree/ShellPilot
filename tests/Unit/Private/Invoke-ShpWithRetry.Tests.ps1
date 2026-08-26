@@ -98,6 +98,39 @@ Describe 'Invoke-ShpWithRetry' {
         }
     }
 
+    It 'Reports each actual transient HTTP retry' {
+        InModuleScope $script:moduleName {
+            $script:retryCalls = 0
+            $reportedRetries = [System.Collections.Generic.List[object]]::new()
+            $captureRetry = {
+                param($Retry)
+                $null = $reportedRetries.Add($Retry)
+            }.GetNewClosure()
+
+            $result = Invoke-ShpWithRetry -MaxRetryCount 1 -RetryDelaySec 0 -OnRetry $captureRetry -ScriptBlock {
+                $script:retryCalls++
+                if ($script:retryCalls -eq 1) {
+                    $detail = New-ShpHttpErrorDetail -StatusCode 503 -RequestUri 'https://api.example/chat/completions' -Body 'unavailable'
+                    $exception = [System.Net.Http.HttpRequestException]::new('service unavailable')
+                    throw [System.Management.Automation.ErrorRecord]::new(
+                        $exception,
+                        'TestTransientFailure',
+                        [System.Management.Automation.ErrorCategory]::ProtocolError,
+                        $detail)
+                }
+                'ok'
+            }
+
+            $result | Should -Be 'ok'
+            $reportedRetries | Should -HaveCount 1
+            $reportedRetries[0].Reason       | Should -Be 'TransientHttpFailure'
+            $reportedRetries[0].Attempt      | Should -Be 1
+            $reportedRetries[0].DelaySeconds | Should -Be 0
+            $reportedRetries[0].StatusCode   | Should -Be 503
+            $reportedRetries[0].Message      | Should -Be 'service unavailable'
+        }
+    }
+
     # Invoke-ShpBatch runs several callers concurrently, so a purely
     # deterministic backoff synchronises: every worker refused by the same 429
     # would sleep an identical duration and re-fire together, recreating the
