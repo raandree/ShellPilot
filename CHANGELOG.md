@@ -9,6 +9,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`Invoke-Shp -EventStream <path>` writes a headless JSONL event stream.** A
+  CI log collector reads lines, not prose: everything the module said about a
+  running turn was aimed at a person, so a nineteen-iteration turn that was
+  refused twice by the tool policy, retried once on an expired session token
+  and then stopped on `-MaxBudgetUSD` left one object saying
+  `BudgetExceeded = $true` and nothing about the shape of the failure. The
+  stream appends one JSON object per line - `turn.start`, `model.request`,
+  `usage`, `reasoning` (under `-ShowThinking`), `tool.call`, `tool.result`,
+  `todo`, `retry`, `error`, `final` - each carrying `schemaVersion`, a
+  monotonic `sequence`, an ISO 8601 UTC `timestamp`, a `type` and a flat
+  `data` object. Pass `-` to write the records to the Information stream
+  instead of a file. Every line is appended whole, so a run killed mid-turn
+  still leaves a file that parses up to its last complete line. Every string
+  payload goes through the same redaction seam the request body does, so a
+  secret a tool printed does not reach the stream verbatim; a `run_command`
+  tool-call record names the tool and the policy decision but never the
+  command line. `-DisableProgressEvents` no longer switches this off - the two
+  sinks are gated independently.
+  See [specs/027-headless-event-stream.md](specs/027-headless-event-stream.md).
+
+- **`Invoke-Shp -AsJob` and `Invoke-ShpBatch -AsJob` run a call in the
+  background.** Both return a thread job whose `Receive-Job` resolves to the
+  same `ShellPilot.Result` / `ShellPilot.BatchResult` objects the synchronous
+  call returns - the same process, so nothing is serialised into a
+  `Deserialized.*` copy. The job runspace inherits no module state, so the
+  session context, session defaults, cached model limits, tool policy,
+  redaction policy and registered tools are replayed into it and the module is
+  imported by path. `Invoke-Shp -AsJob` is seeded from a snapshot of the
+  session conversation and stays stateless from there, because a job that
+  finishes at an arbitrary time must not race the caller's next call. The CI
+  entitlement gate is still evaluated at the call site, so a refused backend
+  fails where you typed it rather than in the background of a green build. An
+  event stream is honoured: `-AsJob` does not silently turn it off.
+  See [specs/027-headless-event-stream.md](specs/027-headless-event-stream.md).
+
 - **`Invoke-Shp` now redacts secrets before they leave the runner.** A CI job
   feeds the model diffs, build logs and attachments produced by untrusted
   pull-request content, and nothing scrubbed them before now - a leaked token

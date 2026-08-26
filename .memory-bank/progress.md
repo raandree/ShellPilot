@@ -9,8 +9,9 @@ Chronological record of shipped changes and remaining work. Latest first.
   GitVersion, and a GitHub Actions CI. main builds at 0.2.0-preview0001.
 - All 13 migration specs (002-014) are implemented, plus 015 (batch execution),
   016 (failed-call usage accounting), 017 (context-window budget resolved
-  from the model), 024 (pipeline failure semantics), 025 (CI profile) and 026
-  (egress redaction); the backend-dependent ones are live-verified. Server-side
+  from the model), 024 (pipeline failure semantics), 025 (CI profile), 026
+  (egress redaction) and 027 (headless JSONL event stream and the job model);
+  the backend-dependent ones are live-verified. Server-side
   state (011) is implemented but the Copilot proxy does not support it, so it
   falls back to client-side history.
 - The full Pester run crashes locally on a .NET 10 native access violation
@@ -29,17 +30,55 @@ Chronological record of shipped changes and remaining work. Latest first.
   auto-restart of a faulted server, and cross-session tool-list pinning
   (open decisions 9-13).
 - Session persistence and resume; hooks engine; subagents; headless scripting
-  surface (stdin, JSONL events, env-var config, exit codes).
-- `-AsJob` job model. Needs a spike first on whether thread-job runspaces can
-  share `$script:ShpSessionTokenCache` / `$script:ShpHttpClient`.
-  ANSWERED 2026-08-11 by the Invoke-ShpBatch probes: they CANNOT. Each runspace
-  gets its own module instance, so both caches are per-runspace. The cost is
-  bounded rather than per call, because ForEach-Object -Parallel pools and
-  reuses runspaces - a batch pays at most ThrottleLimit token exchanges. What
-  remains open is only whether an `-AsJob` surface is wanted at all now that
-  `Invoke-ShpBatch` covers the concurrent case.
+  surface (stdin, env-var config, exit codes). The JSONL event stream half of
+  that surface shipped 2026-08-26 (spec 027).
+- `-AsJob` job model. **DONE 2026-08-26** (spec 027). The 2026-08-11 spike
+  answer stood: a thread-job runspace CANNOT share
+  `$script:ShpSessionTokenCache` / `$script:ShpHttpClient`, so `Start-ShpJob`
+  replays what a runspace does not inherit - session context, defaults, model
+  limits, tool policy, redaction policy, registered tools - exactly as
+  `Invoke-ShpBatchItem` does. `Start-ThreadJob` rather than `Start-Job`,
+  because a process job would serialise a `ShellPilot.Result` into a
+  `Deserialized.*` copy and break the "same result object" contract.
 
 ## Log
+
+- 2026-08-26 - Headless JSONL event stream and the job model shipped
+  (spec 027), closing the last two TBD rows in the feature map.
+  `Invoke-Shp -EventStream <path>` appends one JSON object per line -
+  `turn.start`, `model.request`, `usage`, `reasoning` (under `-ShowThinking`),
+  `tool.call`, `tool.result`, `todo`, `retry`, `error`, `final` - each with
+  `schemaVersion`, a monotonic `sequence`, an ISO 8601 UTC `timestamp`, a
+  `type` and a flat scalar-only `data` object; `-` writes to the Information
+  stream instead. `Write-ShpEvent` is the sink.
+  Three decisions carried the design. The existing progress emitter was
+  EXTENDED rather than duplicated, and its two sinks gated independently -
+  `-DisableProgressEvents` is forced on every `Invoke-ShpBatch` worker, so a
+  shared gate would have made "run this in a batch" silently mean "keep no
+  audit record". `data` is flat scalars because redaction is applied to each
+  string VALUE before serialisation: applied to the finished line, the
+  multi-line PEM pattern matches from a BEGIN in one field to an END in
+  another and replaces the `","` between them, corrupting the artifact the
+  control exists to protect. And a `run_command` event carries
+  `argumentsWithheld` instead of the command line, which meant hoisting the
+  JSON parse and `Test-ShpToolAccess` ahead of the emit so the event carries
+  the DECISION rather than the intent - the held error is rethrown inside the
+  dispatch `try` unchanged, so a malformed-argument call still becomes the
+  same tool result it always did.
+  `Invoke-Shp -AsJob` / `Invoke-ShpBatch -AsJob` return a `Start-ThreadJob`
+  job through `Start-ShpJob`. `Invoke-Shp -AsJob` is seeded from a snapshot of
+  the session conversation and never writes back, because a job finishing at
+  an arbitrary time would race the caller's next call. The CI entitlement gate
+  stays at the call site so a refused backend does not fail in the background
+  of a green build.
+  Verified: build 7 tasks / 0 errors / 0 warnings; PSScriptAnalyzer clean on
+  all changed source files; 636 QA + 214 `Invoke-Shp`/`Invoke-ShpBatch` + 16
+  new private-helper tests, 0 failures. Three mutations applied one at a time,
+  each rebuilt and re-run, each turning only its own test red: disarming the
+  sink's redaction, disarming the `run_command` withholding, and putting both
+  sinks behind one gate. `Start-ThreadJob` returning a live
+  `ShellPilot.BatchResult` rather than a `Deserialized.*` copy was measured,
+  not assumed.
 
 - 2026-08-26 - Egress redaction shipped (spec 026). A CI job feeds the model
   diffs, build logs and attachments produced by untrusted pull-request content,

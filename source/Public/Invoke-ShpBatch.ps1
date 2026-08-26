@@ -223,6 +223,19 @@ function Invoke-ShpBatch {
         yourself. As everywhere in this module, nothing calls exit or sets
         $LASTEXITCODE - the exit code is the caller's job.
 
+    .PARAMETER AsJob
+        Run the whole batch in a background thread job and return the job object
+        immediately. Receive-Job resolves it to the same stream of
+        ShellPilot.BatchResult objects the synchronous call would have returned
+        - a thread job runs in the same process, so nothing is serialised.
+
+        The job gets a copy of the session context, session defaults, cached
+        model limits, tool policy, redaction policy and registered tools. The
+        usage records the items produce are merged into the JOB's usage log, not
+        the caller's, so Get-ShpUsage in the caller's session does not see them.
+        The entitlement gate is still evaluated in the caller's session, so a
+        refused backend fails at the call site rather than inside the job.
+
     .PARAMETER MaxBatchBudgetUSD
         Ceiling in USD for the batch as a whole. Before each item is sent, the
         cost recorded so far is compared with this cap; once it is reached, the
@@ -310,6 +323,15 @@ function Invoke-ShpBatch {
         marks only its own item failed, and one terminating error at the end
         stops the step. The failed items are on the summary carried by
         TargetObject.
+
+    .EXAMPLE
+        $job = Invoke-ShpBatch -Prompt $prompts -ThrottleLimit 8 -AsJob
+        $results = Receive-Job -Job $job -Wait -AutoRemoveJob
+        $results | Sort-Object Index | Format-Table Id, Success, CostUSD
+
+        Runs the whole batch in the background. Receive-Job yields the same
+        ShellPilot.BatchResult objects the synchronous call would have produced;
+        only the usage records stay behind in the job's own session.
 
     .LINK
         Invoke-Shp
@@ -404,6 +426,8 @@ function Invoke-ShpBatch {
 
         [switch]$FailBatchOnAnyItem,
 
+        [switch]$AsJob,
+
         [ValidateNotNullOrEmpty()]
         [string]$ApiBase,
 
@@ -442,6 +466,23 @@ function Invoke-ShpBatch {
         if ($PSBoundParameters.ContainsKey('NonInteractive')) { $ciParams['NonInteractive'] = [bool]$NonInteractive }
         $ciProfile = Resolve-ShpCiProfile @ciParams
         if ($ciProfile.BackendGateError) { $PSCmdlet.ThrowTerminatingError($ciProfile.BackendGateError) }
+
+        # -AsJob hands the whole batch to a thread job and returns. Placed after
+        # the entitlement gate above and before any work is built, so a refused
+        # backend still fails at the CALL SITE: a job that fails silently in the
+        # background is the green-build failure mode -FailOn exists to stop.
+        if ($AsJob) {
+            $jobParams = @{}
+            foreach ($key in $PSBoundParameters.Keys) {
+                if ($key -eq 'AsJob') { continue }
+                $jobParams[$key] = $PSBoundParameters[$key]
+            }
+            # Bound by value here, not read from $PSBoundParameters: a pipeline
+            # -Prompt binds one chunk at a time, so only the collected set is
+            # the whole batch.
+            $jobParams['Prompt'] = $collected.ToArray()
+            return Start-ShpJob -Command 'Invoke-ShpBatch' -Parameter $jobParams
+        }
 
         # Resolve the module by full path. A worker runspace inherits no loaded
         # modules, so it has to import one itself - and left to $env:PSModulePath

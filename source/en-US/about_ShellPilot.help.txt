@@ -22,8 +22,9 @@ LONG DESCRIPTION
     run_command, and ask_user, each opt-out), follows custom instructions and
     Agent Skills, supports structured output, vision input, a live reasoning
     trace (-ShowThinking), an on-by-default manage_todo_list tool
-    (-DisableTodoList to opt out), and structured ShpProgress progress events.
-    Start-ShpChat opens an interactive console session.
+    (-DisableTodoList to opt out), structured ShpProgress progress events, a
+    headless JSONL event stream (-EventStream) and a background job model
+    (-AsJob). Start-ShpChat opens an interactive console session.
 
     Every public cmdlet has full comment-based help; use Get-Help <cmdlet> -Full.
 

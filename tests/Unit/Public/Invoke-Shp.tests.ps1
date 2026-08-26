@@ -2757,3 +2757,229 @@ Describe 'Invoke-Shp egress redaction' {
         }
     }
 }
+
+Describe 'Invoke-Shp -EventStream' {
+    BeforeAll {
+        $script:streamRoot = Join-Path -Path $TestDrive -ChildPath 'stream'
+        $null = New-Item -Path $script:streamRoot -ItemType Directory -Force
+    }
+
+    BeforeEach {
+        InModuleScope $script:moduleName {
+            $script:ShpChat = @()
+            $script:turnCount = 0
+            Mock Get-ShpSessionToken { [pscustomobject]@{ token = 't'; expires_at = 0; endpoints = [pscustomobject]@{ api = 'https://api.example' } } }
+            # The secret is at the very front of the result, so a preview that
+            # was not redacted really would carry it.
+            Mock Invoke-RunCommandTool {
+                '{"stdout":"ghp_1234567890abcdefghijklmnopqrstuvwxyz is the token","exitCode":0}'
+            }
+            Mock Invoke-CopilotTurn {
+                $script:turnCount++
+                if ($script:turnCount -eq 1) {
+                    [pscustomobject]@{
+                        Mode = 'chat'; Content = ''; FinishReason = 'tool_calls'
+                        ToolCalls = @([pscustomobject]@{ Id = 'c1'; Name = 'run_command'; Arguments = '{"command":"cat /etc/secret --password hunter2"}' })
+                        AssistantMessage = [pscustomobject]@{ content = '' }; AssistantItems = @(); Reasoning = ''
+                        PromptTokens = 11; CompletionTokens = 3; CachedTokens = 0; CacheWriteTokens = 0
+                        ModelName = $Model; ResponseId = $null; CopilotUsage = $null; Raw = @{}; Response = [pscustomobject]@{ Headers = @{} }
+                    }
+                } else {
+                    [pscustomobject]@{
+                        Mode = 'chat'; Content = 'all done'; FinishReason = 'stop'; ToolCalls = @()
+                        AssistantMessage = [pscustomobject]@{ content = 'all done' }; AssistantItems = @(); Reasoning = ''
+                        PromptTokens = 17; CompletionTokens = 5; CachedTokens = 0; CacheWriteTokens = 0
+                        ModelName = $Model; ResponseId = $null; CopilotUsage = $null; Raw = @{}; Response = [pscustomobject]@{ Headers = @{} }
+                    }
+                }
+            }
+        }
+    }
+
+    AfterEach {
+        InModuleScope $script:moduleName { $script:ShpChat = @() }
+    }
+
+    Context 'Parameter surface' {
+        It 'Should expose -EventStream and -AsJob' {
+            (Get-Command -Name 'Invoke-Shp').Parameters.Keys | Should -Contain 'EventStream'
+            (Get-Command -Name 'Invoke-Shp').Parameters.Keys | Should -Contain 'AsJob'
+        }
+
+        It 'Should refuse a path whose folder does not exist, before spending anything' {
+            InModuleScope $script:moduleName -Parameters @{ Root = $script:streamRoot } {
+                param($Root)
+
+                $missing = Join-Path -Path $Root -ChildPath 'no-such-folder/events.jsonl'
+                $err = { Invoke-Shp -Prompt 'hi' -EventStream $missing -DisableBrowsing -DisableFileAccess -DisableTerminal -DisableUserPrompts } |
+                    Should -Throw -PassThru
+
+                $err.FullyQualifiedErrorId | Should -Be 'ShpEventStreamPathNotFound,Invoke-Shp'
+                Should -Invoke Invoke-CopilotTurn -Times 0 -Exactly
+            }
+        }
+    }
+
+    Context 'The stream a turn produces' {
+        BeforeEach {
+            $script:streamPath = Join-Path -Path $script:streamRoot -ChildPath ('turn-{0}.jsonl' -f [guid]::NewGuid().ToString('N'))
+            InModuleScope $script:moduleName -Parameters @{ Path = $script:streamPath } {
+                param($Path)
+
+                $null = Invoke-Shp -Prompt 'run the command' -EventStream $Path -DisableBrowsing -DisableFileAccess -DisableUserPrompts
+            }
+            $script:streamLines = @(Get-Content -LiteralPath $script:streamPath)
+            $script:streamEvents = @($script:streamLines | ConvertFrom-Json)
+        }
+
+        It 'Should write only valid JSON, one object per line' {
+            $script:streamLines.Count | Should -BeGreaterThan 0
+            foreach ($line in $script:streamLines) { { $line | ConvertFrom-Json } | Should -Not -Throw }
+        }
+
+        It 'Should number every record with a strictly increasing sequence' {
+            $sequences = @($script:streamEvents.sequence)
+            $sequences | Should -Be @(1..$sequences.Count)
+        }
+
+        It 'Should stamp every record with the schema version, a UTC timestamp and a type' {
+            foreach ($record in $script:streamEvents) {
+                $record.schemaVersion | Should -Be 1
+                $record.type | Should -Not -BeNullOrEmpty
+                [datetimeoffset]::Parse($record.timestamp).Offset.TotalMinutes | Should -Be 0
+            }
+        }
+
+        It 'Should emit the tool-calling turn as its documented sequence of types' {
+            @($script:streamEvents.type) | Should -Be @(
+                'turn.start'
+                'model.request'
+                'usage'
+                'tool.call'
+                'tool.result'
+                'model.request'
+                'usage'
+                'final'
+            )
+        }
+
+        # The whole point of the stream in CI: it is a durable artifact, so a
+        # secret a tool printed must not survive anywhere in it.
+        It 'Should not contain a secret a tool result printed' {
+            $raw = Get-Content -LiteralPath $script:streamPath -Raw
+            $raw | Should -Not -Match 'ghp_1234567890abcdefghijklmnopqrstuvwxyz'
+            $raw | Should -Match ([regex]::Escape('[redacted:github-token]'))
+        }
+
+        # A command line is where a credential passed as an argument lands.
+        It 'Should record the run_command tool and its policy decision but never the command line' {
+            $toolCall = @($script:streamEvents | Where-Object type -eq 'tool.call')[0]
+
+            $toolCall.data.tool | Should -Be 'run_command'
+            $toolCall.data.policy | Should -Be 'allowed'
+            $toolCall.data.argumentsWithheld | Should -BeTrue
+            $toolCall.data.PSObject.Properties.Name | Should -Not -Contain 'arguments'
+            Get-Content -LiteralPath $script:streamPath -Raw | Should -Not -Match 'hunter2'
+        }
+
+        It 'Should carry the answer and the turn cost on the final record' {
+            $final = @($script:streamEvents | Where-Object type -eq 'final')[0]
+
+            $final.data.content | Should -Be 'all done'
+            $final.data.finishReason | Should -Be 'stop'
+            $final.data.promptTokens | Should -Be 28
+            $final.data.iterations | Should -Be 2
+        }
+    }
+
+    Context 'Sinks' {
+        It "Should write the records to the Information stream for -EventStream '-'" {
+            $records = InModuleScope $script:moduleName {
+                $null = Invoke-Shp -Prompt 'run the command' -EventStream '-' -DisableBrowsing -DisableFileAccess -DisableUserPrompts -InformationVariable streamInfo
+                $streamInfo
+            }
+
+            $tagged = @($records | Where-Object { $_.Tags -contains 'ShpEvent' })
+            $tagged | Should -Not -BeNullOrEmpty
+            @($tagged.MessageData | ConvertFrom-Json | Select-Object -ExpandProperty type) | Should -Contain 'final'
+        }
+
+        # The two sinks are gated independently: turning off the live progress a
+        # host renders must not silently turn off the audit stream a CI job
+        # collects.
+        It 'Should keep writing the stream when -DisableProgressEvents is passed' {
+            $path = Join-Path -Path $script:streamRoot -ChildPath ('gated-{0}.jsonl' -f [guid]::NewGuid().ToString('N'))
+            $records = InModuleScope $script:moduleName -Parameters @{ Path = $path } {
+                param($Path)
+
+                $null = Invoke-Shp -Prompt 'run the command' -EventStream $Path -DisableProgressEvents -DisableBrowsing -DisableFileAccess -DisableUserPrompts -InformationVariable gatedInfo
+                $gatedInfo
+            }
+
+            @($records | Where-Object { $_.Tags -contains 'ShpProgress' }) | Should -BeNullOrEmpty
+            @(Get-Content -LiteralPath $path).Count | Should -BeGreaterThan 0
+        }
+
+        It 'Should keep the tool result verbatim in the stream with -DisableRedaction' {
+            $path = Join-Path -Path $script:streamRoot -ChildPath ('verbatim-{0}.jsonl' -f [guid]::NewGuid().ToString('N'))
+            InModuleScope $script:moduleName -Parameters @{ Path = $path } {
+                param($Path)
+
+                $null = Invoke-Shp -Prompt 'run the command' -EventStream $Path -DisableRedaction -DisableBrowsing -DisableFileAccess -DisableUserPrompts
+            }
+
+            Get-Content -LiteralPath $path -Raw | Should -Match 'ghp_1234567890abcdefghijklmnopqrstuvwxyz'
+        }
+    }
+}
+
+Describe 'Invoke-Shp -AsJob' {
+    BeforeEach {
+        InModuleScope $script:moduleName {
+            $script:ShpChat = @([pscustomobject]@{ role = 'user'; content = 'earlier' })
+            Mock Get-ShpSessionToken { throw 'the parent must not authenticate for a job' }
+            Mock Invoke-CopilotTurn { throw 'the parent must not send the turn for a job' }
+            Mock Start-ShpJob { [pscustomobject]@{ Command = $Command; Parameter = $Parameter } }
+        }
+    }
+
+    AfterEach {
+        InModuleScope $script:moduleName { $script:ShpChat = @() }
+    }
+
+    It 'Should hand the call to a job instead of running it, before the token exchange' {
+        InModuleScope $script:moduleName {
+            $handoff = Invoke-Shp -Prompt 'summarise' -Model 'test-model' -AsJob -DisableBrowsing -DisableFileAccess -DisableTerminal -DisableUserPrompts
+
+            $handoff.Command | Should -Be 'Invoke-Shp'
+            $handoff.Parameter['Prompt'] | Should -Be 'summarise'
+            $handoff.Parameter['Model'] | Should -Be 'test-model'
+            $handoff.Parameter.ContainsKey('AsJob') | Should -BeFalse
+            Should -Invoke Get-ShpSessionToken -Times 0 -Exactly
+            Should -Invoke Invoke-CopilotTurn -Times 0 -Exactly
+        }
+    }
+
+    # A job finishes whenever it finishes, so writing back to the session
+    # conversation would race the caller's next call. Seeded from a snapshot,
+    # stateless from there.
+    It 'Should seed the job from a snapshot of the session conversation' {
+        InModuleScope $script:moduleName {
+            $handoff = Invoke-Shp -Prompt 'summarise' -AsJob -DisableBrowsing -DisableFileAccess -DisableTerminal -DisableUserPrompts
+
+            @($handoff.Parameter['History']).Count | Should -Be 1
+            @($handoff.Parameter['History'])[0].content | Should -Be 'earlier'
+        }
+    }
+
+    It 'Should forward -EventStream as a full path rather than dropping it' {
+        InModuleScope $script:moduleName {
+            $handoff = Invoke-Shp -Prompt 'summarise' -AsJob -EventStream 'job-events.jsonl' -DisableBrowsing -DisableFileAccess -DisableTerminal -DisableUserPrompts
+
+            $handoff.Parameter.ContainsKey('EventStream') | Should -BeTrue
+            [System.IO.Path]::IsPathRooted($handoff.Parameter['EventStream']) | Should -BeTrue
+            $handoff.Parameter['EventStream'] | Should -Match 'job-events\.jsonl$'
+        }
+    }
+}
+

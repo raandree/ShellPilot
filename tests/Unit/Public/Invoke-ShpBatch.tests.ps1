@@ -772,3 +772,69 @@ Describe 'Invoke-ShpBatch failure semantics' {
         }
     }
 }
+
+Describe 'Invoke-ShpBatch -AsJob' {
+    It 'Exposes an -AsJob switch' {
+        (Get-Command -Name 'Invoke-ShpBatch').Parameters['AsJob'].ParameterType |
+            Should -Be ([System.Management.Automation.SwitchParameter])
+    }
+
+    It 'Refuses the Copilot backend in CI at the call site rather than inside the job' {
+        $saved = [System.Environment]::GetEnvironmentVariable('CI')
+        $env:CI = 'true'
+        try {
+            $err = { Invoke-ShpBatch -Prompt 'a' -AsJob } | Should -Throw -PassThru
+            $err.FullyQualifiedErrorId | Should -Be 'ShpCopilotBackendInCi,Invoke-ShpBatch'
+        } finally {
+            if ($null -ne $saved) { $env:CI = $saved } else { Remove-Item -LiteralPath 'Env:CI' -ErrorAction SilentlyContinue }
+        }
+    }
+
+    # Receive-Job has to hand back the very objects the synchronous call would
+    # have produced. Proved on the malformed-input path, which builds real
+    # ShellPilot.BatchResult objects in the cmdlet itself and never dispatches a
+    # worker - so the comparison is about the job transport and nothing else. A
+    # process job would have returned Deserialized.ShellPilot.BatchResult here.
+    Context 'Receive-Job yields the same shape as the direct call' {
+        BeforeAll {
+            # An empty prompt and a non-string, non-Prompt-bearing object: both
+            # are rejected by the cmdlet itself, so no worker is dispatched and
+            # no request is made. A $null element cannot be used here - a
+            # mandatory parameter refuses to bind a collection containing one.
+            $script:malformed = @('', 42)
+            $script:syncResults = @(Invoke-ShpBatch -Prompt $script:malformed -WarningAction SilentlyContinue)
+
+            $job = Invoke-ShpBatch -Prompt $script:malformed -AsJob
+            $null = Wait-Job -Job $job -Timeout 120
+            $script:jobResults = @(Receive-Job -Job $job -WarningAction SilentlyContinue)
+            Remove-Job -Job $job -Force -ErrorAction SilentlyContinue
+        }
+
+        It 'Should return the same number of results' {
+            $script:jobResults.Count | Should -Be $script:syncResults.Count
+            $script:jobResults.Count | Should -Be 2
+        }
+
+        It 'Should keep the ShellPilot.BatchResult type name rather than a deserialized copy' {
+            foreach ($result in $script:jobResults) {
+                @($result.PSObject.TypeNames) | Should -Contain 'ShellPilot.BatchResult'
+                @($result.PSObject.TypeNames) | Should -Not -Contain 'Deserialized.ShellPilot.BatchResult'
+            }
+        }
+
+        It 'Should expose exactly the same member set' {
+            $syncMembers = @($script:syncResults[0].PSObject.Properties.Name | Sort-Object)
+            $jobMembers = @($script:jobResults[0].PSObject.Properties.Name | Sort-Object)
+
+            $jobMembers | Should -Be $syncMembers
+        }
+
+        It 'Should report the same outcome per item' {
+            for ($i = 0; $i -lt $script:syncResults.Count; $i++) {
+                $script:jobResults[$i].Index | Should -Be $script:syncResults[$i].Index
+                $script:jobResults[$i].Success | Should -Be $script:syncResults[$i].Success
+                $script:jobResults[$i].Error | Should -Be $script:syncResults[$i].Error
+            }
+        }
+    }
+}

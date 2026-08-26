@@ -281,6 +281,14 @@ $script:ShpBuiltInRedactionPattern = @(
     }
 )
 
+# Schema version stamped on every record of the headless JSONL event stream
+# (Invoke-Shp -EventStream, spec 027). Bumped only by a BREAKING change to the
+# record shape - a removed or renamed field, or a field whose meaning changed.
+# Adding a new event type, or a new field to an existing type's data object,
+# is additive and leaves this alone, so a collector may ignore what it does not
+# recognise and must not treat an unknown type as an error.
+$script:ShpEventSchemaVersion = 1
+
 # Attached MCP servers (see Register-ShpMcpServer). Maps a caller-chosen alias
 # to a record carrying the child process, its stdio streams, the negotiated
 # protocol era and version, and the tool list captured at registration.

@@ -446,7 +446,42 @@ function Invoke-Shp {
         every todo-list update (Kind 'TodoList'). These records let a host
         render live tool activity without parsing the -ShowThinking host trace,
         and are silent on the console under the default InformationPreference.
-        Pass this switch to turn them off.
+        Pass this switch to turn them off. It does not affect -EventStream,
+        which is a separate sink with its own switch.
+
+    .PARAMETER EventStream
+        Write a headless JSONL event stream to this path - one JSON object per
+        line, appended as it happens, covering the turn start, every model
+        request, every tool call and result, usage, retries, errors and the
+        final answer. Pass '-' to write the lines to the Information stream
+        (tag 'ShpEvent') instead of a file.
+
+        Every record carries schemaVersion, a monotonic sequence, an ISO 8601
+        UTC timestamp, a type and a flat data object; see spec 027 for the
+        type-to-data table. Because each line is appended whole, a run killed
+        mid-turn still leaves a file that parses up to its last complete line.
+
+        Every string in every payload goes through the same redaction seam the
+        request body does, so a secret in a tool result does not reach the
+        stream verbatim (-DisableRedaction turns that off here too). A
+        run_command tool-call event records the tool name and the policy
+        decision but never the command line, which is where a credential
+        passed on a command line would otherwise land.
+
+    .PARAMETER AsJob
+        Run the call in a background thread job and return the job object
+        immediately. Receive-Job resolves it to the same ShellPilot.Result the
+        synchronous call would have returned - a thread job runs in the same
+        process, so nothing is serialised.
+
+        The job gets a copy of the session context, session defaults, cached
+        model limits, tool policy, redaction policy and registered tools, but
+        it runs STATELESS against the session conversation: it is seeded from a
+        snapshot of the session chat and does not write back, because a job
+        finishing at an arbitrary time must not race the caller's next call.
+        The constituted conversation is still on the result's History member.
+        Attached MCP servers do not travel into a job. -EventStream is
+        honoured: the job writes the stream.
 
     .PARAMETER UseServerSideState
         Keep the conversation state on the server (responses API): store each
@@ -683,6 +718,25 @@ function Invoke-Shp {
         that already sets $env:CI and is spelled out here for a scheduled task
         that does not. Check the whole profile first with Test-ShpCiReadiness.
 
+    .EXAMPLE
+        Invoke-Shp -Prompt 'Audit the build log.' -EventStream ./shp-events.jsonl -NonInteractive
+        Get-Content ./shp-events.jsonl | ConvertFrom-Json | Where-Object type -eq 'tool.call'
+
+        The headless profile. Every step of the turn is appended to the stream
+        as one JSON object per line, so a CI log collector reads what happened
+        without parsing prose - and a run killed mid-turn still leaves a file
+        that parses up to its last complete line.
+
+    .EXAMPLE
+        $job = Invoke-Shp -Prompt 'Summarise the repository.' -AsJob -EventStream ./shp-events.jsonl
+        # ... other work ...
+        $r = Receive-Job -Job $job -Wait -AutoRemoveJob
+        $r.Content
+
+        The job model. Receive-Job hands back the very same ShellPilot.Result a
+        synchronous call would have returned, and -AsJob does not turn the event
+        stream off - the job writes it.
+
     .OUTPUTS
         System.Management.Automation.PSCustomObject
 
@@ -820,6 +874,11 @@ function Invoke-Shp {
 
         [switch]$DisableProgressEvents,
 
+        [ValidateNotNullOrEmpty()]
+        [string]$EventStream,
+
+        [switch]$AsJob,
+
         [switch]$UseServerSideState,
 
         [ValidateNotNullOrEmpty()]
@@ -919,6 +978,48 @@ function Invoke-Shp {
                     $null))
         }
         $ConfirmPreference = 'None'
+    }
+
+    # Resolve the event-stream path against PowerShell's location, not the
+    # process working directory, and check the folder exists BEFORE the token
+    # exchange: a mistyped path should cost nothing, and a stream that only
+    # fails on its first write fails after a billable request.
+    $eventStreamPath = $null
+    if (-not [string]::IsNullOrWhiteSpace($EventStream)) {
+        if ($EventStream -eq '-') {
+            $eventStreamPath = '-'
+        } else {
+            $eventStreamPath = $PSCmdlet.SessionState.Path.GetUnresolvedProviderPathFromPSPath($EventStream)
+            $eventStreamDirectory = Split-Path -Path $eventStreamPath -Parent
+            if (-not [string]::IsNullOrWhiteSpace($eventStreamDirectory) -and -not (Test-Path -LiteralPath $eventStreamDirectory -PathType Container)) {
+                $PSCmdlet.ThrowTerminatingError([System.Management.Automation.ErrorRecord]::new(
+                        [System.IO.DirectoryNotFoundException]::new(("-EventStream '{0}' resolves to '{1}', whose folder does not exist. Create it first; the stream is appended to, never given a folder of its own." -f $EventStream, $eventStreamPath)),
+                        'ShpEventStreamPathNotFound',
+                        [System.Management.Automation.ErrorCategory]::ObjectNotFound,
+                        $EventStream))
+            }
+        }
+    }
+
+    # -AsJob hands the whole call to a thread job and returns. It is placed
+    # here, after the cheap gates and before the token exchange, on purpose: a
+    # refused backend or a contradictory -NonInteractive -Confirm has to fail at
+    # the CALL SITE. A job that fails silently in the background is exactly the
+    # green-build failure mode -FailOn exists to stop.
+    if ($AsJob) {
+        $jobParams = @{}
+        foreach ($key in $PSBoundParameters.Keys) {
+            if ($key -eq 'AsJob') { continue }
+            $jobParams[$key] = $PSBoundParameters[$key]
+        }
+        # Stateless against the session conversation: seeded from the snapshot
+        # resolved above, never written back. A job completes whenever it
+        # completes, and a write-back would race the caller's next call.
+        $jobParams['History'] = @($priorHistory)
+        # The job runspace does not inherit the caller's location, so a relative
+        # stream path would land somewhere else.
+        if ($null -ne $eventStreamPath) { $jobParams['EventStream'] = $eventStreamPath }
+        return Start-ShpJob -Command 'Invoke-Shp' -Parameter $jobParams
     }
 
     # Kept whole so the tool loop can re-resolve the Session token on the same
@@ -1315,16 +1416,41 @@ function Invoke-Shp {
     # the model's current normalised checklist for this turn. Empty unless the
     # tool is offered and called; surfaced on the result's TodoList member.
     $todoList = @()
-    # Structured progress emitter: write one ShpProgress-tagged Information
-    # record per tool call and per todo-list update so a host can render live
-    # tool activity without scraping the -ShowThinking host trace. Silent on the
-    # console under the default InformationPreference; opt out with
-    # -DisableProgressEvents.
-    $writeProgress = {
-        param([string]$Kind, [hashtable]$Data)
-        if ($DisableProgressEvents) { return }
-        $payload = [pscustomobject](@{ Kind = $Kind } + $Data)
-        Write-Information -MessageData $payload -Tags 'ShpProgress'
+    # One emitter, two sinks. Sink 1 is the ShpProgress Information record a host
+    # already renders live; sink 2 is the headless JSONL event stream a CI log
+    # collector reads afterwards. They are gated INDEPENDENTLY - a caller who
+    # turns off live progress (or a batch worker, which always does) must not
+    # thereby lose the audit stream. Both are fed from this one call site per
+    # event, so a new emission point cannot reach one sink and forget the other.
+    $eventState = @{
+        Enabled  = ($null -ne $eventStreamPath)
+        Path     = $eventStreamPath
+        Sequence = 0
+        Redact   = -not $DisableRedaction
+    }
+    $emit = {
+        param([string]$Type, [hashtable]$Data)
+
+        if (-not $DisableProgressEvents) {
+            switch ($Type) {
+                'tool.call' { Write-Information -MessageData ([pscustomobject]@{ Kind = 'ToolCall'; Name = $Data['tool']; Arguments = $Data['arguments'] }) -Tags 'ShpProgress' }
+                'todo'      { Write-Information -MessageData ([pscustomobject]@{ Kind = 'TodoList'; TodoList = $Data['todoList'] }) -Tags 'ShpProgress' }
+            }
+        }
+
+        if ($eventState.Enabled) {
+            $eventData = [ordered]@{}
+            foreach ($key in $Data.Keys) { $eventData[$key] = $Data[$key] }
+            # A command line is exactly where a credential passed as an argument
+            # ends up, and the stream is a durable artifact a CI system collects
+            # and keeps. The in-process progress record above still carries it:
+            # that one is a live host render, not something written to disk.
+            if ($eventData.Contains('arguments') -and $eventData['tool'] -eq 'run_command') {
+                $eventData.Remove('arguments')
+                $eventData['argumentsWithheld'] = $true
+            }
+            Write-ShpEvent -State $eventState -Type $Type -Data $eventData
+        }
     }
     # Circuit breaker: some models (notably claude-haiku-4.5 on /chat/completions)
     # keep returning finish_reason='tool_calls' with no usable tool call even
@@ -1389,6 +1515,21 @@ function Invoke-Shp {
     if ($PSBoundParameters.ContainsKey('Seed'))        { $samplingParams.Seed        = $Seed }
     $connectionParams = @{ TimeoutSec = $effectiveTimeoutSec; MaxRetryCount = $effectiveMaxRetry; RetryDelaySec = $effectiveRetryDelay; NetworkOutageToleranceSec = $effectiveOutageTolerance }
 
+    & $emit 'turn.start' @{
+        model             = $Model
+        apiMode           = $mode
+        prompt            = $Prompt
+        promptLength      = $Prompt.Length
+        endpoint          = $(if ($usingAltBackend) { $backend.SafeApiBase } else { $apiBase })
+        toolCount         = @($tools).Count
+        attachmentCount   = @($attachments).Count
+        maxToolIterations = $MaxToolIterations
+        contextBudget     = $effectiveContextBudget
+        streaming         = [bool]$streamingEnabled
+        unattended        = [bool]$unattended
+        redaction         = (-not $DisableRedaction)
+    }
+
     while ($true) {
         $iteration++
         if ($iteration -gt $MaxToolIterations) {
@@ -1396,6 +1537,7 @@ function Invoke-Shp {
             # this turn already spent before abandoning it.
             $limitError = "Exceeded MaxToolIterations ($MaxToolIterations)."
             $null = Add-ShpUsageRecord -RequestedModel $Model -ServerModel $(if ($turn) { $turn.ModelName } else { $null }) -Prompt $Prompt -RoundTrip $roundTrips.ToArray() -ContextTokens $peakPromptTokens -Iterations ($iteration - 1) -ToolCallCount (@($toolCallsExecuted).Count) -DurationMs ([int]$sw.Elapsed.TotalMilliseconds) -ErrorMessage $limitError
+            & $emit 'error' @{ iteration = $iteration; reason = 'ToolIterationLimit'; message = $limitError; errorId = $(if ($failOnCondition -contains 'ToolIterationLimit') { 'ShpToolIterationLimit' } else { $null }) }
             # This condition already terminated the call, so -FailOn does not
             # change WHETHER it fails - only that the error carries a branchable
             # id instead of a bare message. There is no result to hand over: the
@@ -1452,11 +1594,19 @@ function Invoke-Shp {
                     $redactionCounts[$hit.Name] = [int]$redactionCounts[$hit.Name] + $hit.Count
                 }
             }
+            & $emit 'model.request' @{
+                iteration    = $iteration
+                model        = $Model
+                apiMode      = $mode
+                endpoint     = $(if ($usingAltBackend) { $backend.SafeApiBase } else { $apiBase })
+                messageCount = @($conv).Count
+                toolCount    = @($tls).Count
+                streaming    = ($streamingEnabled -and $mode -eq 'chat')
+            }
             $turn = Invoke-CopilotTurn -Mode $mode -Model $Model -ApiBase $apiBase -Headers $apiHeaders -Conversation $conv -Tools $tls -RequestReasoningSummary:($mode -eq 'responses' -and $requestReasoning) -ReasoningEffort $ReasoningEffort -MaxOutputTokens $MaxOutputTokens -Stream:($streamingEnabled -and $mode -eq 'chat') -EchoReasoning:($ShowThinking -and $streamingEnabled -and $mode -eq 'chat') -Store:($serverSideActive -and $mode -eq 'responses') -PreviousResponseId $previousResponseId @structuredParams @samplingParams @connectionParams
         } catch {
             $errText = $_.ErrorDetails.Message
-            if ([string]::IsNullOrWhiteSpace($errText)) { $errText = $_.Exception.Message }
-            # The Session token died between the per-iteration refresh above and
+            if ([string]::IsNullOrWhiteSpace($errText)) { $errText = $_.Exception.Message }            # The Session token died between the per-iteration refresh above and
             # this request. Recover the same way the other fallbacks do - retry
             # this iteration - so a Turn that has already completed 40 iterations
             # of work is not thrown away. Matched on the STRUCTURED status, never
@@ -1479,6 +1629,7 @@ function Invoke-Shp {
                     if ($refreshed -and $refreshed.token) {
                         Write-Verbose 'The Copilot session token expired mid-turn; retrying this iteration with a freshly exchanged one.'
                         $apiHeaders.Authorization = "Bearer $($refreshed.token)"
+                        & $emit 'retry' @{ iteration = $iteration; reason = 'SessionTokenExpired'; detail = 'The session token was refused (401); the iteration is retried with a freshly exchanged one.' }
                         $iteration--
                         continue
                     }
@@ -1498,6 +1649,7 @@ function Invoke-Shp {
             # chat, and retry the same turn.
             if ($serverSideActive -and $errText -and $errText -match 'store') {
                 Write-Warning 'The backend does not support server-side conversation state (store); falling back to client-side history.'
+                & $emit 'retry' @{ iteration = $iteration; reason = 'ServerSideStateUnsupported'; detail = 'The backend rejected the store parameter; the turn continues with client-side history on the chat shape.' }
                 $serverSideActive = $false; $previousResponseId = $null; $mode = 'chat'; $iteration--; continue
             }
             # The model does not support /responses at all - fall back to chat
@@ -1506,6 +1658,7 @@ function Invoke-Shp {
             if ($mode -eq 'responses' -and -not $apiShapeSwitched -and $errText -and ($errText -match 'unsupported_api_for_model' -or $errText -match 'does not support Responses')) {
                 Write-Verbose "Model '$Model' does not support /responses - switching to /chat/completions."
                 if ($ShowThinking) { Write-Host '(model has no /responses API; reasoning summary unavailable, continuing on /chat)' -ForegroundColor DarkGray }
+                & $emit 'retry' @{ iteration = $iteration; reason = 'ApiShapeSwitch'; detail = ("Model '{0}' does not support /responses; the turn continues on /chat/completions." -f $Model) }
                 $apiShapeSwitched = $true; $mode='chat'; $requestReasoning=$false; $iteration--; continue
             }
             # The model accepts /responses but rejected the reasoning-summary
@@ -1513,16 +1666,19 @@ function Invoke-Shp {
             if ($mode -eq 'responses' -and $requestReasoning -and $errText -and ($errText -match 'reasoning' -or $errText -match 'summary')) {
                 Write-Verbose "Model '$Model' rejected the reasoning summary - retrying without it."
                 if ($ShowThinking) { Write-Host '(model does not support a reasoning summary; continuing without it)' -ForegroundColor DarkGray }
+                & $emit 'retry' @{ iteration = $iteration; reason = 'ReasoningSummaryRejected'; detail = ("Model '{0}' rejected the reasoning summary; the iteration is retried without it." -f $Model) }
                 $requestReasoning = $false; $iteration--; continue
             }
             if ($mode -eq 'chat' -and $iteration -eq 1 -and -not $apiShapeSwitched -and $errText -and ($errText -match 'unsupported_api_for_model' -or $errText -match 'invalid_request_body')) {
                 Write-Verbose "Model '$Model' rejected on /chat/completions - switching to /responses."
+                & $emit 'retry' @{ iteration = $iteration; reason = 'ApiShapeSwitch'; detail = ("Model '{0}' was rejected on /chat/completions; the turn continues on /responses." -f $Model) }
                 $apiShapeSwitched = $true; $mode='responses'; $iteration--; continue
             }
             # No fallback applied, so this turn is over. Record it before
             # rethrowing: a Turn is a loop of billable round-trips, and the ones
             # completed before this failure were charged for.
             $null = Add-ShpUsageRecord -RequestedModel $Model -ServerModel $(if ($turn) { $turn.ModelName } else { $null }) -Prompt $Prompt -RoundTrip $roundTrips.ToArray() -ContextTokens $peakPromptTokens -Iterations ($iteration - 1) -ToolCallCount (@($toolCallsExecuted).Count) -DurationMs ([int]$sw.Elapsed.TotalMilliseconds) -ErrorMessage $errText
+            & $emit 'error' @{ iteration = $iteration; reason = 'RequestFailed'; message = $errText; statusCode = $(if ($_.TargetObject) { $_.TargetObject.StatusCode } else { $null }); errorCode = $(if ($_.TargetObject) { $_.TargetObject.ErrorCode } else { $null }) }
             throw
         }
 
@@ -1545,6 +1701,18 @@ function Invoke-Shp {
             CachedTokens     = [int]$turn.CachedTokens
             CacheWriteTokens = [int]$turn.CacheWriteTokens
         })
+
+        & $emit 'usage' @{
+            iteration        = $iteration
+            model            = $turn.ModelName
+            apiMode          = $turn.Mode
+            finishReason     = $turn.FinishReason
+            promptTokens     = [int]$turn.PromptTokens
+            completionTokens = [int]$turn.CompletionTokens
+            cachedTokens     = [int]$turn.CachedTokens
+            cacheWriteTokens = [int]$turn.CacheWriteTokens
+            contextTokens    = $peakPromptTokens
+        }
 
         # The server-reported model wins over the requested one; both are tried
         # because some models return an empty name.
@@ -1573,6 +1741,13 @@ function Invoke-Shp {
         # Surface any reasoning the model exposed this turn.
         if ($turn.PSObject.Properties.Match('Reasoning').Count -gt 0 -and -not [string]::IsNullOrWhiteSpace($turn.Reasoning)) {
             $null = $reasoningLog.Add($turn.Reasoning)
+            # The reasoning trace reaches the event stream only under
+            # -ShowThinking, the same switch that reveals it anywhere else. A
+            # caller who did not ask to see the model's thinking has not asked
+            # for it to be written to a file a CI system keeps either.
+            if ($ShowThinking) {
+                & $emit 'reasoning' @{ iteration = $iteration; text = [string]$turn.Reasoning; length = ([string]$turn.Reasoning).Length }
+            }
             # When streaming the chat shape, Read-ShpChatStream already echoed the
             # reasoning live in dim italic; only print it here for the
             # non-streaming / responses path so it is not shown twice. Dim italic
@@ -1599,7 +1774,6 @@ function Invoke-Shp {
                 })
             }
             foreach ($tc in $turn.ToolCalls) {
-                & $writeProgress 'ToolCall' @{ Name = $tc.Name; Arguments = $tc.Arguments }
                 Write-Verbose ("-> tool: {0}({1})" -f $tc.Name, $tc.Arguments)
                 if ($ShowThinking) { Write-Host ("-> {0}({1})" -f $tc.Name, $tc.Arguments) -ForegroundColor Cyan }
                 # An unattended run refuses a prompt outright. ask_user is not
@@ -1617,8 +1791,17 @@ function Invoke-Shp {
                             $null))
                 }
                 $toolResult = '{"error":"unknown tool"}'
+                # Parsed and policy-checked BEFORE the event is emitted, so a
+                # tool.call event carries the DECISION rather than only the
+                # intent - a reader must not have to correlate two lines to
+                # learn whether a call actually ran. Any failure here is held
+                # and rethrown inside the dispatch try below, which turns it
+                # into the same tool result it always did.
+                $fargs = $null
+                $access = @{ Allowed = $true; Reason = '' }
+                $preDispatchError = $null
                 try {
-                    $fargs = $tc.Arguments | ConvertFrom-Json
+                    $fargs = $tc.Arguments | ConvertFrom-Json -ErrorAction Stop
                     # Tool access policy (Set-ShpToolPolicy): one gate for every
                     # unsandboxed tool, ahead of dispatch. ShouldProcess cannot
                     # cover this - it is interactive only, so an unattended run
@@ -1630,6 +1813,19 @@ function Invoke-Shp {
                         'run_command' { Test-ShpToolAccess -Tool $tc.Name -Command ([string]$fargs.command) }
                         default       { @{ Allowed = $true; Reason = '' } }
                     }
+                } catch { $preDispatchError = $_ }
+
+                & $emit 'tool.call' @{
+                    iteration = $iteration
+                    tool      = $tc.Name
+                    callId    = $tc.Id
+                    arguments = $tc.Arguments
+                    policy    = $(if ($preDispatchError) { 'error' } elseif ($access.Allowed) { 'allowed' } else { 'denied' })
+                    reason    = [string]$access.Reason
+                }
+
+                try {
+                    if ($preDispatchError) { throw $preDispatchError }
                     if (-not $access.Allowed) {
                         $denial = '{0}: {1}' -f $tc.Name, $access.Reason
                         if (-not $toolCallsDenied.Contains($denial)) { $null = $toolCallsDenied.Add($denial) }
@@ -1697,7 +1893,13 @@ function Invoke-Shp {
                         }
                         'manage_todo_list' {
                             $todoList = ConvertTo-ShpTodoList -InputObject $fargs.todoList
-                            & $writeProgress 'TodoList' @{ TodoList = $todoList }
+                            & $emit 'todo' @{
+                                iteration = $iteration
+                                todoList  = $todoList
+                                total     = @($todoList).Count
+                                completed = @($todoList | Where-Object status -eq 'completed').Count
+                                current   = [string](@($todoList | Where-Object status -eq 'in-progress') | Select-Object -First 1).title
+                            }
                             $toolResult = @{
                                 ok        = $true
                                 total     = @($todoList).Count
@@ -1743,6 +1945,18 @@ function Invoke-Shp {
                     }
                 } catch { $toolResult = (@{ error=$_.Exception.Message } | ConvertTo-Json -Compress) }
                 $toolCallsExecuted += [pscustomobject]@{ Name=$tc.Name; Arguments=$tc.Arguments; ResultPreview=$toolResult.Substring(0,[Math]::Min(200,$toolResult.Length)) }
+                # A preview, not the transcript. A tool result is capped at
+                # 100,000 characters and a log collector reading a line per
+                # event should not be handed a file dump; the whole result is
+                # still on the call's own ToolCalls member.
+                & $emit 'tool.result' @{
+                    iteration = $iteration
+                    tool      = $tc.Name
+                    callId    = $tc.Id
+                    preview   = $toolResult.Substring(0, [Math]::Min(200, $toolResult.Length))
+                    length    = $toolResult.Length
+                    truncated = ($toolResult.Length -gt 200)
+                }
                 if ($mode -eq 'responses') {
                     $null = $respInput.Add(@{ type='function_call_output'; call_id=$tc.Id; output=$toolResult })
                 } else {
@@ -1910,6 +2124,25 @@ function Invoke-Shp {
     # the throws above, through this same builder.
     $null = Add-ShpUsageRecord -RequestedModel $Model -ServerModel $turn.ModelName -Prompt $Prompt -RoundTrip $roundTrips.ToArray() -ContextTokens $peakPromptTokens -Iterations $iteration -ToolCallCount (@($toolCallsExecuted).Count) -FinishReason $turn.FinishReason -DurationMs ([int]$sw.Elapsed.TotalMilliseconds)
 
+    # The answer, redacted. Redaction never touches the result handed back to
+    # the caller, but the stream is a file a CI system collects and keeps, so a
+    # secret the model quoted back out of a tool result must not land in it.
+    & $emit 'final' @{
+        model            = $turn.ModelName
+        finishReason     = $turn.FinishReason
+        iterations       = $iteration
+        content          = [string]$finalContent
+        contentLength    = $(if ($null -eq $finalContent) { 0 } else { $finalContent.Length })
+        toolCallCount    = @($toolCallsExecuted).Count
+        promptTokens     = $totalPrompt
+        completionTokens = $totalCompletion
+        contextTokens    = $peakPromptTokens
+        costUSD          = $costUSD
+        credits          = $credits
+        budgetExceeded   = [bool]$budgetStopped
+        durationMs       = [int]$sw.Elapsed.TotalMilliseconds
+    }
+
     # Opt-in failure semantics, evaluated LAST and nowhere else. Everything this
     # turn does has already happened - it was billed, the usage row is written,
     # the session chat is updated - so -FailOn decides one thing only: whether
@@ -1937,7 +2170,15 @@ function Invoke-Shp {
                 '-FailOn SchemaMismatch: -JsonSchema was supplied but the {0}-character reply did not parse into an object, so ContentObject is null.' -f $contentLength)
         }
 
-        if ($failOnError) { $PSCmdlet.ThrowTerminatingError($failOnError) }
+        if ($failOnError) {
+            & $emit 'error' @{
+                iteration = $iteration
+                reason    = 'FailOn'
+                message   = $failOnError.Exception.Message
+                errorId   = $failOnError.FullyQualifiedErrorId
+            }
+            $PSCmdlet.ThrowTerminatingError($failOnError)
+        }
     }
 
     $result

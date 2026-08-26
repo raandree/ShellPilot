@@ -61,11 +61,11 @@ proof of concept, what is partial, and what is still to be decided.
 | Session persistence / resume | none | TBD |
 | Hooks (PreToolUse / PostToolUse) | none | TBD |
 | Subagents | none | TBD |
-| Headless JSONL event stream | none | TBD |
-| Job model (-AsJob) | none | TBD |
+| Headless JSONL event stream | Invoke-Shp -EventStream | Done |
+| Job model (-AsJob) | Invoke-Shp -AsJob, Invoke-ShpBatch -AsJob | Done |
 
 Each implemented capability above has a numbered spec under this folder
-(002-013); see [the specs index](README.md). The remaining TBD items depend on
+(002-027); see [the specs index](README.md). The remaining TBD items depend on
 the open decisions.
 
 > A 2026-07-28 web gap analysis moved **MCP server tools** from TBD to Planned:
@@ -78,6 +78,9 @@ the open decisions.
 > [Spec 021](021-mcp-server-support.md) implements both eras over stdio.
 > The same analysis added session persistence, hooks, subagents, the headless
 > event stream and the job model as the next tier of gaps.
+> [Spec 027](027-headless-event-stream.md) closes the last two: one JSONL
+> record per observable moment of a turn, and a thread job that returns the
+> same result object the synchronous call does.
 
 ## See also
 

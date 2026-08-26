@@ -188,6 +188,36 @@ without scraping `-ShowThinking` output. They are silent on the console; opt out
 with `-DisableProgressEvents`. A host running `Invoke-Shp` on a `[powershell]`
 instance reads them from `$shell.Streams.Information`.
 
+### Headless event stream and background jobs
+
+For an unattended run, `-EventStream` writes a JSONL record of the whole turn -
+one JSON object per line, appended as it happens - so a CI log collector reads
+what happened instead of parsing prose. Pass `-` to write the records to the
+Information stream instead of a file.
+
+```powershell
+Invoke-Shp -Prompt 'Audit the build log.' -EventStream ./shp-events.jsonl -NonInteractive
+Get-Content ./shp-events.jsonl | ConvertFrom-Json | Where-Object type -eq 'tool.call'
+```
+
+Every record carries `schemaVersion`, a monotonic `sequence`, an ISO 8601 UTC
+`timestamp`, a `type` (`turn.start`, `model.request`, `usage`, `reasoning`,
+`tool.call`, `tool.result`, `todo`, `retry`, `error`, `final`) and a flat `data`
+object. Every string payload goes through the same redaction seam the request
+body does, and a `run_command` record names the tool and the policy decision but
+never the command line. A run killed mid-turn still leaves a file that parses up
+to its last complete line. See
+[specs/027-headless-event-stream.md](specs/027-headless-event-stream.md).
+
+`Invoke-Shp -AsJob` and `Invoke-ShpBatch -AsJob` run the call in a background
+thread job; `Receive-Job` hands back the same result objects the synchronous
+call returns. `-AsJob` does not turn the event stream off - the job writes it.
+
+```powershell
+$job = Invoke-ShpBatch -Prompt $prompts -ThrottleLimit 8 -AsJob
+Receive-Job -Job $job -Wait -AutoRemoveJob | Sort-Object Index
+```
+
 ### Instructions and Agent Skills
 
 Reuse the same VS Code customisation files. Point at a folder and the model

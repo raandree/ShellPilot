@@ -333,6 +333,77 @@ SafeApiBase with the userinfo component redacted, and that is what every
 display path uses - the result's Endpoint, the readiness object, verbose output -
 while the real value is used only to make the request.
 
+### One emitter, two sinks, gated independently
+
+Invoke-Shp emits one `& $emit '<type>' @{...}` per observable moment of a turn,
+and that single call site fans out to BOTH the ShpProgress Information record a
+host renders live and the JSONL event stream (-EventStream) a CI log collector
+reads afterwards. A second emitter would let a new emission point reach one sink
+and forget the other; there is only one place to add one.
+
+The gates are SEPARATE, and that is the point rather than a detail.
+-DisableProgressEvents used to short-circuit the whole emitter, and
+Invoke-ShpBatch forces it on every worker (N interleaved token streams are not
+progress) - so a shared gate would have made "run this in a batch" silently mean
+"keep no audit record", and -AsJob would have inherited the defect. The switch
+now means what it says: no Information records.
+
+An event record is schemaVersion / sequence / timestamp / type / data, and every
+data field is a SCALAR. That constraint is what makes redaction sound: each
+string VALUE is scrubbed before serialisation, never the finished line. Applied
+to the line, the multi-line PEM pattern matches from a BEGIN in one field to an
+END in another and replaces the structural characters between them - a redaction
+control that corrupts the artifact it exists to protect. Values are scrubbed one
+at a time, so a match cannot span a field boundary.
+
+The stream is the one place the MODEL'S OWN answer is redacted.
+Protect-ShpEgressContent skips the assistant turn by construction; the stream
+differs in the one respect that changes the answer - it is a durable artifact a
+CI system collects and keeps - so the final event's content goes through the
+seam while $result.Content stays untouched, and the two code paths do not
+intersect.
+
+A run_command tool.call event carries argumentsWithheld instead of the command
+line, because that is where a credential passed as an argument ends up and no
+pattern covers a bespoke one. The live progress record still carries it: that
+one is rendered in the session that issued it and never written to disk.
+Carrying the DECISION rather than the intent required hoisting the JSON parse
+and Test-ShpToolAccess ahead of the emit, with the held error rethrown inside
+the dispatch try unchanged - so a malformed-argument call still becomes the same
+tool result it always did and no existing behaviour moved.
+
+Every line is one complete append with no open handle and no buffer, so a run
+killed mid-turn leaves a file that parses up to its last complete line - the
+only durability property a collector needs. A failed write warns ONCE and
+disables the stream: a log sink must not throw away a turn that has already been
+billed. The common misconfiguration is caught earlier instead, because the
+path's folder is checked before the token exchange.
+
+### A job is a thread job, and it replays what a runspace does not inherit
+
+Receive-Job has to hand back the same object the synchronous call returns, and
+Start-Job cannot: it serialises, so a ShellPilot.Result comes back as a
+Deserialized.ShellPilot.Result - measured, not assumed. Start-ThreadJob runs in
+the same process and returns the object itself.
+
+A thread job still gets its own runspace, which inherits no module state - the
+same fact that shaped Invoke-ShpBatchItem, and the same replay list: session
+context, session defaults, cached model limits, tool policy, redaction policy,
+registered tools, module imported BY PATH. The tables are copied rather than
+shared, because a job runs concurrently with the caller and a later
+Set-ShpContext must not change what is already in flight. MCP servers do not
+travel, for the reason the batch already gives.
+
+Invoke-Shp -AsJob is seeded from a snapshot of the session conversation and
+never writes back. A job finishes whenever it finishes; a write-back would race
+the caller's next call and the loser would be whichever conversation the caller
+believed in. The constituted conversation is still on the result's History.
+
+The cheap gates stay at the CALL SITE - the CI entitlement gate, and the
+-NonInteractive/-Confirm contradiction - and the handoff happens after them and
+before the token exchange. A job that fails silently in the background of a
+green build is the exact failure mode -FailOn exists to stop.
+
 ### One resolver per option family, and no exemptions
 
 Every option family that has more than one source resolves through a single
