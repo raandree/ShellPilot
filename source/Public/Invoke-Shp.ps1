@@ -1266,6 +1266,17 @@ function Invoke-Shp {
             }
         })
     }
+    # Every built-in this call actually offered. Derived from the tool list that
+    # was just assembled, rather than re-tested against each -Disable* switch, so
+    # a tool added later cannot be offered under one condition and dispatched
+    # under another. Captured before user and MCP tools are appended, so only the
+    # module's own tools can ever land in it.
+    $offeredBuiltInTool = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    foreach ($offered in $tools) {
+        $offeredName = [string]$offered.function.name
+        if ($offeredName -in $script:ShpBuiltInToolName) { $null = $offeredBuiltInTool.Add($offeredName) }
+    }
+
     # User-defined tools (Register-ShpTool): offer any registered command to the
     # model unless this call opted out. Each registered schema is added as-is and
     # dispatched by name in the tool loop below.
@@ -1951,6 +1962,18 @@ function Invoke-Shp {
                         }
                         'run_command' { Test-ShpToolAccess -Tool $tc.Name -Command ([string]$fargs.command) }
                         default       { @{ Allowed = $true; Reason = '' } }
+                    }
+                    # A disabled built-in must not run, and not offering it is not
+                    # enough on its own: the model can still name it from its own
+                    # priors or from a replayed history, and the dispatch switch
+                    # matches built-in names before it looks at anything else. So
+                    # -DisableTerminal and its siblings bound what executes here,
+                    # not merely what was advertised above.
+                    if ($access.Allowed -and $tc.Name -in $script:ShpBuiltInToolName -and -not $offeredBuiltInTool.Contains($tc.Name)) {
+                        $access = @{
+                            Allowed = $false
+                            Reason  = ("The '{0}' tool is disabled for this call and was not run." -f $tc.Name)
+                        }
                     }
                 } catch { $preDispatchError = $_ }
 

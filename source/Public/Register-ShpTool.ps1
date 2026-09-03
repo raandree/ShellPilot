@@ -72,6 +72,15 @@ function Register-ShpTool {
         $resolvedName = if ($cmd.CommandType -eq 'Alias' -and $cmd.ResolvedCommand) { $cmd.ResolvedCommand.Name } else { $cmd.Name }
         $toolId = if ($PSBoundParameters.ContainsKey('ToolName')) { $ToolName } else { $resolvedName }
 
+        # Dispatch matches a built-in name before it consults the user tool table,
+        # so a same-named registration would be advertised to the model and then
+        # silently ignored while the built-in ran instead - the caller believing
+        # it had replaced it. An attached MCP server has always been refused this;
+        # a local registration is refused here for the same reason.
+        if ($toolId -in $script:ShpBuiltInToolName) {
+            throw ("'{0}' is a built-in tool name and cannot be reused by a registered tool. Choose another -ToolName." -f $toolId)
+        }
+
         if (-not $PSCmdlet.ShouldProcess($toolId, 'Register ShellPilot tool')) { return }
 
         $schemaParams = @{ Command = $resolvedName; Name = $toolId }

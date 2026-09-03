@@ -1403,6 +1403,29 @@ Describe 'Invoke-Shp' {
                 $r.Content     | Should -Be 'the tree is clean'
             }
         }
+
+        # A disabled tool is not merely unadvertised. The model can still name it
+        # from its own priors or from a replayed history, and until this held the
+        # dispatch switch ran the built-in anyway - so -DisableTerminal bounded
+        # what was offered and nothing about what executed.
+        It 'refuses run_command when the terminal is disabled instead of running it' {
+            InModuleScope $script:moduleName {
+                $r = Invoke-Shp -Prompt 'is the tree clean?' -DisableBrowsing -DisableFileAccess -DisableUserPrompts -DisableTerminal
+                Should -Invoke Invoke-RunCommandTool -Times 0 -Exactly
+                $r.CommandsRun     | Should -Not -Contain 'git status'
+                $r.ToolCallsDenied | Should -Not -BeNullOrEmpty
+                ($r.ToolCallsDenied -join ' ') | Should -Match 'run_command'
+            }
+        }
+
+        It 'tells the model the tool is disabled rather than failing the turn' {
+            InModuleScope $script:moduleName {
+                $r = Invoke-Shp -Prompt 'is the tree clean?' -DisableBrowsing -DisableFileAccess -DisableUserPrompts -DisableTerminal
+                $r.Content | Should -Be 'the tree is clean'
+                $call = @($r.ToolCalls) | Where-Object Name -eq 'run_command' | Select-Object -First 1
+                $call.ResultPreview | Should -Match 'disabled'
+            }
+        }
     }
 
     Context 'ask_user dispatch' {

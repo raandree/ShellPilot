@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **A disabled tool can no longer be executed.** `-DisableTerminal`,
+  `-DisableFileAccess`, `-DisableBrowsing`, `-DisableUserPrompts` and
+  `-DisableTodoList` removed a tool from the set offered to the model, but the
+  dispatch switch matched built-in tool names unconditionally — so a model that
+  named a disabled tool anyway, from its own priors or from a replayed history,
+  had it run. `-DisableTerminal` bounded what was advertised and nothing about
+  what executed.
+
+  Dispatch now refuses any built-in that this call did not offer, before the
+  tool runs. The refusal reuses the existing tool-policy path: the `tool.call`
+  event carries `policy = denied`, the reason names the disabled tool, the call
+  appears on `ToolCallsDenied`, and the model receives `{"denied": "..."}` so it
+  can choose another route instead of failing the turn. The offered set is
+  derived from the assembled tool list rather than re-tested against each
+  switch, so a tool added later cannot be offered under one condition and
+  dispatched under another.
+
+- **`Register-ShpTool` refuses a built-in tool name.** Dispatch matches built-in
+  names before it consults the user tool table, so registering `run_command`,
+  `read_file` or any other built-in produced a tool that was advertised to the
+  model and then silently ignored while the built-in ran instead — with the
+  caller believing it had replaced it. An attached MCP server has always been
+  refused a colliding name; a local registration now fails the same way, loudly
+  and at registration time. Choose a distinct `-ToolName`.
+
 ### Added
 
 - **`ConvertTo-ShpAnnotation` surfaces structured findings in CI.** Pipe a
