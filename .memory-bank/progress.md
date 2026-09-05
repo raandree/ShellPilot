@@ -44,6 +44,23 @@ Chronological record of shipped changes and remaining work. Latest first.
 
 ## Log
 
+- 2026-09-05 - Tranche 1 broken out into seven runnable prompts under
+  `.github/prompts/`, one per piece of work, each self-contained for a fresh
+  chat: the finding that motivates it, exact file and line anchors, the
+  constraints already decided (so they are not relitigated), acceptance
+  criteria lifted from spec 029, and the detached build gate. Seven for eight
+  features because **F7 and F8 share one** - both change the same guard, and
+  splitting them means touching it twice - and **F1 runs before F22**, because
+  a plan preset that forbids `Shell()` is dishonest until the model can search
+  without it.
+  Writing them surfaced one thing worth recording: **F6 is now a filter, not an
+  enforcement point.** `70bca37` derives `$offeredBuiltInTool` from the
+  assembled tool list rather than re-testing each `-Disable*` switch, and
+  dispatch already refuses any built-in not in that set. So `-Tool` /
+  `-ExcludeTool` only has to filter `$tools` before that set is derived, and the
+  enforcement comes free - the prompt says so explicitly, because adding a
+  second check at dispatch would be the obvious wrong turn.
+
 - 2026-09-05 - **Open decision 14 signed off: D, split by sensitivity**
   (`.memory-bank/decisions/002-module-state-on-disk.md`). Two capabilities had
   been stalled for two months on one sentence - "there is nowhere to persist

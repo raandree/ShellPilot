@@ -81,6 +81,27 @@ Recorded in `.memory-bank/decisions/001-first-tranche-scope.md` and indexed in
 Tranche 2 and 3 are not scheduled. No implementation starts on them without a
 further decision.
 
+## Tranche 1 is broken out into runnable prompts
+
+`.github/prompts/` holds one prompt per piece of work, each self-contained for
+a fresh chat - the finding that motivates it, the exact files and line anchors,
+the constraints already decided, the acceptance criteria, and the build gate.
+
+| Prompt | Covers | Branch |
+| :--- | :--- | :--- |
+| `f01-search-tools` | F1 | `ai/search-tools` |
+| `f02-edit-file-tool` | F2 | `ai/edit-file-tool` |
+| `f06-tool-visibility-filters` | F6 | `ai/tool-visibility-filters` |
+| `f07-f08-run-command-environment` | F7 + F8 | `ai/run-command-environment` |
+| `f17-enterprise-host-override` | F17 | `ai/enterprise-host-override` |
+| `f22-plan-mode-preset` | F22 | `ai/plan-mode-preset` |
+| `f23-secret-environment-variable` | F23 | `ai/secret-environment-variable` |
+
+Seven prompts for eight features: **F7 and F8 share one**, because both change
+the same guard and splitting them means touching it twice. **F1 must run before
+F22** - a plan preset that forbids `Shell()` is dishonest until the model can
+search without it. The other five carry no ordering constraint.
+
 ## Previous focus - spec 028
 
 Spec 028 is complete: `ConvertTo-ShpAnnotation` turns Structured output into
