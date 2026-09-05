@@ -36,6 +36,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`glob_files` and `grep_files` let the model search without a shell.**
+  `glob_files` finds files by name pattern under a directory; `grep_files`
+  searches their contents and returns only the path, line number and matching
+  line, leaving `read_file` to read around a hit. Both are offered with the
+  other file tools and withdrawn by `-DisableFileAccess`.
+
+  Both are governed by the existing `Read()` rules of `Set-ShpToolPolicy`, and
+  that is the point: until now the only way to make the model *find* something
+  was `run_command`, so a policy tight enough to be worth setting had to grant
+  `Shell(...)` — far more reach than searching needs. `Set-ShpToolPolicy -Rule
+  'Read(./**)'` is now enough to let the model locate a file by name or by
+  content while `run_command` stays denied.
+
+  Every returned hit is policy-checked, not just the search root, because a
+  glob rooted at an allowed directory can still match a path that resolves,
+  through a link, to somewhere no rule covers. An excluded hit is counted in
+  `excludedByPolicy` rather than dropped silently. Both results are bounded —
+  files examined, matches returned, and characters returned — and set
+  `truncated` when any cap bites, so the model narrows the pattern instead of
+  overflowing the context window.
+
 - **`ConvertTo-ShpAnnotation` surfaces structured findings in CI.** Pipe a
   `ShellPilot.Result` from `Invoke-Shp -JsonSchema`, or any plain finding
   object, into the cmdlet to produce GitHub Actions annotations, Azure DevOps

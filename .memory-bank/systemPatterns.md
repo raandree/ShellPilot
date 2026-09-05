@@ -187,6 +187,24 @@ single place to audit. It is replayed into every batch worker for the same
 reason the session context and registered tools are - a worker inherits nothing,
 so the batch would otherwise be the one unguarded path.
 
+A tool that returns MANY paths is checked per hit, not per call. The
+pre-dispatch gate in Invoke-Shp clears one argument, which is the whole story
+for read_file and the wrong story for glob_files and grep_files: a search rooted
+at an allowed directory can still surface a file that resolves, through a link,
+to somewhere no rule covers, and clearing the root would hand it back. So the
+gate clears the ROOT and the back-end re-checks EVERY hit, which is the same
+"match what it resolves to" rule applied at the only place that knows the
+resolved set. An excluded hit is COUNTED (excludedByPolicy) rather than dropped,
+because a silently short result is indistinguishable from a genuinely empty one.
+The check is made BEFORE the file is read, not after: discarding a denied file's
+content still read it.
+
+Both search tools compile their pattern with ConvertTo-ShpPathPattern - the
+policy's OWN compiler - so `*` and `**` mean in a search exactly what they mean
+in a Read() rule, and there is no second glob dialect to keep in sync. A rooted
+pattern is refused, and Get-ChildItem -Recurse does not follow directory links,
+so the walk cannot leave the root even when the pattern tries.
+
 ### One choke point for egress redaction, skip only the model's own turn
 
 Protect-ShpEgressContent (spec 026) is called from exactly ONE place in

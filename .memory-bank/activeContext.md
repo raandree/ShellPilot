@@ -4,6 +4,45 @@ Current working focus for ShellPilot. Overwrite this file as the focus shifts.
 
 ## Focus
 
+Tranche 1 / F1 is complete: `glob_files` and `grep_files` give the model a way
+to find a file by name and a definition by content without `run_command`. That
+was the blocker making a tight `Set-ShpToolPolicy` impractical - the only way to
+let the model *locate* anything was to grant `Shell(...)`, which grants far more
+than searching. `Read(./**)` is now sufficient.
+
+Both live behind `-DisableFileAccess` with the other file tools, and both map to
+the `Read` kind in `Test-ShpToolAccess`, so they need no new rule syntax. The
+design decision worth keeping: **the pre-dispatch gate clears the search ROOT,
+and the back-end re-checks EVERY hit**. A glob rooted inside an allowed
+directory can still match a file that resolves, through a link, to somewhere no
+rule covers, so a root-only check would be the same defeat `Resolve-ShpRealPath`
+exists to prevent. An excluded hit is counted in `excludedByPolicy` rather than
+dropped silently.
+
+The glob syntax is not a second dialect: both tools compile their pattern with
+`ConvertTo-ShpPathPattern`, the tool policy's own compiler, so `*` and `**` mean
+in a search exactly what they mean in a `Read()` rule. A pattern is refused when
+absolute, and `Get-ChildItem -Recurse` (which does not follow directory links)
+bounds the walk to the root regardless, so a `..` pattern matches nothing rather
+than escaping.
+
+Results are bounded three ways - files examined, matches returned, characters
+returned - and any cap sets `truncated`, because a tool result is appended to
+the chat messages and resent on every later request.
+
+Branch topology to be aware of: `ai/search-tools` is based on
+`ai/enforce-disabled-tools` (`main` + the offered-set guard), not on `main`
+directly, because F1's acceptance criteria depend on that guard being present.
+The tranche-1 decision record and the runnable prompts live on the unmerged
+`ai/candidate-features` branch.
+
+Final evidence: AST parsing clean on all changed files; PSScriptAnalyzer clean
+on the new source and tests (the remaining warnings are pre-existing); the exact
+detached `./build.ps1 -AutoRestore -Tasks test` gate passed 1,700/1,700 tests
+with 88.56% coverage and 9 tasks, zero errors or warnings.
+
+## Previous focus - spec 028
+
 Spec 028 is complete: `ConvertTo-ShpAnnotation` turns Structured output into
 GitHub Actions, Azure DevOps, or Text annotations. It accepts pipeline input as
 either a `ShellPilot.Result` or a plain finding object. A result unwraps its

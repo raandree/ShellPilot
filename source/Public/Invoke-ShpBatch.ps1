@@ -134,7 +134,8 @@ function Invoke-ShpBatch {
         by default.
 
     .PARAMETER DisableFileAccess
-        Turn off the read_file, list_directory, write_file and create_directory
+        Turn off the read_file, list_directory, glob_files, grep_files,
+        write_file and create_directory
         tools for every item.
 
     .PARAMETER DisableTerminal

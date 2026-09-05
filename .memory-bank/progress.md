@@ -44,6 +44,28 @@ Chronological record of shipped changes and remaining work. Latest first.
 
 ## Log
 
+- 2026-09-05 - Tranche 1 / F1: `glob_files` and `grep_files` let the model
+  search under the existing `Read()` rules. Until now the only way to make the
+  model *find* something was `run_command`, so a policy tight enough to be worth
+  setting had to grant `Shell(...)` - far more reach than searching needs;
+  `Read(./**)` is now sufficient. Both sit behind `-DisableFileAccess` and map
+  to the `Read` kind in `Test-ShpToolAccess`, so no new rule syntax was added,
+  and both compile their pattern with `ConvertTo-ShpPathPattern` so `*` and `**`
+  mean the same thing in a search as in a rule. The load-bearing decision: the
+  pre-dispatch gate clears the search ROOT and the back-end re-checks EVERY hit,
+  because a glob rooted inside an allowed directory can still match a file that
+  resolves through a link to somewhere no rule covers; an excluded hit is
+  counted in `excludedByPolicy` rather than dropped silently. Results are
+  bounded by files examined, matches returned and characters returned, and any
+  cap sets `truncated`. `grep_files` returns path, line number and the matching
+  line only - `read_file` is how the model reads around a hit. TDD held: 23 new
+  tests failed for the intended reason (the functions did not exist), then
+  passed. Branched from `ai/enforce-disabled-tools` rather than `main`, because
+  the acceptance criterion about the offered-set guard needs that commit
+  present. Verified with clean AST parsing, PSScriptAnalyzer clean on the new
+  files, and the exact detached Sampler gate: 1,700/1,700 tests, 88.56%
+  coverage, 9 tasks, zero errors or warnings.
+
 - 2026-08-26 - Structured findings now surface in CI through
   `ConvertTo-ShpAnnotation` (spec 028). The public cmdlet accepts either a
   `ShellPilot.Result` or a plain pipeline object, unwraps one or many findings

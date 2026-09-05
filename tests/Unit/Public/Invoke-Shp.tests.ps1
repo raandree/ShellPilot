@@ -1428,6 +1428,132 @@ Describe 'Invoke-Shp' {
         }
     }
 
+    Context 'Search tool dispatch' {
+        BeforeEach {
+            InModuleScope $script:moduleName {
+                Clear-ShpContext
+                Clear-ShpToolPolicy
+                $script:ShpChat = @()
+                $script:searchTurns = 0
+                Mock Get-ShpSessionToken { [pscustomobject]@{ token = 't'; expires_at = 0; endpoints = [pscustomobject]@{ api = 'https://api.example' } } }
+                Mock Invoke-GlobFilesTool { '{"count":1,"matches":["a.ps1"]}' }
+                Mock Invoke-GrepFilesTool { '{"count":1,"matches":[{"path":"a.ps1","line":2,"text":"needle"}]}' }
+                Mock Invoke-RunCommandTool { '{"ran":true}' }
+            }
+        }
+
+        AfterEach {
+            InModuleScope $script:moduleName { Clear-ShpToolPolicy; $script:ShpChat = @() }
+        }
+
+        # The whole point of F1: a caller who wants the model to FIND something
+        # should not have to grant Shell(...), which grants far more.
+        It 'Lets a Read-only policy locate a file by name and by content while run_command stays denied' {
+            InModuleScope $script:moduleName -Parameters @{ Root = $TestDrive } {
+                param($Root)
+                $resolvedRoot = Resolve-ShpRealPath -Path $Root
+                Set-ShpToolPolicy -Rule @(('Read({0}/**)' -f $resolvedRoot))
+                $script:testRoot = $resolvedRoot -replace '\\', '\\'
+
+                Mock Invoke-CopilotTurn {
+                    $script:searchTurns++
+                    $calls = switch ($script:searchTurns) {
+                        1 { @([pscustomobject]@{ Id = 'c1'; Name = 'glob_files'; Arguments = ('{{"path":"{0}","pattern":"**/*.ps1"}}' -f $script:testRoot) }) }
+                        2 { @([pscustomobject]@{ Id = 'c2'; Name = 'grep_files'; Arguments = ('{{"path":"{0}","pattern":"needle"}}' -f $script:testRoot) }) }
+                        3 { @([pscustomobject]@{ Id = 'c3'; Name = 'run_command'; Arguments = '{"command":"rg needle"}' }) }
+                        default { @() }
+                    }
+                    [pscustomobject]@{
+                        Mode = 'chat'; Content = 'found it'; FinishReason = 'stop'; ToolCalls = $calls
+                        AssistantMessage = [pscustomobject]@{ content = ''; tool_calls = @() }; AssistantItems = @(); Reasoning = ''
+                        PromptTokens = 1; CompletionTokens = 1; CachedTokens = 0; CacheWriteTokens = 0
+                        ModelName = $Model; ResponseId = $null; CopilotUsage = $null; Raw = @{}; Response = [pscustomobject]@{ Headers = @{} }
+                    }
+                }
+
+                $r = Invoke-Shp -Prompt 'find it' -DisableBrowsing -DisableUserPrompts -DisableTodoList
+
+                Should -Invoke Invoke-GlobFilesTool  -Times 1 -Exactly
+                Should -Invoke Invoke-GrepFilesTool  -Times 1 -Exactly
+                Should -Invoke Invoke-RunCommandTool -Times 0 -Exactly
+                ($r.ToolCallsDenied -join ' ') | Should -Match 'run_command'
+                ($r.ToolCallsDenied -join ' ') | Should -Not -Match 'glob_files'
+            }
+        }
+
+        It 'Denies a search rooted outside every Read rule' {
+            InModuleScope $script:moduleName -Parameters @{ Root = $TestDrive } {
+                param($Root)
+                Set-ShpToolPolicy -Rule @(('Read({0}/allowed/**)' -f (Resolve-ShpRealPath -Path $Root)))
+
+                Mock Invoke-CopilotTurn {
+                    $script:searchTurns++
+                    $calls = if ($script:searchTurns -eq 1) {
+                        @([pscustomobject]@{ Id = 'c1'; Name = 'glob_files'; Arguments = '{"path":"C:/Windows","pattern":"**/*.dll"}' })
+                    } else { @() }
+                    [pscustomobject]@{
+                        Mode = 'chat'; Content = 'done'; FinishReason = 'stop'; ToolCalls = $calls
+                        AssistantMessage = [pscustomobject]@{ content = ''; tool_calls = @() }; AssistantItems = @(); Reasoning = ''
+                        PromptTokens = 1; CompletionTokens = 1; CachedTokens = 0; CacheWriteTokens = 0
+                        ModelName = $Model; ResponseId = $null; CopilotUsage = $null; Raw = @{}; Response = [pscustomobject]@{ Headers = @{} }
+                    }
+                }
+
+                $r = Invoke-Shp -Prompt 'find it' -DisableBrowsing -DisableUserPrompts -DisableTodoList
+
+                Should -Invoke Invoke-GlobFilesTool -Times 0 -Exactly
+                ($r.ToolCallsDenied -join ' ') | Should -Match 'glob_files'
+            }
+        }
+
+        It 'Refuses a search tool the call disabled instead of running it' {
+            InModuleScope $script:moduleName {
+                Mock Invoke-CopilotTurn {
+                    $script:searchTurns++
+                    $calls = if ($script:searchTurns -eq 1) {
+                        @([pscustomobject]@{ Id = 'c1'; Name = 'grep_files'; Arguments = '{"path":".","pattern":"needle"}' })
+                    } else { @() }
+                    [pscustomobject]@{
+                        Mode = 'chat'; Content = 'done'; FinishReason = 'stop'; ToolCalls = $calls
+                        AssistantMessage = [pscustomobject]@{ content = ''; tool_calls = @() }; AssistantItems = @(); Reasoning = ''
+                        PromptTokens = 1; CompletionTokens = 1; CachedTokens = 0; CacheWriteTokens = 0
+                        ModelName = $Model; ResponseId = $null; CopilotUsage = $null; Raw = @{}; Response = [pscustomobject]@{ Headers = @{} }
+                    }
+                }
+
+                $r = Invoke-Shp -Prompt 'find it' -DisableBrowsing -DisableFileAccess -DisableTerminal -DisableUserPrompts -DisableTodoList
+
+                Should -Invoke Invoke-GrepFilesTool -Times 0 -Exactly
+                ($r.ToolCallsDenied -join ' ') | Should -Match 'grep_files'
+                $call = @($r.ToolCalls) | Where-Object Name -eq 'grep_files' | Select-Object -First 1
+                $call.ResultPreview | Should -Match 'disabled'
+            }
+        }
+
+        It 'Offers both search tools with file access on, and neither with it off' {
+            InModuleScope $script:moduleName {
+                $script:offered = $null
+                Mock Invoke-CopilotTurn {
+                    $script:offered = @($Tools | ForEach-Object { $_.function.name })
+                    [pscustomobject]@{
+                        Mode = 'chat'; Content = 'ok'; FinishReason = 'stop'; ToolCalls = @()
+                        AssistantMessage = [pscustomobject]@{ content = 'ok'; tool_calls = @() }; AssistantItems = @(); Reasoning = ''
+                        PromptTokens = 1; CompletionTokens = 1; CachedTokens = 0; CacheWriteTokens = 0
+                        ModelName = $Model; ResponseId = $null; CopilotUsage = $null; Raw = @{}; Response = [pscustomobject]@{ Headers = @{} }
+                    }
+                }
+
+                $null = Invoke-Shp -Prompt 'hi' -DisableBrowsing -DisableTerminal -DisableUserPrompts -DisableTodoList
+                $script:offered | Should -Contain 'glob_files'
+                $script:offered | Should -Contain 'grep_files'
+
+                $null = Invoke-Shp -Prompt 'hi' -DisableBrowsing -DisableFileAccess -DisableTerminal -DisableUserPrompts -DisableTodoList
+                $script:offered | Should -Not -Contain 'glob_files'
+                $script:offered | Should -Not -Contain 'grep_files'
+            }
+        }
+    }
+
     Context 'ask_user dispatch' {
         BeforeEach {
             InModuleScope $script:moduleName {
