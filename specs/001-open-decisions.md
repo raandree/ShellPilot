@@ -226,6 +226,108 @@ about module state on disk first.
 
 **ACCEPTED 2026-08-12: A for v1**, B blocked on the disk-state decision.
 
+**UNBLOCKED 2026-09-05 by decision 14: B.** Tier 1 of the split gives the
+fingerprint somewhere to live - a default-location, non-content store beside
+the token file. B was always the recommendation; only the storage question
+held it. Re-registration now compares the recorded (name, description, schema)
+fingerprint and warns when it differs. C is still refused: the caller named the
+server deliberately, and a warning plus a recorded property is the same shape
+spec 021 chose for `SandboxRequested`.
+
+## Raised 2026-09-03 by the candidate-features review
+
+| # | Decision | Choice |
+| :--- | :--- | :--- |
+| 14 | Module state on disk | **ACCEPTED 2026-09-05: D - split by sensitivity** |
+
+## 14. Does ShellPilot write module state to disk?
+
+Decision 13 parked tool-list pinning on "somewhere to persist it", and
+[F20](029-candidate-features.md) parks session resume on the same sentence.
+Today the only file the module writes is the token file
+(`SHPv1:<scheme>:<payload>`, DPAPI on Windows, mode 600 elsewhere).
+
+**The blocker was never one decision.** Three features were bundled under one
+question, and their risk differs by two orders of magnitude. That is why it has
+never been taken - any answer is wrong for at least one of them.
+
+<!-- markdownlint-disable MD013 -->
+
+| Consumer | What it stores | Sensitivity |
+| :--- | :--- | :--- |
+| MCP tool-list pinning (decision 13 option B) | A hash of the (name, description, schema) set | None - a fingerprint reveals nothing |
+| MCP tool snapshot caching | Third-party tool schemas | Low, but it is a cache that can go stale |
+| Session persistence and resume (F20) | The whole conversation, including every byte `read_file` returned and every tool result | **High** |
+
+<!-- markdownlint-enable MD013 -->
+
+The third is the one that needs the argument. Spec 026 redacts what **leaves**;
+it does not redact what would be **stored**. A session store therefore creates a
+new artifact - a plain-text archive of everything the model was shown - with a
+lifetime nobody chose, on every machine that runs ShellPilot, including CI
+runners that are wiped and re-imaged with it still on them.
+
+### Options
+
+- A. **No state on disk, ever.** The token file stays the only exception. F20,
+  pinning and snapshot caching close as out of scope; a caller who wants
+  persistence composes it from `-EventStream` and `-History`, because results
+  are objects.
+- B. **One opt-in root, caller-named.** Nothing is written unless the caller
+  supplies a path. No default, no discovery.
+- C. **A default root with an opt-out**, mirroring the token file's location
+  convention, so a session id alone is enough to resume.
+- D. **Split by sensitivity (recommended).** A default-location store for
+  non-content state, and an opt-in, caller-named path for content.
+
+### Recommendation: D
+
+**ACCEPTED 2026-09-05: D.**
+
+- **Tier 1, non-content, default location.** MCP tool-set fingerprints, beside
+  the token file, same permissions. A fingerprint leaks nothing, so the
+  argument against a default location does not apply to it. This unlocks
+  decision 13's option B immediately, which is the cheap half nobody needed to
+  wait for.
+- **Tier 2, content, opt-in path only.** Session persistence writes only where
+  the caller names, never to a discovered or defaulted location - the same rule
+  that already governs policy files and instruction files, and for the same
+  reason. Redaction is applied **on write**, which must be stated plainly
+  because it has a visible consequence: a resumed session replays redacted
+  history, so the model may answer differently than it did before. The
+  alternative - storing unredacted - turns spec 026 into a control that
+  protects the wire and not the disk, which is worse than not having it.
+- **Retention is the caller's**, and the help says so in those words. The
+  module writes and reads; it never prunes on someone's behalf.
+- **Snapshot caching: not taken.** ShellPilot starts MCP servers eagerly at
+  registration, in the caller's own session. The startup latency a snapshot
+  would hide is latency this module does not have.
+
+C is the ergonomic answer and should be reconsidered only if opt-in resume
+proves too awkward in real use - but a default-on content archive is not
+something to ship first and reconsider later.
+
+### Consequences
+
+- Decision 13 moves from "A for v1, B blocked" to **B**, unblocked.
+- F20 becomes buildable, with an explicit opt-in path and redacted history.
+- Snapshot caching is **closed**, not deferred.
+- A schema version and a concurrency answer are now required for both tiers,
+  because two ShellPilot processes on one machine is normal, not exotic. Two
+  sub-questions fall out of the sign-off and are settled here rather than left
+  to whoever writes the code first:
+  - **Concurrency.** Tier 1 is a single small document rewritten whole, so
+    write to a temporary file in the same directory and rename over the target.
+    That is atomic on both filesystems the module targets, and a torn
+    fingerprint file that fails to parse must be treated as absent - a
+    fingerprint is a cache of a fact, and re-deriving it costs one
+    registration.
+  - **Schema version.** Both tiers carry a version field from the first write,
+    and an unrecognised version is refused rather than migrated. The token file
+    already set this precedent with its `SHPv1:` envelope, and refusing is
+    right for a content store: silently reinterpreting a conversation is worse
+    than declining to resume it.
+
 ## See also
 
 - [Overview and feature map](000-overview.md)

@@ -44,6 +44,106 @@ Chronological record of shipped changes and remaining work. Latest first.
 
 ## Log
 
+- 2026-09-05 - **Open decision 14 signed off: D, split by sensitivity**
+  (`.memory-bank/decisions/002-module-state-on-disk.md`). Two capabilities had
+  been stalled for two months on one sentence - "there is nowhere to persist
+  it" - and the reason it never got taken is that it was **not one question**.
+  Tier 1 is non-content state in a default location beside the token file, same
+  permissions: a fingerprint leaks nothing, so the argument against a default
+  location never applied to it. Tier 2 is content, written only to a path the
+  caller names, never discovered and never defaulted - the rule that already
+  governs policy and instruction files. Redaction is applied **on write**, with
+  the visible consequence stated: a resumed session replays redacted history,
+  so the model may answer differently than it did the first time. The decisive
+  argument is that storing unredacted content would make spec 026 a control
+  that protects the wire and not the disk, which is worse than not having it
+  because it would be believed. Retention is the caller's, in those words, in
+  the help. Snapshot caching is **closed**, not deferred - ShellPilot starts MCP
+  servers eagerly at registration in the caller's session, so the startup
+  latency a snapshot would hide is latency this module does not have.
+  Two sub-questions were settled with the sign-off rather than left to whoever
+  writes the code first: writes are atomic (write temp, rename over) and an
+  unparseable tier-1 file is treated as absent, because a fingerprint is a cache
+  of a fact and re-deriving it costs one registration; and both tiers carry a
+  schema version from the first write that is **refused, not migrated**, when
+  unrecognised - the `SHPv1:` envelope set that precedent, and silently
+  reinterpreting a stored conversation is worse than declining to resume it.
+  Consequences recorded: decision 13 moves from "A for v1, B blocked" to **B**,
+  unblocked, with C still refused; F20 leaves the Blocked row and becomes
+  buildable; and `techContext.md`'s "no state on disk except the token file"
+  constraint was wrong as written and is restated as the two-tier rule.
+  Also noted while re-reading state: `70bca37` made F6 cheaper. Dispatch now
+  refuses any built-in the call did not offer, and the offered set is derived
+  from the assembled tool list, so `-Tool` / `-ExcludeTool` becomes a filter
+  over that list rather than a new enforcement point.
+
+- 2026-09-03 - Selection made on the candidate features, recorded as
+  `.memory-bank/decisions/001-first-tranche-scope.md` and indexed in a new
+  Decision index in `systemPatterns.md`. **Tranche 1 accepted unmodified**
+  (F1 search tools, F2 `edit_file`, F6 tool filters, F7 minimal child
+  environment, F8 environment-assignment denylist, F17 enterprise host
+  override, F22 plan preset, F23 secret-env-var redaction), with acceptance
+  criteria written into spec 029 as checkable statements about observable
+  behaviour rather than a summary of intent. Two orderings are not free and are
+  recorded as such: F1 before F22, because a plan preset that forbids `Shell()`
+  is dishonest until the model can search without it; F7 with F8, because both
+  change the same guard. The F14 credential probe is accepted to run next and
+  is now fully specified - it blocks only on a token the user must mint.
+  Open decision **14** was drafted, with the finding that the
+  module-state-on-disk blocker was **never one decision**. Three consumers were
+  bundled under it whose risk differs by two orders of magnitude: tool-list
+  pinning stores a fingerprint and leaks nothing, snapshot caching stores
+  third-party schemas, and session resume stores the entire conversation
+  including every byte `read_file` returned. That is why any single answer has
+  always been wrong for at least one of them, and why it never got taken. The
+  recommendation splits it: a default-location store for non-content state,
+  which unblocks decision 13's option B immediately; an opt-in caller-named
+  path for content, never discovered and never defaulted, on the same rule that
+  governs policy and instruction files; redaction applied **on write**, with
+  the visible consequence stated plainly - a resumed session replays redacted
+  history, so the model may answer differently than it did before, and the
+  alternative would make spec 026 a control that protects the wire and not the
+  disk; retention left explicitly to the caller; and snapshot caching closed
+  rather than deferred, because ShellPilot starts MCP servers eagerly in the
+  caller's session and has no startup latency to hide. Awaiting sign-off.
+
+- 2026-09-03 - `specs/029-candidate-features.md` proposes twenty-five features
+  ShellPilot does not have, each written as what it is, why it matters, what it
+  costs and what it depends on, with a recommended tranche order. Linked from
+  the specs index and the feature map. **No code, and nothing agreed** - the
+  document ends at a decision gate.
+  Three scoping constraints are stated once rather than re-argued per item:
+  module not host, no state on disk except the token file, no native
+  containment. The third matters most - two proposals reduce the reach of
+  `run_command` (a minimal child environment, an environment-assignment
+  denylist) and neither is a sandbox, which the documentation must keep saying.
+  The widest gap is **no GitHub.com surface at all**: no issue, pull request,
+  commit or code-search tool, so the only route is `run_command gh ...`, exactly
+  what a locked-down `Set-ShpToolPolicy` exists to forbid. It therefore depends
+  on the `Mcp()` rule kind deferred as open decision 9, and two shapes were
+  weighed - an MCP registration helper (recommended) against native `github_*`
+  tools.
+  Three proposals reuse work already done rather than adding machinery:
+  deferred tool loading is `load_skill` / `load_instruction`'s
+  progressive-disclosure applied to tool schemas, and the 2026-08-12
+  measurement (10,166 prompt tokens, 61 tools, 2 offered) is already the
+  evidence for it; a hook engine is spec 027's emit points with a return value,
+  and in PowerShell that is a scriptblock parameter rather than a config file
+  spawning a subprocess, which removes the fail-open/fail-closed question
+  entirely; and a subagent is a nested `Invoke-Shp` on the runspace-replay
+  substrate `Start-ShpJob` already built, returning only its final answer so the
+  parent's window never sees the exploration.
+  One item is explicitly **measure before design**: whether the Copilot
+  session-token exchange accepts a fine-grained token scoped to Copilot
+  requests. It is the only proposal that can invalidate an accepted spec - it
+  changes the answer to spec 025 - and it gets more expensive to act on the
+  longer that design is built upon.
+  Two governance non-conformances are recorded as facts, not proposals:
+  content-exclusion policies and enterprise MCP allowlists are not evaluated,
+  despite the same user and the same backend.
+  Verified with markdownlint clean on the new document and both edited files; no
+  executable verification applies to a documentation-only turn.
+
 - 2026-08-26 - Structured findings now surface in CI through
   `ConvertTo-ShpAnnotation` (spec 028). The public cmdlet accepts either a
   `ShellPilot.Result` or a plain pipeline object, unwraps one or many findings

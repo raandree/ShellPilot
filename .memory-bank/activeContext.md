@@ -4,6 +4,85 @@ Current working focus for ShellPilot. Overwrite this file as the focus shifts.
 
 ## Focus
 
+`specs/029-candidate-features.md` proposes twenty-five features ShellPilot does
+not have, each written as what it is, why it matters, what it costs and what it
+depends on. Tranche 1 is accepted (decision 001) and open decision 14 is
+accepted (decision 002). Nothing from either has been implemented yet.
+
+Three scoping constraints decide what is admissible at all, and they are stated
+once so they are not re-argued per item: ShellPilot is a **module, not a host**
+(so nothing whose value is a full-screen interface has a shape here), **state on
+disk is split by sensitivity** (default location for non-content, caller-named
+opt-in path for content, redacted on write - decision 002), and it has **no
+native containment** (so reach and inheritance can be reduced but nothing here
+is a sandbox, and the documentation must keep saying so).
+
+The three items still worth remembering:
+
+- **F13, the widest gap: ShellPilot has no GitHub.com surface at all.** No
+  issue, pull request, commit or code-search tool. The only route today is
+  `run_command gh ...` - the exact operation a locked-down `Set-ShpToolPolicy`
+  exists to forbid - so it depends on F5, the `Mcp()` policy rule kind deferred
+  as open decision 9. Two shapes were weighed: an MCP registration helper
+  (recommended) versus native `github_*` tools.
+- **F9, deferred tool loading, already has its evidence in this repository:**
+  10,166 prompt tokens for 61 MCP tools with 2 offered, recorded 2026-08-12.
+  `load_instruction` and `load_skill` are the same progressive-disclosure
+  mechanism; only the application to tool schemas is missing.
+- **F18, hooks, are spec 027's seams with a return value.** The emitter is
+  already a callback at every point a hook would want; the change is that its
+  output is consulted. The PowerShell shape is a **scriptblock parameter**, not
+  a config file spawning a subprocess - which removes the whole
+  fail-open-versus-fail-closed question, the timeout semantics and a third
+  process inheriting the environment block. Like policy files, hooks must never
+  be discovered from disk.
+
+Two governance non-conformances are recorded as facts rather than proposals:
+ShellPilot evaluates neither Copilot **content-exclusion policies** nor
+enterprise **MCP allowlists**, despite authenticating as the same user against
+the same backend.
+
+**F6 got cheaper.** `70bca37` (`fix(security): refuse to dispatch a tool this
+call disabled`) derived the offered set from the assembled tool list and made
+dispatch refuse any built-in the call did not offer, reusing the tool-policy
+denial path. `-Tool` / `-ExcludeTool` is now a filter over that list rather
+than a new enforcement point.
+
+## Decided 2026-09-03
+
+Recorded in `.memory-bank/decisions/001-first-tranche-scope.md` and indexed in
+`systemPatterns.md`.
+
+- **Tranche 1 is the first cut**, unmodified: F1 search tools, F2 `edit_file`,
+  F6 `-Tool`/`-ExcludeTool`, F7 minimal child environment, F8
+  environment-assignment denylist, F17 enterprise host override, F22
+  `-Mode Plan` preset, F23 `-SecretEnvironmentVariable`. Two orderings are not
+  free: F1 before F22 (a plan preset that forbids `Shell()` is dishonest until
+  the model can search without it), and F7 with F8 (same guard). Acceptance
+  criteria are written as checkable statements in spec 029 and are the contract
+  for the implementing work.
+- **The F14 probe runs next.** Specified in spec 029 under F14: with a
+  fine-grained token in `$env:SHELLPILOT_GITHUB_TOKEN` and the default token
+  path pointed at a file that does not exist, call `Get-ShpModel` and read one
+  of three outcomes. **It needs a token the user must mint** - that is the only
+  thing standing between here and the answer.
+- **Open decision 14 is drafted and awaiting sign-off.** The finding is that
+  the module-state-on-disk blocker was **never one decision**: pinning stores a
+  hash and leaks nothing, a snapshot cache stores third-party schemas, and
+  session resume stores the entire conversation including every byte
+  `read_file` returned. Bundling three risks two orders of magnitude apart is
+  why it has sat open. Recommendation is to split - a default-location store
+  for non-content state (unblocking decision 13's option B immediately), an
+  opt-in caller-named path for content, redaction applied **on write** with the
+  visible consequence stated (a resumed session replays redacted history), and
+  snapshot caching closed rather than deferred because ShellPilot starts MCP
+  servers eagerly in-session and has no startup latency to hide.
+
+Tranche 2 and 3 are not scheduled. No implementation starts on them without a
+further decision.
+
+## Previous focus - spec 028
+
 Spec 028 is complete: `ConvertTo-ShpAnnotation` turns Structured output into
 GitHub Actions, Azure DevOps, or Text annotations. It accepts pipeline input as
 either a `ShellPilot.Result` or a plain finding object. A result unwraps its

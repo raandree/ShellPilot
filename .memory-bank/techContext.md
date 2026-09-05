@@ -78,6 +78,14 @@ ShellPilot talks to the same HTTP services as the Copilot Chat extension.
   Test-ShpCiReadiness reports this rather than letting a pipeline discover it.
 - The token file protects against another principal on the machine, not against
   code running as the same user - no scheme available here changes that.
+- State on disk is split by sensitivity (decision 002, 2026-09-05). Non-content
+  state - currently only MCP tool-set fingerprints - may live in a default
+  location beside the token file. Content is written only to a path the caller
+  names, never discovered and never defaulted, and is redacted on write, so a
+  resumed session replays redacted history. Retention is the caller's. Both
+  tiers carry a schema version that is refused, not migrated, when
+  unrecognised, and writes are atomic (write temp, rename over). The token file
+  is no longer the only file the module may write.
 - No path sandboxing on the file tools by default, and the run_command terminal
   tool runs arbitrary shell commands in a child PowerShell with the caller's
   full privileges. Both are on by default (opt out with -DisableFileAccess /

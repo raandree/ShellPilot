@@ -83,6 +83,14 @@ the open decisions.
 > record per observable moment of a turn, and a thread job that returns the
 > same result object the synchronous call does.
 
+Twenty-five proposals for what could come next are collected in
+[029-candidate-features.md](029-candidate-features.md), with a recommended
+order and the three questions that have to be answered before it starts. They
+cover the TBD rows above (session persistence, hooks, subagents) and add the
+widest gap of all: ShellPilot has **no GitHub.com surface at all**. That
+document also records two governance non-conformances - content-exclusion
+policies and enterprise MCP allowlists are not evaluated.
+
 ## See also
 
 - [Open decisions](001-open-decisions.md)
