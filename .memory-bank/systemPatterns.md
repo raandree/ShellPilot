@@ -171,6 +171,13 @@ Special files are refused. Denials retain the existing Event record and result
 contract. Replacement is atomic, uses a same-directory temporary file, and
 retains regression tests for both temporary and final security descriptors.
 
+Use `UnixStat.ItemType`, not the first character of `UnixMode`, to classify
+Unix files. PowerShell's `CommonStat.GetModeString()` fast paths for 0444 and
+0644 return regular-file-looking strings without checking the actual type.
+The pipe regression pins mode 0644, asserts `NamedPipe` metadata, and invokes
+the helper in a bounded, killable child process so a regression fails rather
+than hanging the entire test suite.
+
 Windows `CopyTo` alone inherits the directory's access rules, even when the
 source file is restricted. Secure creation followed by descriptor restoration
 on the empty file avoids a disclosure window and retains inheritance metadata.

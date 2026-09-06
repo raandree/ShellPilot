@@ -57,7 +57,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   unchanged and still need only `Write()`.
 
   Only regular, seekable files are eligible, and input and output are each
-  capped at 8 MiB including the BOM. The edit is staged in the target's own
+  capped at 8 MiB including the BOM. Unix file types are checked directly,
+  avoiding a hang when formatted permissions misidentify a named pipe as a
+  regular file. The edit is staged in the target's own
   directory, flushed, checked against the file's current bytes, and then put in
   place with a backup of the original. A native replacement failure that moves
   the original away retains the backup and reports `recoveryPath` for manual

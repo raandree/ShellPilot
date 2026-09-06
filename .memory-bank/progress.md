@@ -44,6 +44,17 @@ Chronological record of shipped changes and remaining work. Latest first.
 
 ## Log
 
+- 2026-09-06 - Diagnostic CI at `fb0945c`,
+  [run 34046902203](https://github.com/raandree/ShellPilot/actions/runs/34046902203),
+  localized the Unix pipe hang: metadata lookup completed, but `UnixMode`
+  returned `-rw-r--r--` for the pipe, allowing the blocking open. PowerShell's
+  formatter shortcuts modes 0444/0644 without checking type. Changed the
+  guard to `UnixStat.ItemType`; retained the failing bounded pipe regression,
+  pinned mode 0644, and asserted actual `NamedPipe` metadata. The rebuilt local
+  gate passed: 1,765 passed, zero failed, two skipped, 88.70% coverage; nine
+  test tasks, zero errors/warnings, and changed-file analyzer clean. Hosted
+  verification is pending; this is not Unix sign-off.
+
 - 2026-09-06 - Three-OS CI at `ca703dc`:
   [run 34045051136](https://github.com/raandree/ShellPilot/actions/runs/34045051136)
   passed packaging and Windows (1,765 passed, zero failed, two skips, 88.70%

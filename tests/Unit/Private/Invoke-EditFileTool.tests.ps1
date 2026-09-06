@@ -175,7 +175,10 @@ Describe 'Invoke-EditFileTool' {
         $fifoPath = Join-Path $TestDrive 'pipe-target'
         & mkfifo $fifoPath
         $LASTEXITCODE | Should -Be 0
+        & chmod 644 $fifoPath
+        $LASTEXITCODE | Should -Be 0
         Test-Path -LiteralPath $fifoPath | Should -BeTrue
+        [string](Get-Item -LiteralPath $fifoPath -Force).UnixStat.ItemType | Should -BeExactly 'NamedPipe'
 
         $modulePath = (Get-Module -Name $script:moduleName).Path.Replace("'", "''")
         $escapedPath = $fifoPath.Replace("'", "''")
@@ -189,6 +192,7 @@ Describe 'Invoke-EditFileTool' {
                 [Console]::Error.WriteLine('pipe probe: reading metadata')
                 `$item = Get-Item -LiteralPath `$resolved -Force
                 [Console]::Error.WriteLine('pipe probe: UnixMode=' + `$item.UnixMode)
+                [Console]::Error.WriteLine('pipe probe: ItemType=' + `$item.UnixStat.ItemType)
                 [Console]::Error.WriteLine('pipe probe: invoking edit_file')
                 Invoke-EditFileTool -Path `$args[0] -OldString 'old' -NewString 'new'
             } '$escapedPath'

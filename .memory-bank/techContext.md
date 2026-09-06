@@ -9,7 +9,8 @@ Update this file when the stack or a dependency changes.
   ternary, and utf8NoBOM, which are not available on Windows PowerShell 5.1.
   Tool policy path resolution requires .NET 6 `ResolveLinkTarget()`, absent
   in PowerShell 7.1 / .NET 5. Resolution failures now return null, never the
-  unchecked path. The file tools also use `UnixMode` to refuse special files.
+  unchecked path. `edit_file` uses `UnixStat.ItemType` to refuse special files;
+  `UnixMode` formatting can misidentify a pipe with mode 0644 as a regular file.
 - Pure PowerShell; no compiled binaries.
 - Windows PowerShell 5.1 support is an open decision (see activeContext).
 

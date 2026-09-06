@@ -39,7 +39,15 @@ Both mode-preservation tests executed successfully. Both pipe probes executed
 but timed out at 15 seconds. Isolation fixed the suite hang, not the underlying
 blocking call. Added child phase diagnostics; the rebuilt local gate passed
 with 1,765 passed, zero failed, two skips, 88.70% coverage, and analyzer clean.
-The diagnostic CI dispatch is next. Do not claim Unix sign-off.
+Diagnostic [run 34046902203](https://github.com/raandree/ShellPilot/actions/runs/34046902203)
+at `fb0945c` reproduced the failure: the pipe's `UnixMode` is `-rw-r--r--`,
+and execution reaches the edit helper. PowerShell's permission formatter
+fast-paths 0644 without checking file type. The guard now checks structured
+`UnixStat.ItemType`; the pipe test pins 0644 and verifies `NamedPipe` metadata.
+The rebuilt local gate passed: 1,765 passed, zero failed, two skipped, 88.70%
+coverage, nine test tasks with zero errors/warnings, and analyzer clean.
+Hosted verification follows. Do not claim Unix sign-off before both required
+tests pass there.
 
 Three scoping constraints decide what is admissible at all, and they are stated
 once so they are not re-argued per item: ShellPilot is a **module, not a host**

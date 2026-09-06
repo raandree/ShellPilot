@@ -101,8 +101,7 @@ function Invoke-EditFileTool {
         if ($item.Attributes.HasFlag([System.IO.FileAttributes]::Device)) {
             throw 'Path must identify a regular file, not a device. Choose a regular file to edit.'
         }
-        # UnixMode carries the file-type character.
-        if (-not $IsWindows -and -not ([string]$item.UnixMode).StartsWith('-')) {
+        if (-not $IsWindows -and [string]$item.UnixStat.ItemType -ne 'File') {
             throw 'Path must identify a regular file, not a directory, socket or pipe. Choose a regular file to edit.'
         }
 
