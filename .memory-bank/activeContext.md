@@ -4,16 +4,19 @@ Current working focus for ShellPilot. Overwrite this file as the focus shifts.
 
 ## Focus
 
-Tranche 1 / F2 is undergoing three-OS CI verification on `ai/edit-file-tool`.
-The independent review of `13311e1` failed: PowerShell 7.1 allowed junction
-policy bypass, partial Windows replacement failures could lose recovery data,
-and the contention fixture hashed an unresolved path. These findings now have
-test-first fixes: fail-closed resolution with a 7.2 floor, retained replacement
-backups, and a resolved-path contention fixture. Focused Windows validation:
-70 passed, zero failed, two Unix-only skips. The rebuilt detached full local
-gate passed: 1,765 passed, zero failed, two skipped, 88.70% coverage; nine test
-tasks, zero errors/warnings, and changed-file analyzer clean. CI remains
-pending; do not treat Windows results as platform sign-off.
+Tranche 1 / F2 three-OS verification is complete on `ai/edit-file-tool`.
+[Run 34047410571](https://github.com/raandree/ShellPilot/actions/runs/34047410571)
+passed at `e06efca82761eee487487803820ab2fb1e7c4e4e`: Windows 1,765 passed,
+zero failed, two skipped, 88.70% coverage; Linux and macOS each 1,752 passed,
+zero failed, 15 skipped, 87.44% coverage. Both required Unix tests executed
+successfully on both Unix platforms, confirmed in NUnit and hosted logs.
+Packaging passed; deployment skipped. No PR or merge was performed.
+
+The failed independent review at `13311e1` led to fail-closed resolution with
+a PowerShell 7.2 floor, retained replacement backups, and resolved-path
+contention fixtures. Those fixes passed the local and hosted full suites.
+No independent re-review of the resulting fixes has been performed; recommend
+`review: on` for the security and persistence changes before integration.
 
 The user confirmed a normal push of this branch to origin and workflow_dispatch
 of CI on that ref in this session. No force-push, merge, or PR is authorized.
@@ -21,33 +24,12 @@ Preserve the user's public-test trailing-blank-line edit uncommitted. The
 accepted Read+Write rule remains
 [decision 003](decisions/003-edit-file-authorization.md).
 
-Commit `ca703dc` was pushed normally to origin. The authorized CI dispatch is
-[run 34045051136](https://github.com/raandree/ShellPilot/actions/runs/34045051136).
-Packaging and Windows passed. The Windows artifact confirms 1,765 passed,
-zero failed, two Unix-only skips, and 88.70% coverage. Both Unix logs stopped
-after the device-refusal test, immediately before the named-pipe case, for
-over 15 minutes; the previous successful legs took about two minutes. The run
-was cancelled to collect diagnostics, with no Unix result artifacts produced.
-The pipe fixture now uses a killable child process instead of synchronous
-runspace Stop/Dispose after its 15-second wait. The rebuilt local gate passed:
-1,765 passed, zero failed, two skips, 88.70% coverage, and analyzer clean.
-Correction `6639409` was pushed normally and dispatched as
-[run 34046321162](https://github.com/raandree/ShellPilot/actions/runs/34046321162).
-That run completed: Windows passed (1,765/0/2, 88.70% coverage); Linux and
-macOS each had 1,751 passed, one failed, 15 skipped, and 87.44% coverage.
-Both mode-preservation tests executed successfully. Both pipe probes executed
-but timed out at 15 seconds. Isolation fixed the suite hang, not the underlying
-blocking call. Added child phase diagnostics; the rebuilt local gate passed
-with 1,765 passed, zero failed, two skips, 88.70% coverage, and analyzer clean.
-Diagnostic [run 34046902203](https://github.com/raandree/ShellPilot/actions/runs/34046902203)
-at `fb0945c` reproduced the failure: the pipe's `UnixMode` is `-rw-r--r--`,
-and execution reaches the edit helper. PowerShell's permission formatter
-fast-paths 0644 without checking file type. The guard now checks structured
-`UnixStat.ItemType`; the pipe test pins 0644 and verifies `NamedPipe` metadata.
-The rebuilt local gate passed: 1,765 passed, zero failed, two skipped, 88.70%
-coverage, nine test tasks with zero errors/warnings, and analyzer clean.
-Hosted verification follows. Do not claim Unix sign-off before both required
-tests pass there.
+The Unix pipe regression initially hung, then failed with a bounded timeout.
+Phase diagnostics identified PowerShell's `UnixMode` formatter: its 0644 fast
+path returns `-rw-r--r--` even for a named pipe. `edit_file` now checks
+`UnixStat.ItemType`. The regression pins 0644, asserts `NamedPipe`, and runs
+in a killable child process. It now passes in under one second on each Unix
+platform. Earlier run IDs and red/green evidence remain in `progress.md`.
 
 Three scoping constraints decide what is admissible at all, and they are stated
 once so they are not re-argued per item: ShellPilot is a **module, not a host**
@@ -136,7 +118,7 @@ the same guard and splitting them means touching it twice. **F1 must run before
 F22** - a plan preset that forbids `Shell()` is dishonest until the model can
 search without it. The other five carry no ordering constraint.
 
-## F2 implementation and pending verification
+## F2 implementation and verification
 
 `Invoke-EditFileTool` accepts `Path`, `OldString` and `NewString`. The model
 schema uses `path`, `oldString` and `newString`, all required strings. Empty
@@ -159,7 +141,7 @@ README migration instructions, and the unreleased changelog describe it.
 
 Only regular, seekable files are accepted. The type guard is three separate
 checks with distinct messages, so each one is assertable: not a file, a device,
-and a non-regular Unix mode. The module floor is now 7.2 because the resolver
+and a non-regular Unix file type. The module floor is now 7.2 because the resolver
 requires the .NET 6 link API; 7.1 was not sufficient. Input and
 output each have an 8 MiB ceiling including the BOM, hoisted to
 `$script:ShpEditFileMaxBytes` beside the other module bounds. Same-path
@@ -182,8 +164,8 @@ The earlier self-review was superseded by the failed independent review.
 The new fixes received self-review and passed the complete local gate.
 Other programs must coordinate their renames: the final content check and
 replacement are not compare-and-swap. Serialization is per logon session.
-The named-pipe refusal and Unix mode preservation have not yet run on Unix;
-the earlier claim that CI proved them was incorrect.
+The earlier unverified Unix claim was incorrect; both cases are now proven
+on Linux and macOS by run 34047410571 at `e06efca`.
 
 ## F1 complete
 

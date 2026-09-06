@@ -44,6 +44,26 @@ Chronological record of shipped changes and remaining work. Latest first.
 
 ## Log
 
+- 2026-09-06 - Three-OS verification passed after the review fixes and Unix
+  file-type correction, at `e06efca82761eee487487803820ab2fb1e7c4e4e`:
+  [run 34047410571](https://github.com/raandree/ShellPilot/actions/runs/34047410571).
+  Windows: 1,765 passed, zero failed, two skipped, 88.70% coverage. Linux and
+  macOS: each 1,752 passed, zero failed, 15 skipped, 87.44% coverage. All legs
+  discovered 1,767 tests. NUnit confirms both required Unix cases have
+  `result="Success" executed="True"`; neither skipped. Hosted result lines:
+
+  ```text
+  Linux: [+] Refuses a named pipe instead of blocking on it 744ms
+  Linux: [+] Preserves Unix file modes 25ms
+  macOS: [+] Refuses a named pipe instead of blocking on it 952ms
+  macOS: [+] Preserves Unix file modes 36ms
+  ```
+
+  Packaging passed; deployment skipped. Retained artifact evidence under
+  `%TEMP%/shellpilot-ci-34047410571-artifacts`. Existing platform skips are
+  unchanged. No PR, merge, or deployment. Independent re-review of the fixes
+  remains recommended for security/persistence risk, not claimed complete.
+
 - 2026-09-06 - Diagnostic CI at `fb0945c`,
   [run 34046902203](https://github.com/raandree/ShellPilot/actions/runs/34046902203),
   localized the Unix pipe hang: metadata lookup completed, but `UnixMode`
@@ -53,7 +73,7 @@ Chronological record of shipped changes and remaining work. Latest first.
   pinned mode 0644, and asserted actual `NamedPipe` metadata. The rebuilt local
   gate passed: 1,765 passed, zero failed, two skipped, 88.70% coverage; nine
   test tasks, zero errors/warnings, and changed-file analyzer clean. Hosted
-  verification is pending; this is not Unix sign-off.
+  verification subsequently passed at `e06efca`, recorded above.
 
 - 2026-09-06 - Three-OS CI at `ca703dc`:
   [run 34045051136](https://github.com/raandree/ShellPilot/actions/runs/34045051136)
