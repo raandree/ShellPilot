@@ -79,6 +79,15 @@ choke point (Protect-ShpEgressContent).
 
 ## Recurring patterns
 
+### A credentialless callback is not a hard-budget contract
+
+`Invoke-Shp -RequestTransport` skips native credential resolution and HTTP and
+hands a detached request to trusted host code. It implies `NoAutomaticRetry`,
+which also disables API-shape and Session-token resends. Default calls retain
+their prior behavior. The callback does not establish process containment,
+complete-request token bounds, or reservations; those need their own verified
+Engine/provider contract before a host can claim hard admission limits.
+
 ### Dual API abstraction
 
 Invoke-CopilotTurn hides the difference between the chat/completions and

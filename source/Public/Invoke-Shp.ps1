@@ -517,6 +517,24 @@ function Invoke-Shp {
         streamed requests. Falls back to the session context and then the
         built-in default.
 
+    .PARAMETER NoAutomaticRetry
+        Disable every automatic resend, including HTTP retries, network-outage
+        tolerance, Session-token recovery, API-shape fallback, and degraded
+        reasoning or server-side state requests. Authentication also uses zero
+        retries. The first failure is returned to the caller.
+
+    .PARAMETER RequestTransport
+        Caller-owned synchronous transport for a credentialless Tool-calling
+        loop. Receives one detached, versioned request containing Model,
+        messages, Tool schemas and generation options, never credentials,
+        endpoints or headers. Returns one normalized Invoke-CopilotTurn result.
+        Requires DisableStreaming and MaxOutputTokens, implies
+        NoAutomaticRetry, and cannot combine with AsJob, ApiBase, TokenPath or
+        UseServerSideState. The host must authenticate, admit and account for
+        requests through a supported Engine transport implementation. This
+        callback is a trusted host capability, not a Model-callable Tool or
+        a filesystem or network containment mechanism.
+
     .PARAMETER RetryDelaySec
         Base delay in seconds for the exponential backoff between retries
         (attempt n waits RetryDelaySec * 2^(n-1) seconds, with equal jitter
@@ -900,6 +918,11 @@ function Invoke-Shp {
         [ValidateRange(0, [int]::MaxValue)]
         [int]$MaxRetryCount,
 
+        [switch]$NoAutomaticRetry,
+
+        [ValidateNotNull()]
+        [scriptblock]$RequestTransport,
+
         [ValidateRange(0, [int]::MaxValue)]
         [int]$RetryDelaySec,
 
@@ -914,6 +937,16 @@ function Invoke-Shp {
         [string]$UserAgent     = $script:DefaultUserAgent,
         [string]$IntegrationId = $script:DefaultIntegrationId
     )
+
+    $ownedTransport = $PSBoundParameters.ContainsKey('RequestTransport')
+    if ($ownedTransport) {
+        if (-not $DisableStreaming -or -not $PSBoundParameters.ContainsKey('MaxOutputTokens') -or
+            $AsJob -or $UseServerSideState -or $PSBoundParameters.ContainsKey('ApiBase') -or
+            $PSBoundParameters.ContainsKey('TokenPath')) {
+            throw 'RequestTransport requires DisableStreaming and MaxOutputTokens and refuses AsJob, UseServerSideState, ApiBase and TokenPath.'
+        }
+        $NoAutomaticRetry = $true
+    }
 
     # Resolve the model and the optional model knobs from the session defaults
     # (Select-ShpModel) when not supplied explicitly. An explicit parameter on
@@ -956,6 +989,11 @@ function Invoke-Shp {
     foreach ($name in 'TimeoutSec', 'MaxRetryCount', 'RetryDelaySec', 'NetworkOutageToleranceSec') {
         if ($PSBoundParameters.ContainsKey($name)) { $connectionParams[$name] = $PSBoundParameters[$name] }
     }
+    if ($NoAutomaticRetry) {
+        $connectionParams.MaxRetryCount = 0
+        $connectionParams.RetryDelaySec = 0
+        $connectionParams.NetworkOutageToleranceSec = 0
+    }
     $connection = Resolve-ShpConnectionOption @connectionParams
     $effectiveTimeoutSec      = $connection.TimeoutSec
     $effectiveMaxRetry        = $connection.MaxRetryCount
@@ -967,12 +1005,14 @@ function Invoke-Shp {
     # either - an exchange is already a request under the caller's entitlement.
     $backendParams = @{}
     if ($PSBoundParameters.ContainsKey('ApiBase')) { $backendParams['ApiBase'] = $ApiBase }
-    $backend = Resolve-ShpBackend @backendParams
+    $backend = if ($ownedTransport) {
+        @{ ApiBase = 'owned-transport'; IsAlternative = $true; ApiKey = $null; SafeApiBase = 'owned-transport' }
+    } else { Resolve-ShpBackend @backendParams }
 
     $ciParams = @{ ApiBase = $backend.ApiBase }
     if ($PSBoundParameters.ContainsKey('NonInteractive')) { $ciParams['NonInteractive'] = [bool]$NonInteractive }
     $ciProfile = Resolve-ShpCiProfile @ciParams
-    if ($ciProfile.BackendGateError) { $PSCmdlet.ThrowTerminatingError($ciProfile.BackendGateError) }
+    if (-not $ownedTransport -and $ciProfile.BackendGateError) { $PSCmdlet.ThrowTerminatingError($ciProfile.BackendGateError) }
     $unattended = $ciProfile.NonInteractive
 
     # An unattended run cannot answer a confirmation prompt either. An explicit
@@ -1085,8 +1125,11 @@ function Invoke-Shp {
     # credential, so resolving it only here is not enough.
     $sessionTokenParams = @{ TokenPath = $TokenPath; EditorVersion = $EditorVersion; UserAgent = $UserAgent }
     foreach ($name in $connectionParams.Keys) { $sessionTokenParams[$name] = $connectionParams[$name] }
-    $session = Get-ShpSessionToken @sessionTokenParams
-    Write-Verbose ("Session token valid until {0}" -f [DateTimeOffset]::FromUnixTimeSeconds($session.expires_at).LocalDateTime)
+    $session = $null
+    if (-not $ownedTransport) {
+        $session = Get-ShpSessionToken @sessionTokenParams
+        Write-Verbose ("Session token valid until {0}" -f [DateTimeOffset]::FromUnixTimeSeconds($session.expires_at).LocalDateTime)
+    }
 
     # An alternative backend was already resolved above (explicit -ApiBase, the
     # session context, then $env:SHELLPILOT_API_BASE); otherwise use the Copilot
@@ -1773,7 +1816,28 @@ function Invoke-Shp {
                 }
                 $reasoningChunks.Clear()
             }
-            $turn = Invoke-CopilotTurn -Mode $mode -Model $Model -ApiBase $apiBase -Headers $apiHeaders -Conversation $conv -Tools $tls -RequestReasoningSummary:($mode -eq 'responses' -and $requestReasoning) -ReasoningEffort $ReasoningEffort -MaxOutputTokens $MaxOutputTokens -Stream:($streamingEnabled -and $mode -eq 'chat') -EchoReasoning:($ShowThinking -and $streamingEnabled -and $mode -eq 'chat') -OnReasoningChunk $onReasoningChunk -OnRetry $onRequestRetry -Store:($serverSideActive -and $mode -eq 'responses') -PreviousResponseId $previousResponseId @structuredParams @samplingParams @connectionParams
+            if ($ownedTransport) {
+                $requestData = @{
+                    SchemaVersion = 1
+                    RequestId = [guid]::NewGuid().ToString('N')
+                    Iteration = $iteration
+                    Model = $Model
+                    Mode = $mode
+                    Conversation = $conv
+                    Tools = $tls
+                    MaxOutputTokens = $MaxOutputTokens
+                    ReasoningEffort = $ReasoningEffort
+                    RequestReasoningSummary = ($mode -eq 'responses' -and $requestReasoning)
+                    Structured = $structuredParams
+                    Sampling = $samplingParams
+                }
+                $requestCopy = ConvertTo-ShpStableJson -InputObject $requestData -Depth 32 | ConvertFrom-Json
+                $transportResults = @(& $RequestTransport $requestCopy)
+                if ($transportResults.Count -ne 1) { throw 'RequestTransport must return exactly one normalized result.' }
+                $turn = $transportResults[0]
+            } else {
+                $turn = Invoke-CopilotTurn -Mode $mode -Model $Model -ApiBase $apiBase -Headers $apiHeaders -Conversation $conv -Tools $tls -RequestReasoningSummary:($mode -eq 'responses' -and $requestReasoning) -ReasoningEffort $ReasoningEffort -MaxOutputTokens $MaxOutputTokens -Stream:($streamingEnabled -and $mode -eq 'chat') -EchoReasoning:($ShowThinking -and $streamingEnabled -and $mode -eq 'chat') -OnReasoningChunk $onReasoningChunk -OnRetry $onRequestRetry -Store:($serverSideActive -and $mode -eq 'responses') -PreviousResponseId $previousResponseId @structuredParams @samplingParams @connectionParams
+            }
         } catch {
             $errText = $_.ErrorDetails.Message
             if ([string]::IsNullOrWhiteSpace($errText)) { $errText = $_.Exception.Message }
@@ -1785,7 +1849,7 @@ function Invoke-Shp {
             # on the service's prose, and only when the bearer is a Session
             # token: a 401 from an alternative backend is a wrong API key and
             # must fail loudly rather than trigger a Copilot token exchange.
-            if (-not $usingAltBackend -and $_.TargetObject -and $_.TargetObject.StatusCode -eq 401) {
+            if (-not $NoAutomaticRetry -and -not $usingAltBackend -and $_.TargetObject -and $_.TargetObject.StatusCode -eq 401) {
                 if ($sessionTokenForced) {
                     # A token this call exchanged seconds ago is not expired, so
                     # the OAuth token behind it is the problem.
@@ -1819,7 +1883,7 @@ function Invoke-Shp {
             # parameter (the Copilot proxy is stateless). Fall back to ordinary
             # client-side history: drop store/previous_response_id, switch to
             # chat, and retry the same turn.
-            if ($serverSideActive -and $errText -and $errText -match 'store') {
+            if (-not $NoAutomaticRetry -and $serverSideActive -and $errText -and $errText -match 'store') {
                 Write-Warning 'The backend does not support server-side conversation state (store); falling back to client-side history.'
                 & $emit 'retry' @{ iteration = $iteration; reason = 'ServerSideStateUnsupported'; detail = 'The backend rejected the store parameter; the turn continues with client-side history on the chat shape.' }
                 $serverSideActive = $false; $previousResponseId = $null; $mode = 'chat'; $iteration--; continue
@@ -1827,7 +1891,7 @@ function Invoke-Shp {
             # The model does not support /responses at all - fall back to chat
             # (this also covers -ShowThinking forcing responses on a chat-only
             # model such as claude-opus-4.8).
-            if ($mode -eq 'responses' -and -not $apiShapeSwitched -and $errText -and ($errText -match 'unsupported_api_for_model' -or $errText -match 'does not support Responses')) {
+            if (-not $NoAutomaticRetry -and $mode -eq 'responses' -and -not $apiShapeSwitched -and $errText -and ($errText -match 'unsupported_api_for_model' -or $errText -match 'does not support Responses')) {
                 Write-Verbose "Model '$Model' does not support /responses - switching to /chat/completions."
                 if ($ShowThinking) { Write-Host '(model has no /responses API; reasoning summary unavailable, continuing on /chat)' -ForegroundColor DarkGray }
                 & $emit 'retry' @{ iteration = $iteration; reason = 'ApiShapeSwitch'; detail = ("Model '{0}' does not support /responses; the turn continues on /chat/completions." -f $Model) }
@@ -1835,13 +1899,13 @@ function Invoke-Shp {
             }
             # The model accepts /responses but rejected the reasoning-summary
             # request specifically - retry the same turn without it.
-            if ($mode -eq 'responses' -and $requestReasoning -and $errText -and ($errText -match 'reasoning' -or $errText -match 'summary')) {
+            if (-not $NoAutomaticRetry -and $mode -eq 'responses' -and $requestReasoning -and $errText -and ($errText -match 'reasoning' -or $errText -match 'summary')) {
                 Write-Verbose "Model '$Model' rejected the reasoning summary - retrying without it."
                 if ($ShowThinking) { Write-Host '(model does not support a reasoning summary; continuing without it)' -ForegroundColor DarkGray }
                 & $emit 'retry' @{ iteration = $iteration; reason = 'ReasoningSummaryRejected'; detail = ("Model '{0}' rejected the reasoning summary; the iteration is retried without it." -f $Model) }
                 $requestReasoning = $false; $iteration--; continue
             }
-            if ($mode -eq 'chat' -and $iteration -eq 1 -and -not $apiShapeSwitched -and $errText -and ($errText -match 'unsupported_api_for_model' -or $errText -match 'invalid_request_body')) {
+            if (-not $NoAutomaticRetry -and $mode -eq 'chat' -and $iteration -eq 1 -and -not $apiShapeSwitched -and $errText -and ($errText -match 'unsupported_api_for_model' -or $errText -match 'invalid_request_body')) {
                 Write-Verbose "Model '$Model' rejected on /chat/completions - switching to /responses."
                 & $emit 'retry' @{ iteration = $iteration; reason = 'ApiShapeSwitch'; detail = ("Model '{0}' was rejected on /chat/completions; the turn continues on /responses." -f $Model) }
                 $apiShapeSwitched = $true; $mode='responses'; $iteration--; continue

@@ -44,6 +44,15 @@ Chronological record of shipped changes and remaining work. Latest first.
 
 ## Log
 
+- 2026-09-06 - Add optional `NoAutomaticRetry` and credentialless
+  `RequestTransport` groundwork for the explicitly approved DeskPilot V2
+  prerequisite. Four focused tests red then green; public invocation regression
+  185 passed; full Sampler 1,749 passed, no failures/skips, 88.79% coverage.
+  Separate linked worktree on `ai/child-provider-boundary` preserves the original
+  modified F2 test. Complete-request counting/reservation and trusted transport
+  remain missing; joint independent review requests changes on those acceptance
+  gates. No live authentication, package publication, or remote mutation.
+
 - 2026-09-06 - Tranche 1 / F2: add `edit_file` for one ordinal string
   replacement, refusing zero or multiple matches (including overlaps).
   Preserve BOM, encoding and unchanged newlines; refuse unsupported text.

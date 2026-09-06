@@ -4,6 +4,27 @@ Current working focus for ShellPilot. Overwrite this file as the focus shifts.
 
 ## Focus
 
+Limited host transport work is in progress on `ai/child-provider-boundary` in
+the separate `D:/Git/ShellPilot-child-isolation` worktree, based on `3446e32`.
+The DeskPilot operator approved tracked Engine changes on 2026-09-06, including
+a credentialless loop/transport split. The original `ai/edit-file-tool` worktree
+and its unrelated modified public test are preserved.
+
+`NoAutomaticRetry` and `RequestTransport` are implemented and locally tested;
+the public invocation regression passed 185 tests with no failures or skips.
+The full Sampler gate passed 1,749 tests, no failures/skips, 88.79% coverage,
+16 tasks, zero errors/warnings. The complete request counter, Engine-priced
+reservation, trusted transport process, cancellation/accounting contract, live
+proof, and clean-install distribution remain open. Do not publish or describe
+the local callback as complete child support. See
+[specification 030](../specs/030-host-request-transport.md).
+
+The joint independent review returned request changes for the incomplete
+admission and complete-child contracts. No Engine implementation defect was
+reported, but the review is not approval of a complete boundary or release.
+
+The following F2 details describe the baseline, not the current worktree:
+
 Tranche 1 / F2 is complete on `ai/edit-file-tool`, branched from `main`.
 The built-in `edit_file` replaces one exact string and refuses zero or
 multiple matches. F1 is already on `main`; F6, F7/F8, F17, F22 and F23 remain

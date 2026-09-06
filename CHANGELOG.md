@@ -36,6 +36,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Add optional host transport groundwork to `Invoke-Shp`.** Use
+  `NoAutomaticRetry` to disable transport and API-shape resends, or
+  `RequestTransport` for a credentialless Tool-calling loop with a trusted
+  caller-owned transport. Ordinary calls are unchanged. Hard request admission,
+  process isolation, and a trusted transport process are not supplied by these
+  options. See [the contract and limitations](specs/030-host-request-transport.md).
+
 - **Add `edit_file` for targeted changes to existing files.** Replace one
   exact, case-sensitive `oldString` with `newString`, refusing zero matches or
   multiple matches with recovery guidance. Preserve the BOM, encoding and
