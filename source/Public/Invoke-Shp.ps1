@@ -1214,7 +1214,7 @@ function Invoke-Shp {
             type='function'
             function=@{
                 name='edit_file'
-                description='Replace exactly one occurrence of oldString in an existing local file with newString. Matching is literal and case-sensitive, with no newline or Unicode normalization. Zero or multiple matches are refused; include enough surrounding text to identify one occurrence. Preserves encoding, BOM and unchanged line endings. Supports UTF-8 and BOM-marked UTF-16/UTF-32; other encodings are refused.'
+                description='Replace exactly one occurrence of oldString in an existing local file with newString. Matching is literal and case-sensitive, with no newline or Unicode normalization. Zero or multiple matches are refused; include enough surrounding text to identify one occurrence. Preserves encoding, BOM and unchanged line endings. Supports UTF-8 and BOM-marked UTF-16/UTF-32; other encodings are refused. Requires both Read and Write tool rules when a policy is set. Only regular files are supported; input and output must each fit in 8 MiB including the BOM. A conflict is refused: read the current file before retrying.'
                 parameters=@{ type='object'; required=@('path','oldString','newString'); properties=@{
                     path=@{ type='string'; description='Literal path to an existing file (absolute or relative to the current working directory).' }
                     oldString=@{ type='string'; minLength=1; description='Exact nonempty text to replace, including case and line endings. CRLF must be supplied as \r\n even if a read_file window used \n.' }

@@ -150,19 +150,38 @@ schema and zero-match error explain that CRLF matching requires literal CRLF.
 #### File-edit threat model
 
 Model arguments and file content are untrusted. The tool adds no outbound
-channel or code evaluation and returns no file content. `Write()` authorizes
-reading the target internally to count matches as well as changing it.
+channel or code evaluation. Match counts still disclose content, so the
+2026-09-06 review remediation requires both `Read()` and `Write()` Tool rules
+for the target, even for a no-op replacement. This supersedes F2's original
+Write-only contract. Write is checked first to retain existing denial messages.
 
 | Threat | Control |
 | --- | --- |
-| Model names a disabled tool | Include `edit_file` in the built-in name list; the offered-set guard denies it before dispatch. |
-| Target outside the allowed paths | Use the existing resolved-path `Write()` policy gate and denial event contract. |
-| Unapproved mutation | Apply `ShouldProcess` around dispatch; `-WhatIf` returns a skipped result. |
-| Ambiguous edit or encoding loss | Refuse nonunique matches and invalid text before writing; retain byte-level tests. |
+| Disabled tool | Built-in registration and offered-set enforcement. |
+| Read or Write denied | Require both kinds before dispatch. |
+| Unapproved edit | Retain `ShouldProcess` and `-WhatIf` dispatch. |
+| Ambiguity or encoding loss | Refuse before writing; test exact bytes. |
+| Excessive allocation | Bound input and output to 8 MiB, including BOM. |
+| Partial write or conflict | Flush staging, recheck SHA-256, then replace. |
+| Overlapping edits | Refuse contention on a resolved-path mutex. |
+| Temporary-file disclosure | Secure staging before copying content. |
 
-The caller's privileges and existing path-resolution race limits remain.
-There is no process isolation, atomic-write or concurrent-writer guarantee.
-Independent review is recommended for changes to this mutation boundary.
+Special files are refused. Denials retain the existing Event record and result
+contract. Replacement is atomic, uses a same-directory temporary file, and
+retains regression tests for both temporary and final security descriptors.
+
+Windows `CopyTo` alone inherits the directory's access rules, even when the
+source file is restricted. Secure creation followed by descriptor restoration
+on the empty file avoids a disclosure window and retains inheritance metadata.
+Use `[NullString]::Value` for the .NET replacement's absent backup path: plain
+PowerShell `$null` binds as an empty string and causes replacement to fail.
+
+The caller's privileges and external path-resolution races remain. Other
+programs must coordinate renames; the final check and replacement are separate
+operations, not compare-and-swap. There is no process isolation. Read handles
+close before replacement because Windows rename operations need access that
+the read-time sharing restrictions would deny. Independent review remains
+recommended for this mutation boundary.
 
 ### Bounded tool results and the context-window guard
 

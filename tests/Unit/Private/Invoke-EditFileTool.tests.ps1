@@ -100,6 +100,238 @@ Describe 'Invoke-EditFileTool' {
         $result.bytes | Should -Be $expectedBytes.Length
     }
 
+    It 'Refuses an input larger than 8 MiB without reading or changing its content' {
+        $filePath = Join-Path $TestDrive 'oversized.txt'
+        $stream = [System.IO.File]::Create($filePath)
+        try {
+            $stream.Write([byte[]]@(0x6f, 0x6c, 0x64), 0, 3)
+            $stream.SetLength(8MB + 1)
+        } finally {
+            $stream.Dispose()
+        }
+        $originalHash = (Get-FileHash -LiteralPath $filePath).Hash
+
+        $result = InModuleScope $script:moduleName -Parameters @{ FilePath = $filePath } {
+            Invoke-EditFileTool -Path $FilePath -OldString 'old' -NewString 'new' | ConvertFrom-Json
+        }
+
+        $result.error | Should -Match '8 MiB'
+        (Get-FileHash -LiteralPath $filePath).Hash | Should -BeExactly $originalHash
+    }
+
+    It 'Refuses a replacement that exceeds 8 MiB after <Name> encoding' -ForEach @(
+        @{ Name = 'UTF-8'; Encoding = [System.Text.UTF8Encoding]::new($false, $true); Length = 8MB + 1 }
+        @{ Name = 'UTF-16 with BOM'; Encoding = [System.Text.UnicodeEncoding]::new($false, $true, $true); Length = 4MB }
+        @{ Name = 'UTF-32 with BOM'; Encoding = [System.Text.UTF32Encoding]::new($false, $true, $true); Length = 2MB }
+    ) {
+        $filePath = Join-Path $TestDrive 'oversized-replacement.txt'
+        [System.IO.File]::WriteAllText($filePath, 'old', $Encoding)
+        $originalHash = (Get-FileHash -LiteralPath $filePath).Hash
+
+        $result = InModuleScope $script:moduleName -Parameters @{ FilePath = $filePath; Length = $Length } {
+            Invoke-EditFileTool -Path $FilePath -OldString 'old' -NewString ([string]::new('x', $Length)) |
+                ConvertFrom-Json
+        }
+
+        $result.error | Should -Match '8 MiB'
+        (Get-FileHash -LiteralPath $filePath).Hash | Should -BeExactly $originalHash
+    }
+
+    It 'Refuses a filesystem device before opening it' {
+        $filePath = Join-Path $TestDrive 'device-target.txt'
+        [System.IO.File]::WriteAllText($filePath, 'old')
+
+        $result = InModuleScope $script:moduleName -Parameters @{ FilePath = $filePath } {
+            Mock Get-Item {
+                [pscustomobject]@{
+                    FullName = $FilePath
+                    PSProvider = @{ Name = 'FileSystem' }
+                    PSIsContainer = $false
+                    Attributes = [System.IO.FileAttributes]::Device
+                }
+            }
+            Invoke-EditFileTool -Path $FilePath -OldString 'old' -NewString 'new' | ConvertFrom-Json
+        }
+
+        $result.error | Should -Match 'regular file'
+        [System.IO.File]::ReadAllText($filePath) | Should -BeExactly 'old'
+    }
+
+    It 'Preserves the original and cleans temporary files after a <Phase> failure' -ForEach @(
+        @{ Phase = 'staging' }
+        @{ Phase = 'replacement' }
+    ) {
+        $filePath = Join-Path $TestDrive 'failed-edit.txt'
+        [System.IO.File]::WriteAllText($filePath, 'old')
+        $originalHash = (Get-FileHash -LiteralPath $filePath).Hash
+
+        $result = InModuleScope $script:moduleName -Parameters @{ FilePath = $filePath; Phase = $Phase } {
+            $sourceItem = Get-Item -LiteralPath $FilePath
+            $sourceItem | Add-Member -NotePropertyName FailurePhase -NotePropertyValue $Phase
+            $sourceItem | Add-Member -MemberType ScriptMethod -Name CopyTo -Force -Value {
+                param($Destination, $Overwrite)
+                [System.IO.File]::Copy($this.FullName, $Destination, $Overwrite)
+                if ($this.FailurePhase -eq 'staging') {
+                    [System.IO.File]::WriteAllText($Destination, 'partial')
+                    throw [System.IO.IOException]::new('Injected staging failure.')
+                }
+                $temporaryItem = [System.IO.FileInfo]::new($Destination)
+                $temporaryItem | Add-Member -MemberType ScriptMethod -Name Replace -Force -Value {
+                    throw [System.IO.IOException]::new('Injected replacement failure.')
+                }
+                $temporaryItem
+            }
+            Mock Get-Item { $sourceItem } -ParameterFilter { $LiteralPath -eq $FilePath }
+
+            Invoke-EditFileTool -Path $FilePath -OldString 'old' -NewString 'new' | ConvertFrom-Json
+        }
+
+        $result.error | Should -Match "Injected $Phase failure"
+        (Get-FileHash -LiteralPath $filePath).Hash | Should -BeExactly $originalHash
+        @(Get-ChildItem -LiteralPath $TestDrive -Force -Filter '.shp-edit-*') | Should -BeNullOrEmpty
+    }
+
+    It 'Refuses a concurrent change even when its length and modification time match' {
+        $filePath = Join-Path $TestDrive 'concurrent.txt'
+        [System.IO.File]::WriteAllText($filePath, 'old')
+
+        $result = InModuleScope $script:moduleName -Parameters @{ FilePath = $filePath } {
+            $sourceItem = Get-Item -LiteralPath $FilePath
+            $sourceItem | Add-Member -MemberType ScriptMethod -Name CopyTo -Force -Value {
+                param($Destination, $Overwrite)
+                [System.IO.File]::Copy($this.FullName, $Destination, $Overwrite)
+                $otherPath = "$Destination.other"
+                [System.IO.File]::WriteAllText($otherPath, 'alt')
+                [System.IO.File]::SetLastWriteTimeUtc($otherPath, $this.LastWriteTimeUtc)
+                [System.IO.File]::Move($otherPath, $this.FullName, $true)
+                [System.IO.FileInfo]::new($Destination)
+            }
+            Mock Get-Item { $sourceItem } -ParameterFilter { $LiteralPath -eq $FilePath }
+
+            Invoke-EditFileTool -Path $FilePath -OldString 'old' -NewString 'new' | ConvertFrom-Json
+        }
+
+        $result.error | Should -Match 'changed.*retry'
+        [System.IO.File]::ReadAllText($filePath) | Should -BeExactly 'alt'
+        @(Get-ChildItem -LiteralPath $TestDrive -Force -Filter '.shp-edit-*') | Should -BeNullOrEmpty
+    }
+
+    It 'Refuses an edit already in progress on the same resolved path' {
+        $filePath = Join-Path $TestDrive 'busy.txt'
+        [System.IO.File]::WriteAllText($filePath, 'old')
+        $lockPath = if ($IsWindows) { $filePath.ToUpperInvariant() } else { $filePath }
+        $hasher = [System.Security.Cryptography.SHA256]::Create()
+        try {
+            $lockName = 'ShellPilot.EditFile.' + [BitConverter]::ToString(
+                $hasher.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($lockPath))).Replace('-', '')
+        } finally {
+            $hasher.Dispose()
+        }
+        $ready = [System.Threading.ManualResetEventSlim]::new($false)
+        $release = [System.Threading.ManualResetEventSlim]::new($false)
+        $worker = [powershell]::Create()
+        $null = $worker.AddScript({
+            param($LockName, $Ready, $Release)
+            $mutex = [System.Threading.Mutex]::new($false, $LockName)
+            $taken = $false
+            try {
+                $taken = $mutex.WaitOne(10000)
+                if (-not $taken) { throw 'Could not acquire the test edit lock.' }
+                $Ready.Set()
+                if (-not $Release.Wait(10000)) { throw 'The test did not release the edit lock.' }
+            } finally {
+                if ($taken) { $mutex.ReleaseMutex() }
+                $mutex.Dispose()
+            }
+        }.ToString()).AddArgument($lockName).AddArgument($ready).AddArgument($release)
+        $workerRun = $worker.BeginInvoke()
+        try {
+            $ready.Wait(10000) | Should -BeTrue
+
+            $result = InModuleScope $script:moduleName -Parameters @{ FilePath = $filePath } {
+                Invoke-EditFileTool -Path $FilePath -OldString 'old' -NewString 'new' | ConvertFrom-Json
+            }
+
+            $result.error | Should -Match 'another edit.*retry'
+            [System.IO.File]::ReadAllText($filePath) | Should -BeExactly 'old'
+        } finally {
+            $release.Set()
+            $null = $worker.EndInvoke($workerRun)
+            $worker.Dispose()
+            $ready.Dispose()
+            $release.Dispose()
+        }
+    }
+
+    It 'Preserves a read-only target rather than replacing it' {
+        $filePath = Join-Path $TestDrive 'read-only.txt'
+        [System.IO.File]::WriteAllText($filePath, 'old')
+        $item = Get-Item -LiteralPath $filePath
+        $item.IsReadOnly = $true
+        try {
+            $result = InModuleScope $script:moduleName -Parameters @{ FilePath = $filePath } {
+                Invoke-EditFileTool -Path $FilePath -OldString 'old' -NewString 'new' | ConvertFrom-Json
+            }
+
+            $result.error | Should -Not -BeNullOrEmpty
+            [System.IO.File]::ReadAllText($filePath) | Should -BeExactly 'old'
+        } finally {
+            $item.IsReadOnly = $false
+        }
+    }
+
+    It 'Preserves a restricted Windows security descriptor' -Skip:(-not $IsWindows) {
+        $filePath = Join-Path $TestDrive 'restricted.txt'
+        [System.IO.File]::WriteAllText($filePath, 'old')
+        $security = Get-Acl -LiteralPath $filePath
+        $security.SetAccessRuleProtection($true, $false)
+        $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+        try {
+            $security.SetAccessRule([System.Security.AccessControl.FileSystemAccessRule]::new(
+                $identity.User, 'FullControl', 'Allow'))
+        } finally {
+            $identity.Dispose()
+        }
+        Set-Acl -LiteralPath $filePath -AclObject $security
+        $originalDescriptor = (Get-Acl -LiteralPath $filePath).Sddl
+
+        $result = InModuleScope $script:moduleName -Parameters @{ FilePath = $filePath } {
+            $script:editTemporaryDescriptor = $null
+            $sourceItem = Get-Item -LiteralPath $FilePath
+            $sourceItem | Add-Member -MemberType ScriptMethod -Name CopyTo -Force -Value {
+                param($Destination, $Overwrite)
+                [System.IO.File]::Copy($this.FullName, $Destination, $Overwrite)
+                $script:editTemporaryDescriptor = (Get-Acl -LiteralPath $Destination).Sddl
+                [System.IO.FileInfo]::new($Destination)
+            }
+            Mock Get-Item { $sourceItem } -ParameterFilter { $LiteralPath -eq $FilePath }
+            $editResult = Invoke-EditFileTool -Path $FilePath -OldString 'old' -NewString 'new' | ConvertFrom-Json
+            $editResult | Add-Member -NotePropertyName TemporaryDescriptor -NotePropertyValue $script:editTemporaryDescriptor
+            $editResult
+        }
+
+        $result.error | Should -BeNullOrEmpty
+        $result.TemporaryDescriptor | Should -BeExactly $originalDescriptor
+        (Get-Acl -LiteralPath $filePath).Sddl | Should -BeExactly $originalDescriptor
+        [System.IO.File]::ReadAllText($filePath) | Should -BeExactly 'new'
+        @(Get-ChildItem -LiteralPath $TestDrive -Force -Filter '.shp-edit-*') | Should -BeNullOrEmpty
+    }
+
+    It 'Preserves Unix file modes' -Skip:$IsWindows {
+        $filePath = Join-Path $TestDrive 'restricted-unix.txt'
+        [System.IO.File]::WriteAllText($filePath, 'old')
+        $mode = [System.IO.UnixFileMode]::UserRead -bor [System.IO.UnixFileMode]::UserWrite
+        [System.IO.File]::SetUnixFileMode($filePath, $mode)
+
+        $result = InModuleScope $script:moduleName -Parameters @{ FilePath = $filePath } {
+            Invoke-EditFileTool -Path $FilePath -OldString 'old' -NewString 'new' | ConvertFrom-Json
+        }
+
+        $result.error | Should -BeNullOrEmpty
+        [System.IO.File]::GetUnixFileMode($filePath) | Should -Be $mode
+        [System.IO.File]::ReadAllText($filePath) | Should -BeExactly 'new'
+    }
+
     It 'Preserves <Name> line endings in a multiline replacement' -ForEach @(
         @{ Name = 'CRLF'; NewLine = "`r`n" }
         @{ Name = 'LF'; NewLine = "`n" }

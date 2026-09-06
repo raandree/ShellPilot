@@ -16,8 +16,8 @@ Chronological record of shipped changes and remaining work. Latest first.
   state (011) is implemented but the Copilot proxy does not support it, so it
   falls back to client-side history.
 - The exact detached Sampler gate is currently healthy on PowerShell 7.6.5:
-  1,745 tests passed with 88.78% coverage on 2026-09-06. A prior .NET 10 native
-  access violation on PowerShell 7.6.1 remains historical context only.
+  1,759 tests passed, one Unix-only skip, and 88.70% coverage on 2026-09-06.
+  A prior .NET 10 native access violation on 7.6.1 remains historical only.
 
 ## What is left
 
@@ -43,6 +43,15 @@ Chronological record of shipped changes and remaining work. Latest first.
   `Deserialized.*` copy and break the "same result object" contract.
 
 ## Log
+
+- 2026-09-06 - Fix the F2 security review findings: require Read and Write
+  Tool rules, bound input/output to 8 MiB, refuse special files, and stage
+  protected atomic replacements with conflict detection and edit locking.
+  Pester 5 red/green regressions retained, including temporary-file access.
+  Exact detached gate: 1,759 passed, zero failed, one Unix-only skip, 88.70%
+  coverage; nine tasks, zero errors/warnings. Linux execution unavailable.
+  Updated policy help and migration notes. No push; preserve the user's
+  uncommitted test-file whitespace edit. External rename races remain explicit.
 
 - 2026-09-06 - Tranche 1 / F2: add `edit_file` for one ordinal string
   replacement, refusing zero or multiple matches (including overlaps).
@@ -1798,23 +1807,14 @@ Chronological record of shipped changes and remaining work. Latest first.
   the 9 private helpers and richer tests for Get-ShpModel/Get-ShpModelName,
   enabled Convert_Pester_Coverage, and set CodeCoverageThreshold to 20.
   Build green: 17 tasks, 0 errors; 114 tests pass; coverage 25.4%.
-- 2026-06-06 - Migrated to the Sampler build framework: split the monolith into
-  source/Public + source/Private (one function per file) plus Prefix.ps1 and
-  Suffix.ps1, authored the source manifest (GUID preserved, PS7), moved
-  PriceTable.psd1 into source with a CopyPaths entry, added build.ps1,
-  build.yaml, RequiredModules.psd1, GitVersion.yml, azure-pipelines.yml (PS7
-  only), .vscode, .github, and community files. Build and test are green
-  (8 tasks, 0 errors; 14 tests pass). TestQuality and helpQuality QA gates are
-  temporarily excluded pending the dedicated testing/help effort.
-- 2026-06-06 - Renamed Ghcp to ShellPilot end to end: module folder, manifest,
-  .psm1, cmdlet nouns (prefix Shp), the ,work script, and the docs; renamed the
-  GitHub repository raandree/PsGhcp to raandree/ShellPilot and updated the
-  remote. Module imports and exports Initialize-Shp, Get-ShpModel, Invoke-Shp,
-  Get-ShpModelName. No functional code changes.
-- 2026-06-06 - Recorded project decisions: full-terminal-Copilot scope,
-  Sampler build, PowerShell 7+ only, encrypted token storage, interactive
-  session, PowerShell Gallery. Rename chosen; new name pending. No code
-  changes.
-- 2026-06-06 - Created the Memory Bank and the initial specs outline;
-  catalogued the existing proof of concept. No code changes.
+- 2026-06-06 - Adopted Sampler's Public/Private layout, Prefix/Suffix, data copy
+  paths, build dependencies, GitVersion, PowerShell 7 CI, editor and community
+  files; retained the manifest GUID. Eight build tasks and 14 tests passed;
+  TestQuality/helpQuality were temporarily excluded pending the next effort.
+- 2026-06-06 - Renamed Ghcp/PsGhcp to ShellPilot throughout code, documentation
+  and GitHub; adopted Shp nouns. The four original public cmdlets still imported
+  and exported successfully; behavior was unchanged.
+- 2026-06-06 - Recorded full-terminal scope, Sampler, PowerShell 7+, encrypted
+  OAuth token storage, interactive use and Gallery goals; initialized the
+  Memory Bank and specifications from the proof of concept, without code edits.
 - 2026-06-07: Side task (unrelated to ShellPilot) - scaffolded a new standalone Sampler module FileManagement in C:\FileManagement per user request. 5 public file-mgmt functions + 1 private helper, full CBH, Pester tests, QA gates. Build green: 61 tests pass, PSScriptAnalyzer clean, module compiled to 0.1.0. Two local commits on branch ai/qa-fixes (genesis on master). Not pushed.

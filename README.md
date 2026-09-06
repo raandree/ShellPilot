@@ -140,9 +140,32 @@ including mixed line endings and the final newline. It accepts UTF-8 without
 a BOM and BOM-marked UTF-8, UTF-16, and UTF-32; malformed or unsupported text
 is refused instead of being converted. Neither string is normalized:
 `read_file` windows use LF, so an edit of CRLF text must supply literal `\r\n`
-line endings. `edit_file` uses the same `Write()` tool rules as `write_file`,
-is withdrawn by `-DisableFileAccess`, and is skipped under `-WhatIf`.
-Successful edits appear in `FilesWritten`.
+line endings. `edit_file` is withdrawn by `-DisableFileAccess` and skipped
+under `-WhatIf`. Successful edits appear in `FilesWritten`.
+
+When a Tool policy is set, `edit_file` requires both `Read()` and `Write()`
+Tool rules covering the target. Its match results reveal content even when
+the replacement is identical, so Write-only access is insufficient. A deny
+in either kind refuses the edit before reading; `write_file` still needs only
+`Write()`. Add narrowly scoped Read rules to existing edit policies:
+
+```powershell
+Set-ShpToolPolicy -Rule @('Read(./src/**)', 'Write(./src/**)')
+```
+
+Only regular, seekable files are supported. Input and resulting file must each
+fit in 8 MiB, including the BOM; larger files and replacements are refused.
+The destination directory must allow temporary-file creation and replacement.
+The tool stages and flushes the edit in that directory, checks for changed
+content, then atomically replaces the target. Windows security descriptors
+protect the temporary file as well as the result; Unix file modes are retained.
+Failures before replacement leave the target unchanged and clean up staging.
+
+ShellPilot edits to the same resolved path are serialized. Detected content or
+path changes cause an error and require a fresh read before retrying. Other
+programs must coordinate their own renames: the final check and replacement
+are not a filesystem compare-and-swap guarantee. An unsupported replacement
+fails rather than falling back to truncating the original file.
 
 ### User-defined tools
 

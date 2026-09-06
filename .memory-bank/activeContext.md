@@ -4,11 +4,12 @@ Current working focus for ShellPilot. Overwrite this file as the focus shifts.
 
 ## Focus
 
-Tranche 1 / F2 is complete on `ai/edit-file-tool`, branched from `main`.
-The built-in `edit_file` replaces one exact string and refuses zero or
-multiple matches. F1 is already on `main`; F6, F7/F8, F17, F22 and F23 remain
-ready to run. Tranche 1 and decision 14 remain accepted (decisions 001 and
-002). No push is authorized for this work.
+Tranche 1 / F2 security review remediation is complete on `ai/edit-file-tool`.
+The follow-up to `3446e32` requires Read and Write Tool rules, bounds edits to
+8 MiB, and stages protected atomic replacements with conflict detection.
+The user's fix request supersedes the original Write-only requirement. F1 is
+already on `main`; F6, F7/F8, F17, F22 and F23 remain ready to run. No push is
+authorized; the user's public-test trailing-blank-line edit stays uncommitted.
 
 Three scoping constraints decide what is admissible at all, and they are stated
 once so they are not re-argued per item: ShellPilot is a **module, not a host**
@@ -112,24 +113,31 @@ LF, so a multiline edit of CRLF text must explicitly supply CRLF; matching
 does not normalize either string. The schema, recovery error and README name
 this limitation. No existing file-reader behavior was changed.
 
-The tool joins the built-in name list, file-access offered set, existing
-resolved-path `Write()` policy gate, and `ShouldProcess` dispatch. Tests compare
-its `ToolCallsDenied`, `tool.call` policy and JSON denial envelope directly
-with `write_file`, including explicit denials and uncovered targets.
+The tool uses the existing offered-set guard, `ShouldProcess`, and resolved
+path policy checks. Write is checked first, preserving write_file denial
+messages; Read must also pass before any content guess reaches the helper.
+This intentionally changes Write-only policies. Public help, model guidance,
+README migration instructions, and the unreleased changelog describe it.
 
-Evidence: 39 new cases failed for the missing feature under Pester 5.7.1,
-then passed; the complete public/helper regression passed 210/210. All six
-changed PowerShell files are AST- and PSScriptAnalyzer-clean. A fresh build
-followed by the exact detached `./build.ps1 -AutoRestore -Tasks test` passed
-1,745/1,745 tests with 88.78% coverage and nine test tasks, zero errors or
-warnings. The authoritative gate resolved Pester 6.1.0 on PowerShell 7.6.5;
-the explicit Pester 5 proof used a temporary dependency without changing the
-repository dependencies. Final-newline-only cleanup was parse/analyzer checked.
+Only regular, seekable files are accepted. Input and output each have an
+8 MiB ceiling including the BOM. Same-path ShellPilot edits use a named mutex;
+staging is flushed and a bounded SHA-256 recheck precedes atomic replacement.
+Windows temporary files are secured before any content is copied, not only
+after replacement. Fault injection covers staging and replacement failures,
+same-length/same-time conflicts, lock contention, and temporary-file cleanup.
 
-Self-review is complete. Independent review remains off by default; recommend
-`review: on` for the model-driven file mutation and shared dispatch boundary.
-No process isolation or concurrent-writer guarantee was added. The user's
-pre-existing public-test trailing-blank-line removal remains uncommitted.
+Evidence: Pester 5.7.1 policy cases passed 13/13; helper cases passed 40 with
+one Unix-only skip. New refusal, conflict, failure and temporary-security
+regressions failed before their fixes. The fresh build and exact detached
+`./build.ps1 -AutoRestore -Tasks test` passed on PowerShell 7.6.5/Pester 6.1.0:
+1,759 passed, zero failed, one Unix-only skip, 88.70% coverage, nine test tasks,
+zero errors or warnings. Linux execution was unavailable locally. Existing
+Markdown lint findings outside the edited sections were left unchanged.
+
+Self-review is complete. Recommend `review: on` before merging the changed
+Tool policy and persistence contract. Other programs must coordinate their
+renames: the final content check and replacement are not a filesystem
+compare-and-swap guarantee. No process isolation was added.
 
 ## F1 complete
 

@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **Harden `edit_file` against content inference and unsafe writes.** Require
+  Read access as well as Write access before any match result can be returned.
+  Limit input and output to 8 MiB, refuse special files, stage protected
+  temporary files, and flush before atomic replacement. Refuse detected
+  concurrent changes and overlapping ShellPilot edits instead of silently
+  overwriting them. See [README.md](README.md#agent-tools-on-by-default).
+
 - **A disabled tool can no longer be executed.** `-DisableTerminal`,
   `-DisableFileAccess`, `-DisableBrowsing`, `-DisableUserPrompts` and
   `-DisableTodoList` removed a tool from the set offered to the model, but the
@@ -41,7 +48,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   multiple matches with recovery guidance. Preserve the BOM, encoding and
   unchanged line endings for UTF-8 and BOM-marked UTF-16/UTF-32; refuse
   malformed or unsupported text instead of converting it. The tool follows
-  existing `Write()` policy rules and denial events, is disabled by
+  `Read()` and `Write()` policy rules and existing denial events, is disabled by
   `-DisableFileAccess`, and reports the intended edit without writing under
   `-WhatIf`. See [README.md](README.md#agent-tools-on-by-default).
 
@@ -178,6 +185,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   any URL credentials redacted.
 
 ### Changed
+
+- **BREAKING CHANGE: `edit_file` requires both Read and Write Tool rules.**
+  Add a matching `Read()` rule to any Write-only edit policy. An explicit deny
+  in either kind blocks the edit; no-op replacements do not bypass this check.
+  Policies for `write_file` and `create_directory` are unchanged.
 
 - **An alternative backend (`-ApiBase`) no longer carries the Copilot session
   token.** It previously fell back to that token whenever no `ApiKey` was

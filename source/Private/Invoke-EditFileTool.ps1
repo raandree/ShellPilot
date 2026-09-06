@@ -17,6 +17,18 @@ function Invoke-EditFileTool {
         missing files are created. The Invoke-Shp dispatcher applies the tool
         policy and ShouldProcess before calling this helper.
 
+        Only regular, seekable files are supported. Input and output are each
+        limited to 8 MiB including the BOM. The bound cannot be raised by model
+        arguments. Oversized files and replacements are refused before writing.
+
+        Serializes edits to the same resolved path with a named mutex. Writes
+        and flushes a same-directory temporary copy, verifies the target's
+        content has not changed, then atomically replaces it. Copying retains
+        file attributes and Unix modes; replacement retains Windows security
+        metadata. A detected conflict is refused, not overwritten. Other
+        programs must coordinate their own renames: the final check and rename
+        are not a filesystem compare-and-swap operation.
+
     .PARAMETER Path
         Literal file path, absolute or relative to the PowerShell location.
 
@@ -54,17 +66,63 @@ function Invoke-EditFileTool {
         [string]$NewString
     )
 
+    $readStream = $null
+    $temporaryPath = $null
+    $editLock = $null
+    $lockTaken = $false
+    $hasher = $null
     try {
         if ([string]::IsNullOrEmpty($OldString)) {
             throw 'oldString must not be empty. Supply exact text from the file that occurs once.'
         }
 
-        $item = Get-Item -LiteralPath $Path -Force -ErrorAction Stop
-        if ($item.PSProvider.Name -ne 'FileSystem' -or $item.PSIsContainer) {
-            throw 'Path must identify an existing file. Use list_directory to locate the file to edit.'
+        $maxBytes = 8MB
+        if ($OldString.Length -gt $maxBytes -or $NewString.Length -gt $maxBytes) {
+            throw 'edit_file is limited to 8 MiB. Supply a smaller replacement or edit a smaller file with another tool.'
         }
 
-        $fileBytes = [System.IO.File]::ReadAllBytes($item.FullName)
+        $resolvedPath = Resolve-ShpRealPath -Path $Path
+        $item = Get-Item -LiteralPath $resolvedPath -Force -ErrorAction Stop
+        if ($item -isnot [System.IO.FileInfo] -or $item.Attributes -band [System.IO.FileAttributes]::Device -or
+            (-not $IsWindows -and $item.UnixMode -notlike '-*')) {
+            throw 'Path must identify an existing regular file. Devices, pipes and other special files cannot be edited.'
+        }
+
+        $hasher = [System.Security.Cryptography.SHA256]::Create()
+        $lockPath = if ($IsWindows) { $item.FullName.ToUpperInvariant() } else { $item.FullName }
+        $lockName = 'ShellPilot.EditFile.' + [BitConverter]::ToString(
+            $hasher.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($lockPath))).Replace('-', '')
+        $editLock = [System.Threading.Mutex]::new($false, $lockName)
+        try {
+            $lockTaken = $editLock.WaitOne(0)
+        } catch [System.Threading.AbandonedMutexException] {
+            $lockTaken = $true
+        }
+        if (-not $lockTaken) { throw 'Another edit is in progress for this file. Read the current file and retry.' }
+        $item.Refresh()
+        if ($item.IsReadOnly) { throw 'The file is read-only. Choose a writable file or ask the user to change its access.' }
+
+        $fileShare = [System.IO.FileShare]::Read -bor [System.IO.FileShare]::Delete
+        $readStream = [System.IO.File]::Open($item.FullName, 'Open', 'Read', $fileShare)
+        if (-not $readStream.CanSeek) {
+            throw 'Path must identify a seekable regular file. Devices and pipes cannot be edited.'
+        }
+        if ($readStream.Length -gt $maxBytes) {
+            throw 'The file exceeds the 8 MiB edit_file limit. Edit a smaller file with another tool; no bytes were written.'
+        }
+        $fileBytes = [byte[]]::new($readStream.Length)
+        $readOffset = 0
+        while ($readOffset -lt $fileBytes.Length) {
+            $bytesRead = $readStream.Read($fileBytes, $readOffset, $fileBytes.Length - $readOffset)
+            if ($bytesRead -eq 0) { throw 'The file changed while being read. Read the current file and retry the edit.' }
+            $readOffset += $bytesRead
+        }
+        if ($readStream.ReadByte() -ne -1) {
+            throw 'The file changed while being read. Read the current file and retry the edit.'
+        }
+        $readStream.Dispose()
+        $readStream = $null
+
         $encoding = [System.Text.UTF8Encoding]::new($false, $true)
         $preambleLength = 0
         $bomEncodings = @(
@@ -111,12 +169,69 @@ function Invoke-EditFileTool {
             throw ('oldString has {0} matches. Include more surrounding text so exactly one occurrence matches. No bytes were written.' -f $matchCount)
         }
 
+        if ([long]$text.Length - $OldString.Length + $NewString.Length -gt $maxBytes) {
+            throw 'The edited file would exceed the 8 MiB edit_file limit. Supply a smaller replacement; no bytes were written.'
+        }
         $updatedText = $text.Remove($matchIndex, $OldString.Length).Insert($matchIndex, $NewString)
+        if ([long]$encoding.GetByteCount($updatedText) + $preambleLength -gt $maxBytes) {
+            throw 'The edited file would exceed the 8 MiB edit_file limit. Supply a smaller replacement; no bytes were written.'
+        }
         $contentBytes = $encoding.GetBytes($updatedText)
         $updatedBytes = [byte[]]::new($preambleLength + $contentBytes.Length)
         [System.Array]::Copy($fileBytes, 0, $updatedBytes, 0, $preambleLength)
         [System.Array]::Copy($contentBytes, 0, $updatedBytes, $preambleLength, $contentBytes.Length)
-        [System.IO.File]::WriteAllBytes($item.FullName, $updatedBytes)
+        $originalHash = [Convert]::ToBase64String($hasher.ComputeHash($fileBytes))
+        $temporaryPath = Join-Path -Path $item.DirectoryName -ChildPath ('.shp-edit-{0}.tmp' -f [guid]::NewGuid().ToString('N'))
+        if ($IsWindows) {
+            $temporarySecurity = Get-Acl -LiteralPath $item.FullName -ErrorAction Stop
+            $secureStream = [System.IO.FileSystemAclExtensions]::Create(
+                [System.IO.FileInfo]::new($temporaryPath), [System.IO.FileMode]::CreateNew,
+                [System.Security.AccessControl.FileSystemRights]::Write, [System.IO.FileShare]::None,
+                4096, [System.IO.FileOptions]::None, $temporarySecurity)
+            $secureStream.Dispose()
+            Set-Acl -LiteralPath $temporaryPath -AclObject $temporarySecurity -ErrorAction Stop
+        }
+        $temporaryItem = $item.CopyTo($temporaryPath, $IsWindows)
+        $writeStream = [System.IO.File]::Open($temporaryPath, 'Truncate', 'Write', 'None')
+        try {
+            $writeStream.Write($updatedBytes, 0, $updatedBytes.Length)
+            $writeStream.Flush($true)
+        } finally {
+            $writeStream.Dispose()
+        }
+
+        $comparison = if ($IsWindows) { [StringComparison]::OrdinalIgnoreCase } else { [StringComparison]::Ordinal }
+        $currentPath = Resolve-ShpRealPath -Path $Path
+        if (-not [string]::Equals($item.FullName, $currentPath, $comparison)) {
+            throw 'The file path changed during the edit. Read the current file and retry; no edit was committed.'
+        }
+        $currentItem = Get-Item -LiteralPath $currentPath -Force -ErrorAction Stop
+        if ($currentItem -isnot [System.IO.FileInfo] -or $currentItem.Attributes -band [System.IO.FileAttributes]::Device -or
+            (-not $IsWindows -and $currentItem.UnixMode -notlike '-*')) {
+            throw 'The file type changed during the edit. Read the current file and retry; no edit was committed.'
+        }
+        $currentStream = [System.IO.File]::Open($currentPath, 'Open', 'Read', $fileShare)
+        try {
+            if (-not $currentStream.CanSeek -or $currentStream.Length -ne $fileBytes.Length) {
+                throw 'The file changed during the edit. Read the current file and retry; no edit was committed.'
+            }
+            $hasher.Initialize()
+            $buffer = [byte[]]::new(64KB)
+            $remaining = $fileBytes.Length
+            while ($remaining -gt 0) {
+                $bytesRead = $currentStream.Read($buffer, 0, [Math]::Min($buffer.Length, $remaining))
+                if ($bytesRead -eq 0) { throw 'The file changed during the edit. Read the current file and retry.' }
+                $null = $hasher.TransformBlock($buffer, 0, $bytesRead, $null, 0)
+                $remaining -= $bytesRead
+            }
+            $null = $hasher.TransformFinalBlock([byte[]]::new(0), 0, 0)
+            if ($currentStream.ReadByte() -ne -1 -or [Convert]::ToBase64String($hasher.Hash) -cne $originalHash) {
+                throw 'The file changed during the edit. Read the current file and retry; no edit was committed.'
+            }
+        } finally {
+            $currentStream.Dispose()
+        }
+        $null = $temporaryItem.Replace($currentPath, [NullString]::Value, $false)
 
         return ([pscustomobject]@{
             path = $item.FullName
@@ -126,5 +241,18 @@ function Invoke-EditFileTool {
     } catch {
         $errorRecord = $_
         return (@{ path = $Path; error = $errorRecord.Exception.Message } | ConvertTo-Json -Compress)
+    } finally {
+        if ($readStream) { $readStream.Dispose() }
+        if ($temporaryPath -and [System.IO.File]::Exists($temporaryPath)) {
+            try {
+                [System.IO.File]::Delete($temporaryPath)
+            } catch {
+                $cleanupError = $_
+                Write-Warning ("Could not remove edit temporary file '{0}': {1}" -f $temporaryPath, $cleanupError.Exception.Message)
+            }
+        }
+        if ($lockTaken) { $editLock.ReleaseMutex() }
+        if ($editLock) { $editLock.Dispose() }
+        if ($hasher) { $hasher.Dispose() }
     }
 }

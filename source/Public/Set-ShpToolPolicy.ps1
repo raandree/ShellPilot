@@ -16,9 +16,14 @@ function Set-ShpToolPolicy {
 
         Rules are written as Kind(argument), after the GitHub Copilot CLI:
 
-            Read(<path>)    read_file, list_directory, glob_files and grep_files
-            Write(<path>)   write_file and create_directory
+            Read(<path>)    read_file, list_directory, glob_files, grep_files and edit_file
+            Write(<path>)   write_file, edit_file and create_directory
             Shell(<command prefix>)  run_command
+
+        edit_file requires both Read and Write rules covering the same resolved
+        path, because its match results reveal content even for a no-op edit.
+        A deny in either kind refuses the edit. write_file and create_directory
+        still require only Write access.
 
         A leading ! makes a rule a deny, and any matching deny beats every
         matching allow - so 'Read(./**)' with '!Read(./.git/**)' reads the tree
@@ -60,6 +65,12 @@ function Set-ShpToolPolicy {
 
         Lets the model read the tree except its git history, write only under
         out/, and run only 'git status'.
+
+    .EXAMPLE
+        Set-ShpToolPolicy -Rule @('Read(./src/**)', 'Write(./src/**)')
+
+        Lets the model inspect and edit files under src. A Write rule alone
+        permits write_file, but not edit_file.
 
     .EXAMPLE
         Set-ShpToolPolicy -Path ./triage-policy.txt

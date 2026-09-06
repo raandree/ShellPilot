@@ -13,6 +13,10 @@ function Test-ShpToolAccess {
         deny-by-default: an operation is permitted only when a rule allows it,
         and any matching deny rule overrides every allow.
 
+        edit_file requires both Write and Read access to the target because
+        its match results reveal file content. Write is checked first so a
+        missing Write rule uses the same denial as write_file.
+
         Paths are matched on the absolute, link-resolved path from
         Resolve-ShpRealPath, never on the string the model supplied, so a `..`
         segment or a directory link cannot walk out of an allowed root.
@@ -149,7 +153,12 @@ function Test-ShpToolAccess {
         }
         $matched = $rule
     }
-    if ($matched) { return @{ Allowed = $true; Reason = ''; Target = $resolved } }
+    if ($matched) {
+        if ($Tool -eq 'edit_file') {
+            return Test-ShpToolAccess -Tool 'read_file' -Path $resolved
+        }
+        return @{ Allowed = $true; Reason = ''; Target = $resolved }
+    }
 
     @{
         Allowed = $false

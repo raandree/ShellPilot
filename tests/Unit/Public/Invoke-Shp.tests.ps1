@@ -2042,14 +2042,53 @@ Describe 'Invoke-Shp edit_file' {
         }
     }
 
-    It 'Allows an edit covered by a Write rule' {
+    It 'Allows an edit covered by Read and Write rules' {
         InModuleScope $script:moduleName {
-            Set-ShpToolPolicy -Rule @(('Write({0})' -f (Resolve-ShpRealPath -Path $script:editPath)))
+            $resolvedPath = Resolve-ShpRealPath -Path $script:editPath
+            Set-ShpToolPolicy -Rule @('Read({0})' -f $resolvedPath; 'Write({0})' -f $resolvedPath)
 
             $result = Invoke-Shp @script:editInvokeParameters
 
             [System.IO.File]::ReadAllText($script:editPath) | Should -BeExactly 'after'
             $result.ToolCallsDenied | Should -BeNullOrEmpty
+        }
+    }
+
+    It 'Denies content guesses before reading with <Name>' -ForEach @(
+        @{ Name = 'only Write access'; Rules = @('Write({0}/**)') }
+        @{ Name = 'Read access to another target'; Rules = @('Write({0}/**)', 'Read({0}/elsewhere/**)') }
+        @{ Name = 'an explicit Read denial'; Rules = @('Write({0}/**)', 'Read({0}/**)', '!Read({0}/**)') }
+    ) {
+        InModuleScope $script:moduleName -Parameters @{ Root = $TestDrive; Rules = $Rules } {
+            $resolvedRoot = Resolve-ShpRealPath -Path $Root
+            Set-ShpToolPolicy -Rule @($Rules | ForEach-Object { $_ -f $resolvedRoot })
+            Mock Invoke-EditFileTool { throw 'The denied helper must not run.' }
+            $eventPath = Join-Path $Root ('read-denied-{0}.jsonl' -f [guid]::NewGuid())
+            $denials = foreach ($guess in 'before', 'missing') {
+                $script:editTurns = 0
+                $script:editArguments.oldString = $guess
+                $script:editArguments.newString = $guess
+
+                $result = Invoke-Shp @script:editInvokeParameters -EventStream $eventPath
+
+                $result.FilesWritten | Should -BeNullOrEmpty
+                $result.ToolCallsDenied | Should -HaveCount 1
+                $result.ToolCallsDenied[0] | Should -Match 'edit_file: .*Read'
+                $toolResult = $result.ToolCalls[0].ResultPreview | ConvertFrom-Json
+                $toolResult.denied | Should -Match 'Read'
+                $toolResult.error | Should -BeNullOrEmpty
+                $toolResult.denied
+            }
+
+            $denials[0] | Should -BeExactly $denials[1]
+            [System.IO.File]::ReadAllText($script:editPath) | Should -BeExactly 'before'
+            Should -Invoke Invoke-EditFileTool -Times 0 -Exactly
+            $events = @(Get-Content -LiteralPath $eventPath | ConvertFrom-Json | Where-Object type -eq 'tool.call')
+            $events | Should -HaveCount 2
+            foreach ($eventRecord in $events) {
+                $eventRecord.data.policy | Should -Be 'denied'
+                $eventRecord.data.reason | Should -BeExactly $denials[0]
+            }
         }
     }
 
