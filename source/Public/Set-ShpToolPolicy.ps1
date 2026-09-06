@@ -16,7 +16,7 @@ function Set-ShpToolPolicy {
 
         Rules are written as Kind(argument), after the GitHub Copilot CLI:
 
-            Read(<path>)    read_file and list_directory
+            Read(<path>)    read_file, list_directory, glob_files and grep_files
             Write(<path>)   write_file and create_directory
             Shell(<command prefix>)  run_command
 

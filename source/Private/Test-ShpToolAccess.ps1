@@ -25,8 +25,8 @@ function Test-ShpToolAccess {
         it is a coarse control and it is not a sandbox.
 
     .PARAMETER Tool
-        The tool being dispatched: read_file, list_directory, write_file,
-        create_directory or run_command.
+        The tool being dispatched: read_file, list_directory, glob_files,
+        grep_files, write_file, create_directory or run_command.
 
     .PARAMETER Path
         The path the tool was asked to act on, for the file tools.
@@ -74,6 +74,8 @@ function Test-ShpToolAccess {
     $kind = switch ($Tool) {
         'read_file'        { 'Read' }
         'list_directory'   { 'Read' }
+        'glob_files'       { 'Read' }
+        'grep_files'       { 'Read' }
         'write_file'       { 'Write' }
         'create_directory' { 'Write' }
         'run_command'      { 'Shell' }

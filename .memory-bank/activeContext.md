@@ -7,7 +7,8 @@ Current working focus for ShellPilot. Overwrite this file as the focus shifts.
 `specs/029-candidate-features.md` proposes twenty-five features ShellPilot does
 not have, each written as what it is, why it matters, what it costs and what it
 depends on. Tranche 1 is accepted (decision 001) and open decision 14 is
-accepted (decision 002). Nothing from either has been implemented yet.
+accepted (decision 002). F1 is implemented; the remaining tranche-1 prompts
+are ready to run.
 
 Three scoping constraints decide what is admissible at all, and they are stated
 once so they are not re-argued per item: ShellPilot is a **module, not a host**
@@ -66,17 +67,11 @@ Recorded in `.memory-bank/decisions/001-first-tranche-scope.md` and indexed in
   path pointed at a file that does not exist, call `Get-ShpModel` and read one
   of three outcomes. **It needs a token the user must mint** - that is the only
   thing standing between here and the answer.
-- **Open decision 14 is drafted and awaiting sign-off.** The finding is that
-  the module-state-on-disk blocker was **never one decision**: pinning stores a
-  hash and leaks nothing, a snapshot cache stores third-party schemas, and
-  session resume stores the entire conversation including every byte
-  `read_file` returned. Bundling three risks two orders of magnitude apart is
-  why it has sat open. Recommendation is to split - a default-location store
-  for non-content state (unblocking decision 13's option B immediately), an
-  opt-in caller-named path for content, redaction applied **on write** with the
-  visible consequence stated (a resumed session replays redacted history), and
-  snapshot caching closed rather than deferred because ShellPilot starts MCP
-  servers eagerly in-session and has no startup latency to hide.
+- **Decision 14 is accepted as D, split by sensitivity.** Non-content state may
+  use a default location beside the token file; content is written only to a
+  caller-named path, never discovered or defaulted, and is redacted on write.
+  Snapshot caching is closed because ShellPilot starts MCP servers eagerly and
+  has no startup latency to hide. Decision 13's option B and F20 are unblocked.
 
 Tranche 2 and 3 are not scheduled. No implementation starts on them without a
 further decision.
@@ -101,6 +96,42 @@ Seven prompts for eight features: **F7 and F8 share one**, because both change
 the same guard and splitting them means touching it twice. **F1 must run before
 F22** - a plan preset that forbids `Shell()` is dishonest until the model can
 search without it. The other five carry no ordering constraint.
+
+## F1 complete
+
+Tranche 1 / F1 is complete: `glob_files` and `grep_files` give the model a way
+to find a file by name and a definition by content without `run_command`. That
+was the blocker making a tight `Set-ShpToolPolicy` impractical - the only way to
+let the model *locate* anything was to grant `Shell(...)`, which grants far more
+than searching. `Read(./**)` is now sufficient.
+
+Both live behind `-DisableFileAccess` with the other file tools, and both map to
+the `Read` kind in `Test-ShpToolAccess`, so they need no new rule syntax. The
+design decision worth keeping: **the pre-dispatch gate clears the search ROOT,
+and the back-end re-checks EVERY hit**. A glob rooted inside an allowed
+directory can still match a file that resolves, through a link, to somewhere no
+rule covers, so a root-only check would be the same defeat `Resolve-ShpRealPath`
+exists to prevent. An excluded hit is counted in `excludedByPolicy` rather than
+dropped silently.
+
+The glob syntax is not a second dialect: both tools compile their pattern with
+`ConvertTo-ShpPathPattern`, the tool policy's own compiler, so `*` and `**` mean
+in a search exactly what they mean in a `Read()` rule. A pattern is refused when
+absolute, and `Get-ChildItem -Recurse` (which does not follow directory links)
+bounds the walk to the root regardless, so a `..` pattern matches nothing rather
+than escaping.
+
+Results are bounded three ways - files examined, matches returned, characters
+returned - and any cap sets `truncated`, because a tool result is appended to
+the chat messages and resent on every later request.
+
+The candidate-feature planning, offered-set guard, and F1 implementation are
+consolidated on `main`; their former topic branches have no remaining work.
+
+Final evidence: AST parsing clean on all changed files; PSScriptAnalyzer clean
+on the new source and tests (the remaining warnings are pre-existing); the exact
+detached `./build.ps1 -AutoRestore -Tasks test` gate passed 1,700/1,700 tests
+with 88.56% coverage and 9 tasks, zero errors or warnings.
 
 ## Previous focus - spec 028
 

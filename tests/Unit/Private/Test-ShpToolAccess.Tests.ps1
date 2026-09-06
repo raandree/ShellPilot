@@ -100,6 +100,28 @@ Describe 'Test-ShpToolAccess' {
                 (Test-ShpToolAccess -Tool 'read_file' -Path (Join-Path $script:policyRoot 'src/deep.txt')).Allowed | Should -BeFalse
             }
         }
+
+        It 'Governs the search tools by the same Read rules as read_file' {
+            InModuleScope $script:moduleName {
+                # Searching is a read, so it must not need a rule of its own and
+                # must not reach anywhere read_file cannot.
+                (Test-ShpToolAccess -Tool 'glob_files' -Path (Join-Path $script:policyRoot 'notes.txt')).Allowed | Should -BeTrue
+                (Test-ShpToolAccess -Tool 'grep_files' -Path (Join-Path $script:policyRoot 'notes.txt')).Allowed | Should -BeTrue
+
+                (Test-ShpToolAccess -Tool 'glob_files' -Path 'C:/Windows/System32/config/SAM').Allowed | Should -BeFalse
+                (Test-ShpToolAccess -Tool 'grep_files' -Path 'C:/Windows/System32/config/SAM').Allowed | Should -BeFalse
+            }
+        }
+
+        It 'Does not let a Write rule alone grant a search' {
+            InModuleScope $script:moduleName {
+                Clear-ShpToolPolicy
+                Set-ShpToolPolicy -Rule @(('Write({0}/**)' -f $script:policyRoot))
+
+                (Test-ShpToolAccess -Tool 'glob_files' -Path (Join-Path $script:policyRoot 'notes.txt')).Allowed | Should -BeFalse
+                (Test-ShpToolAccess -Tool 'grep_files' -Path (Join-Path $script:policyRoot 'notes.txt')).Allowed | Should -BeFalse
+            }
+        }
     }
 
     Context 'Symlink and junction evasion' {

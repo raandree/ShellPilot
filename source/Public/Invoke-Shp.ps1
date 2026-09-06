@@ -7,11 +7,12 @@ function Invoke-Shp {
         Obtains a Copilot session token, sends -Prompt to the chat API (falling
         back to the responses API for models that require it), streams the reply
         to the host by default, and runs a tool-calling loop that lets the model
-        fetch web pages, read/list/create/write local files, run shell commands,
-        and ask the user questions on the console. All four tool categories are
-        on by default; turn them off individually with -DisableBrowsing (the
-        fetch_url tool), -DisableFileAccess (read_file / list_directory /
-        write_file / create_directory), -DisableTerminal (run_command), and
+        fetch web pages, read/list/search/create/write local files, run shell
+        commands, and ask the user questions on the console. All four tool
+        categories are on by default; turn them off individually with
+        -DisableBrowsing (the fetch_url tool), -DisableFileAccess (read_file /
+        list_directory / glob_files / grep_files / write_file /
+        create_directory), -DisableTerminal (run_command), and
         -DisableUserPrompts (ask_user). Pass -DisableStreaming for a single
         buffered reply instead of live token streaming.
 
@@ -115,9 +116,10 @@ function Invoke-Shp {
 
     .PARAMETER DisableFileAccess
         Turn off local file access. By default the read_file, list_directory,
-        write_file and create_directory tools are exposed to the model so it can
-        read, list, create and write files and folders (with the caller's own
-        privileges, no path sandboxing); this switch disables all of them.
+        glob_files, grep_files, write_file and create_directory tools are
+        exposed to the model so it can read, list, search, create and write
+        files and folders (with the caller's own privileges, no path
+        sandboxing); this switch disables all of them.
 
     .PARAMETER DisableTerminal
         Turn off terminal access. By default the run_command tool is exposed to
@@ -583,8 +585,8 @@ function Invoke-Shp {
     .EXAMPLE
         Invoke-Shp -Prompt 'Explain this prompt.' -DisableFileAccess
 
-        Disables the file tools (read_file / list_directory / write_file /
-        create_directory) for this call.
+        Disables the file tools (read_file / list_directory / glob_files /
+        grep_files / write_file / create_directory) for this call.
 
     .EXAMPLE
         Invoke-Shp -Prompt 'Worum geht es in dieser Mail?' -Attachment '.\flight-delay.msg'
@@ -1174,6 +1176,31 @@ function Invoke-Shp {
         $null = $tools.Add(@{
             type='function'
             function=@{
+                name='glob_files'
+                description='Find files by name pattern under a directory and return a JSON envelope (path, pattern, count, matches, excludedByPolicy, truncated). Use this to locate files instead of running a shell command. In the pattern, * matches within one path segment and ** matches any depth, so use "**/*.ps1" to search the whole tree and "*.ps1" for the directory itself. The result is capped: when truncated is true, narrow the pattern rather than repeating the call.'
+                parameters=@{ type='object'; required=@('path','pattern'); properties=@{
+                    path=@{ type='string'; description='Directory to search (absolute or relative to the current working directory).' }
+                    pattern=@{ type='string'; description='Glob to match, relative to path. Must not be absolute. Example: **/*.tests.ps1' }
+                    maxResult=@{ type='integer'; description='Maximum number of matches to return. Defaults to a bounded set.' }
+                } }
+            }
+        })
+        $null = $tools.Add(@{
+            type='function'
+            function=@{
+                name='grep_files'
+                description='Search file contents under a directory for a regular expression and return a JSON envelope whose matches carry only path, line number and the matching line - not the file. Use this to find where something is defined or used instead of running a shell command, then read_file to read around a hit. Narrow the candidate files with the include glob (* matches within one path segment, ** matches any depth). The result is capped: when truncated is true, narrow the pattern or the include glob rather than repeating the call.'
+                parameters=@{ type='object'; required=@('path','pattern'); properties=@{
+                    path=@{ type='string'; description='Directory to search (absolute or relative to the current working directory).' }
+                    pattern=@{ type='string'; description='Case-insensitive regular expression matched against each line.' }
+                    include=@{ type='string'; description='Optional glob limiting which files are searched, relative to path. Example: **/*.ps1' }
+                    maxResult=@{ type='integer'; description='Maximum number of matching lines to return. Defaults to a bounded set.' }
+                } }
+            }
+        })
+        $null = $tools.Add(@{
+            type='function'
+            function=@{
                 name='write_file'
                 description='Create or overwrite a local file with the given text content. Missing parent directories are created automatically. Use this whenever the user asks you to create, write, save or generate a file. Set append=true to add to an existing file instead of overwriting it.'
                 parameters=@{ type='object'; required=@('path','content'); properties=@{
@@ -1266,6 +1293,17 @@ function Invoke-Shp {
             }
         })
     }
+    # Every built-in this call actually offered. Derived from the tool list that
+    # was just assembled, rather than re-tested against each -Disable* switch, so
+    # a tool added later cannot be offered under one condition and dispatched
+    # under another. Captured before user and MCP tools are appended, so only the
+    # module's own tools can ever land in it.
+    $offeredBuiltInTool = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    foreach ($offered in $tools) {
+        $offeredName = [string]$offered.function.name
+        if ($offeredName -in $script:ShpBuiltInToolName) { $null = $offeredBuiltInTool.Add($offeredName) }
+    }
+
     # User-defined tools (Register-ShpTool): offer any registered command to the
     # model unless this call opted out. Each registered schema is added as-is and
     # dispatched by name in the tool loop below.
@@ -1319,7 +1357,7 @@ function Invoke-Shp {
         $systemContent += ' You have a fetch_url tool - use it whenever the user asks about current web content or a URL. Cite the URLs you fetched.'
     }
     if ($fileAccessEnabled) {
-        $systemContent += ' You have read_file and list_directory tools - use them whenever the user refers to a local file or directory by path. Read a file before reasoning about its contents; never guess. You also have write_file and create_directory tools - use write_file whenever the user asks you to create, write, save or generate a file (do not just print the content and claim you cannot write files).'
+        $systemContent += ' You have read_file and list_directory tools - use them whenever the user refers to a local file or directory by path. Read a file before reasoning about its contents; never guess. You also have glob_files (find files by name pattern) and grep_files (search file contents) - use them to locate a file or a definition instead of running a shell command, then read_file to read around a hit. You also have write_file and create_directory tools - use write_file whenever the user asks you to create, write, save or generate a file (do not just print the content and claim you cannot write files).'
     }
     if ($terminalEnabled) {
         $systemContent += ' You have a run_command tool that runs a shell command line in PowerShell and returns its stdout, stderr and exit code - use it to run commands the user asks for and to inspect or change system state the file tools cannot (git, builds, package managers, processes, services). Prefer non-destructive commands and explain any destructive one before running it.'
@@ -1946,11 +1984,23 @@ function Invoke-Shp {
                     # cover this - it is interactive only, so an unattended run
                     # never prompts, which is exactly the run that needs scoping.
                     $access = switch ($tc.Name) {
-                        { $_ -in 'read_file', 'list_directory', 'write_file', 'create_directory' } {
+                        { $_ -in 'read_file', 'list_directory', 'glob_files', 'grep_files', 'write_file', 'create_directory' } {
                             Test-ShpToolAccess -Tool $tc.Name -Path ([string]$fargs.path)
                         }
                         'run_command' { Test-ShpToolAccess -Tool $tc.Name -Command ([string]$fargs.command) }
                         default       { @{ Allowed = $true; Reason = '' } }
+                    }
+                    # A disabled built-in must not run, and not offering it is not
+                    # enough on its own: the model can still name it from its own
+                    # priors or from a replayed history, and the dispatch switch
+                    # matches built-in names before it looks at anything else. So
+                    # -DisableTerminal and its siblings bound what executes here,
+                    # not merely what was advertised above.
+                    if ($access.Allowed -and $tc.Name -in $script:ShpBuiltInToolName -and -not $offeredBuiltInTool.Contains($tc.Name)) {
+                        $access = @{
+                            Allowed = $false
+                            Reason  = ("The '{0}' tool is disabled for this call and was not run." -f $tc.Name)
+                        }
                     }
                 } catch { $preDispatchError = $_ }
 
@@ -1983,6 +2033,21 @@ function Invoke-Shp {
                             if (-not $filesRead.Contains($fargs.path)) { $null = $filesRead.Add($fargs.path) }
                         }
                         'list_directory' { $toolResult = Invoke-ListDirectoryTool -Path $fargs.path }
+                        'glob_files' {
+                            # The gate above cleared the search ROOT; the back-end
+                            # re-checks every hit, because a glob rooted inside an
+                            # allowed directory can still match a path that
+                            # resolves outside it.
+                            $globArgs = @{ Path = [string]$fargs.path; Pattern = [string]$fargs.pattern }
+                            if ($fargs.PSObject.Properties['maxResult'] -and [int]$fargs.maxResult -ge 1) { $globArgs['MaxResult'] = [int]$fargs.maxResult }
+                            $toolResult = Invoke-GlobFilesTool @globArgs
+                        }
+                        'grep_files' {
+                            $grepArgs = @{ Path = [string]$fargs.path; Pattern = [string]$fargs.pattern }
+                            if ($fargs.PSObject.Properties['include'] -and -not [string]::IsNullOrWhiteSpace([string]$fargs.include)) { $grepArgs['Include'] = [string]$fargs.include }
+                            if ($fargs.PSObject.Properties['maxResult'] -and [int]$fargs.maxResult -ge 1) { $grepArgs['MaxResult'] = [int]$fargs.maxResult }
+                            $toolResult = Invoke-GrepFilesTool @grepArgs
+                        }
                         'write_file' {
                             if ($PSCmdlet.ShouldProcess([string]$fargs.path, 'write_file')) {
                                 $toolResult = Invoke-WriteFileTool -Path $fargs.path -Content ([string]$fargs.content) -Append:([bool]$fargs.append)

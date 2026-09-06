@@ -40,4 +40,26 @@ Describe 'Register-ShpTool' {
             $schema.function.parameters.properties.Keys | Should -Contain 'Path'
         }
     }
+
+    # Dispatch matches built-in names before it ever looks at the user tool table,
+    # so a same-named registration is advertised and then silently ignored. An
+    # attached MCP server has been refused this since it shipped; a local
+    # registration was not, which is the more dangerous of the two because the
+    # caller believes it replaced the built-in.
+    It 'Refuses a tool name that collides with the built-in <Name>' -ForEach @(
+        @{ Name = 'run_command' }
+        @{ Name = 'read_file' }
+        @{ Name = 'write_file' }
+        @{ Name = 'fetch_url' }
+        @{ Name = 'ask_user' }
+    ) {
+        { Register-ShpTool -Command Get-ChildItem -ToolName $Name } |
+            Should -Throw -ExpectedMessage "*$Name*built-in*"
+        (Get-ShpTool).Name | Should -Not -Contain $Name
+    }
+
+    It 'Refuses a colliding name whatever its casing' {
+        { Register-ShpTool -Command Get-ChildItem -ToolName 'Run_Command' } |
+            Should -Throw -ExpectedMessage '*built-in*'
+    }
 }
