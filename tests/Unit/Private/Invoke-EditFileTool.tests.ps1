@@ -181,8 +181,15 @@ Describe 'Invoke-EditFileTool' {
         $escapedPath = $fifoPath.Replace("'", "''")
         $probe = @"
             `$ErrorActionPreference = 'Stop'
+            [Console]::Error.WriteLine('pipe probe: importing module')
             `$module = Import-Module -Name '$modulePath' -Force -PassThru
             & `$module {
+                [Console]::Error.WriteLine('pipe probe: resolving path')
+                `$resolved = Resolve-ShpRealPath -Path `$args[0]
+                [Console]::Error.WriteLine('pipe probe: reading metadata')
+                `$item = Get-Item -LiteralPath `$resolved -Force
+                [Console]::Error.WriteLine('pipe probe: UnixMode=' + `$item.UnixMode)
+                [Console]::Error.WriteLine('pipe probe: invoking edit_file')
                 Invoke-EditFileTool -Path `$args[0] -OldString 'old' -NewString 'new'
             } '$escapedPath'
 "@
@@ -198,8 +205,13 @@ Describe 'Invoke-EditFileTool' {
         $stdout = $worker.StandardOutput.ReadToEndAsync()
         $stderr = $worker.StandardError.ReadToEndAsync()
         try {
-            $worker.WaitForExit(15000) |
-                Should -BeTrue -Because 'the type check must run before the file is opened'
+            $completed = $worker.WaitForExit(15000)
+            if (-not $completed) {
+                $worker.Kill($true)
+                $worker.WaitForExit(5000) | Should -BeTrue -Because 'the timed-out probe must be terminated'
+            }
+            $completed | Should -BeTrue -Because (
+                'the type check must run before the file is opened. ' + $stderr.GetAwaiter().GetResult())
             $worker.ExitCode | Should -Be 0 -Because $stderr.GetAwaiter().GetResult()
             ($stdout.GetAwaiter().GetResult() | ConvertFrom-Json).error | Should -Match 'regular file'
         } finally {

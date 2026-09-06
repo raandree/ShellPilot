@@ -31,8 +31,15 @@ was cancelled to collect diagnostics, with no Unix result artifacts produced.
 The pipe fixture now uses a killable child process instead of synchronous
 runspace Stop/Dispose after its 15-second wait. The rebuilt local gate passed:
 1,765 passed, zero failed, two skips, 88.70% coverage, and analyzer clean.
-A fresh three-OS run is pending. Require both Unix-only edit_file cases to
-execute successfully on Linux and macOS, and record counts before sign-off.
+Correction `6639409` was pushed normally and dispatched as
+[run 34046321162](https://github.com/raandree/ShellPilot/actions/runs/34046321162).
+That run completed: Windows passed (1,765/0/2, 88.70% coverage); Linux and
+macOS each had 1,751 passed, one failed, 15 skipped, and 87.44% coverage.
+Both mode-preservation tests executed successfully. Both pipe probes executed
+but timed out at 15 seconds. Isolation fixed the suite hang, not the underlying
+blocking call. Added child phase diagnostics; the rebuilt local gate passed
+with 1,765 passed, zero failed, two skips, 88.70% coverage, and analyzer clean.
+The diagnostic CI dispatch is next. Do not claim Unix sign-off.
 
 Three scoping constraints decide what is admissible at all, and they are stated
 once so they are not re-argued per item: ShellPilot is a **module, not a host**

@@ -52,7 +52,12 @@ Chronological record of shipped changes and remaining work. Latest first.
   Replaced the pipe fixture's in-process runspace with a killable child process,
   retaining the 15-second timeout and regular-file refusal assertion. Syntax,
   generated-script validation, and analyzer passed. Rebuilt local gate:
-  1,765 passed, zero failed, two skips, 88.70% coverage. Unix rerun pending.
+  1,765 passed, zero failed, two skips, 88.70% coverage. Rerun at `6639409`,
+  [34046321162](https://github.com/raandree/ShellPilot/actions/runs/34046321162),
+  completed with Windows green (same counts); each Unix leg: 1,751 passed,
+  one failed, 15 skipped, 87.44% coverage. Mode preservation executed and
+  passed; the pipe refusal executed but timed out at 15 seconds on both.
+  Bounded isolation fixed the suite hang; the blocked call remains unresolved.
 
 - 2026-09-06 - Independent review of F2 at `13311e1` failed on a PowerShell
   7.1 junction-policy bypass and destructive recovery after native replacement
