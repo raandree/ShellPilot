@@ -1,8 +1,10 @@
 # Host request transport groundwork
 
 This specification describes optional host integration in `Invoke-Shp`.
-It does not provide process containment, a complete child lifecycle, or a hard
-token or cost budget. The existing default invocation path is unchanged.
+It provides conditional request admission, not a verified provider counter,
+process containment, or a complete child lifecycle. The existing default
+invocation path is unchanged. DeskPilot V2 remains blocked on a supported
+complete-request counting contract.
 
 ## Explicit no-retry calls
 
@@ -49,16 +51,90 @@ transport process and complete admission/accounting contract remain open.
 
 ## Missing hard-budget contract
 
-The existing token estimate is heuristic, and `MaxBudgetUSD` checks completed
-spend. A fixture request with a zero-dollar budget still dispatches before the
-cost guard stops continuation. A small context budget can warn and dispatch.
-Neither mechanism provides a reservation before a request.
+The ordinary token estimate is heuristic, and `MaxBudgetUSD` checks completed
+spend. Those options remain backward compatible and are not hard request
+admission. A small context budget can still warn and dispatch.
 
-A complete host profile needs a verified bound for the entire request,
-including model-specific framing and schemas, plus Engine-owned worst-case
-pricing, atomic reservations, unknown/failed Usage, and cancellable transport.
-Do not label fixture counts, character estimates, or an unverified host callback
-as an obtainable, enforcing Engine contract.
+The new owned-transport admission mechanism below can reserve a trusted count,
+but ShellPilot ships no verified complete-request counter for Copilot. A host
+must establish the bound for its exact Model, request shape, Tool schemas,
+system text, framing, and provider-added content. Merely returning `exact` or
+`upper-bound` from a callback is not verification.
+
+The [OpenAI counting guide](https://developers.openai.com/cookbook/examples/how_to_count_tokens_with_tiktoken)
+describes its message calculations as estimates and notes additional Tool
+overhead. The [Anthropic counting guide](https://platform.claude.com/docs/en/build-with-claude/token-counting)
+also describes its endpoint's count as an estimate. Neither establishes a
+complete-request bound for the Copilot transport used here. These sources were
+checked on 2026-09-06; no private request was sent to a counting service.
+
+## Conditional request admission
+
+`RequestLimits` is an opt-in hashtable used with `RequestTransport` and a trusted
+`RequestTokenCounter` scriptblock. The required fields are:
+
+| Field | Meaning |
+| --- | --- |
+| `MaxInputTokens` | Positive integer ceiling for each complete request's input. |
+| `MaxTotalTokens` | Positive integer ceiling for cumulative input plus maximum output reservations. |
+| `MaxCostUSD` | Non-negative finite decimal ceiling using Engine price-table rates. |
+
+Limits and the exact Model's price-table entry are copied before the loop.
+Missing counters, unknown pricing, malformed limits, and exceeded ceilings
+refuse dispatch. Native transport cannot be combined with these limits.
+Existing no-retry restrictions remain in force.
+
+Each normalized request receives a SHA-256 `RequestDigest`, calculated over
+its stable JSON before adding that field. The counter gets a separate copy and
+returns exactly one record:
+
+| Field | Required value |
+| --- | --- |
+| `RequestId`, `RequestDigest`, `Model`, `Mode` | Scalar strings matching the request exactly. |
+| `InputTokens` | Non-negative integer complete-request count or verified upper bound. |
+| `Scope` | The scalar string `complete-request`. |
+| `Kind` | The scalar string `exact` or `upper-bound`, never `estimated`. |
+| `Source` | A static trusted identifier beginning with an ASCII letter or digit, at most 128 ASCII letters, digits, dots, underscores, colons, or hyphens. |
+
+The counter and transport are trusted host code, not a child-controlled claim
+or callable Tool. Neither may use untrusted data as a source identifier. The
+digest prevents accidental request/count mismatch; it is not authentication or
+evidence that the count includes provider-side framing.
+
+Before transport, a locked invocation-local ledger reserves counted input,
+maximum output, and Engine-priced worst-case cost. Pricing uses the largest
+applicable default/long-context and input/cache rates, without early rounding.
+All reservations remain held until the invocation ends, even when reported
+Usage is smaller, unavailable, or transport fails. This is intentionally
+conservative; there is no capacity refund during a run and no automatic retry.
+Sequential invocations receive separate ledgers, not an installation-wide cap.
+
+Results include `RequestAdmission` with request count, unknown-Usage request
+count, reserved tokens, reserved cost, and static counter-source identifiers.
+Unknown aggregate Usage and cost are null, not zero; `KnownUsage` preserves
+fully reported requests separately. Usage records retain reservations on
+request failure and iteration exhaustion. Event-stream Usage and
+`Get-ShpUsage -Summary` retain the unknown distinction too.
+
+Counter and bounded transport exceptions become fixed, content-free failures.
+A stale or malformed count refuses the request. A response contradicting the
+reserved input/output ceiling, requested Model, API shape, or cache-token
+invariants ends the invocation before further Tool dispatch and marks Usage
+unknown. Such a check detects a broken contract after one request; it cannot
+undo that request or substitute for a verified counter and provider contract.
+
+### Security and compatibility limits
+
+The trusted host, counter, transport, and Engine price table are outside the
+hostile Model boundary. A child must not own the ledger or select its counter,
+pricing, endpoints, headers, or Tool schemas. This API alone supplies none of
+the process, credential, network, storage, cancellation, or deadline guarantees
+of DeskPilot V2. Cost is Engine-priced USD, not a billing-provider spending cap.
+
+Omitting `RequestLimits` retains the prior invocation and result contract.
+There is no persisted-state migration or new runtime dependency. Returning to
+ordinary calls means omitting these options; DeskPilot must never do so as an
+automatic fallback from a refused child run.
 
 ## Verification and distribution
 
@@ -72,6 +148,18 @@ Pester 5.7.1. The full Sampler gate passed 1,749 tests with no failures or skips
 review requests changes for missing complete-request admission and full child
 integration; this is not review approval of a complete boundary.
 
+The admission extension has 38 public and seven helper regressions. New behavior
+was tested red then green, including limits, stale counts, metadata types,
+frozen inputs, sequential state, failed/unknown Usage, and contradictory reports.
+Its positive counter is explicitly `deterministic-fixture-v1`, not a provider
+implementation. The full Sampler gate passed 1,810 tests without failures or
+skips, with 89.12% coverage and 16 tasks without errors or warnings. Independent
+review approved this diff with no Blocker or Major findings. Its one Minor
+coverage finding was closed by two additional parameter-guard tests; the final
+public suite passed 38 tests. Production source was unchanged by that follow-up.
+
 Changes are tracked on local branch `ai/child-provider-boundary`. No package was
 published, no ignored dependency was patched, and no authenticated provider
-proof was run. This is not clean-install support for DeskPilot child Agents.
+proof was run. On 2026-09-06 the DeskPilot operator chose to keep V2 unchanged
+and close out verified groundwork rather than replace its hard limits with
+estimates. This is not clean-install support for DeskPilot child Agents.

@@ -36,6 +36,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Add conditional admission limits to owned `Invoke-Shp` transport.**
+  `RequestLimits` and a trusted `RequestTokenCounter` reserve input, maximum
+  output, and Engine-priced cost before dispatch. Unknown or failed Usage
+  retains its reservation and stays explicitly unknown in results, events,
+  and summaries. No verified Copilot counter or complete child runtime is
+  supplied; ordinary calls are unchanged. See
+  [the contract and limitations](specs/030-host-request-transport.md).
+
 - **Add optional host transport groundwork to `Invoke-Shp`.** Use
   `NoAutomaticRetry` to disable transport and API-shape resends, or
   `RequestTransport` for a credentialless Tool-calling loop with a trusted

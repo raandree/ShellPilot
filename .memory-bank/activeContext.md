@@ -4,24 +4,47 @@ Current working focus for ShellPilot. Overwrite this file as the focus shifts.
 
 ## Focus
 
-Limited host transport work is in progress on `ai/child-provider-boundary` in
+Conditional host request admission is implemented on `ai/child-provider-boundary` in
 the separate `D:/Git/ShellPilot-child-isolation` worktree, based on `3446e32`.
 The DeskPilot operator approved tracked Engine changes on 2026-09-06, including
 a credentialless loop/transport split. The original `ai/edit-file-tool` worktree
 and its unrelated modified public test are preserved.
 
-`NoAutomaticRetry` and `RequestTransport` are implemented and locally tested;
-the public invocation regression passed 185 tests with no failures or skips.
-The full Sampler gate passed 1,749 tests, no failures/skips, 88.79% coverage,
-16 tasks, zero errors/warnings. The complete request counter, Engine-priced
-reservation, trusted transport process, cancellation/accounting contract, live
-proof, and clean-install distribution remain open. Do not publish or describe
-the local callback as complete child support. See
+The 2026-09-06 continuation adds conditional `RequestLimits` and
+`RequestTokenCounter` to the existing `NoAutomaticRetry` / `RequestTransport`
+groundwork. Limits/pricing are frozen and complete input plus maximum output
+and Engine-priced cost are reserved before each owned transport call. Failed
+or unknown Usage retains its reservation and is not reported as zero. The
+38 public admission cases pass with a labeled deterministic counter.
+
+The full gate found six QA omissions for the new helpers: same-named tests and
+help examples. The repair passed 680 QA/admission checks, including seven named
+helper tests. The final Engine Sampler gate passed 1,810 tests without failures
+or skips, 89.12% coverage, 16 tasks, zero errors/warnings. DeskPilot's unchanged
+full gate passed 2,373 tests with five existing browser skips. Independent
+review approved this diff with zero Blockers/Majors and one Minor test gap.
+The two missing parameter-guard tests now pass in the 38-case public suite;
+production hashes still match the reviewed source. No complete-profile claim.
+
+Evidence is under `$env:TEMP`: the review package is
+`deskpilot-admission-review-20260906-2030`; the final Engine gate log is
+`shp-admission-final-full-4a824e8b899c4609989844727a653408.log` (completed
+20:32:45 UTC), and the post-review test log is
+`shp-admission-review-guards-f770241ad3a7463fa7df486846801f24.log` (completed
+20:45:08 UTC). All ten changed PowerShell files passed AST/analyzer checks;
+the test-only follow-up also passed parsing and analysis.
+
+No verified Copilot complete-request counter ships with this code. The operator
+chose **Keep V2 unchanged; close out verified groundwork** rather than approve
+estimated limits. Trusted transport process, complete child integration,
+cancellation, live proof, and clean-install support remain open. Do not enable
+child startup or describe the conditional callback as complete support. See
 [specification 030](../specs/030-host-request-transport.md).
 
-The joint independent review returned request changes for the incomplete
+The earlier whole-child independent review returned request changes for the incomplete
 admission and complete-child contracts. No Engine implementation defect was
-reported, but the review is not approval of a complete boundary or release.
+reported. Approval of this conditional admission diff does not close those
+provider/profile gates or authorize a release.
 
 The following F2 details describe the baseline, not the current worktree:
 

@@ -535,6 +535,23 @@ function Invoke-Shp {
         callback is a trusted host capability, not a Model-callable Tool or
         a filesystem or network containment mechanism.
 
+    .PARAMETER RequestLimits
+        Opt-in owned-transport admission limits: MaxInputTokens per request,
+        MaxTotalTokens for cumulative input plus maximum output, and MaxCostUSD
+        using frozen Engine pricing. Limits are copied at invocation startup.
+        Every request reserves its full capacity before RequestTransport runs;
+        reservations are retained even when transport fails or Usage is unknown.
+        Requires RequestTransport and a verified RequestTokenCounter. The
+        Engine currently ships no provider-specific complete-request counter.
+
+    .PARAMETER RequestTokenCounter
+        Trusted complete-request counter used only with RequestLimits. Receives
+        a detached request including RequestDigest and returns RequestId,
+        RequestDigest, Model, Mode, InputTokens, Scope ('complete-request'),
+        Kind ('exact' or 'upper-bound'), and a bounded Source identifier.
+        The host must verify its provider-specific framing and counting contract;
+        a declaration or deterministic fixture alone is not that evidence.
+
     .PARAMETER RetryDelaySec
         Base delay in seconds for the exponential backoff between retries
         (attempt n waits RetryDelaySec * 2^(n-1) seconds, with equal jitter
@@ -923,6 +940,12 @@ function Invoke-Shp {
         [ValidateNotNull()]
         [scriptblock]$RequestTransport,
 
+        [ValidateNotNull()]
+        [hashtable]$RequestLimits,
+
+        [ValidateNotNull()]
+        [scriptblock]$RequestTokenCounter,
+
         [ValidateRange(0, [int]::MaxValue)]
         [int]$RetryDelaySec,
 
@@ -948,6 +971,18 @@ function Invoke-Shp {
         $NoAutomaticRetry = $true
     }
 
+    $requestBudget = $null
+    $boundedRequests = $PSBoundParameters.ContainsKey('RequestLimits')
+    if ($boundedRequests -and -not $ownedTransport) {
+        $PSCmdlet.ThrowTerminatingError((New-ShpRequestAdmissionError -Code 'ShpRequestTransportRequired' -Message 'Hard request limits require an owned transport.'))
+    }
+    if ($boundedRequests -and -not $PSBoundParameters.ContainsKey('RequestTokenCounter')) {
+        $PSCmdlet.ThrowTerminatingError((New-ShpRequestAdmissionError -Code 'ShpRequestCountUnavailable' -Message 'A verified complete-request count is unavailable; hard request limits refuse dispatch.'))
+    }
+    if (-not $boundedRequests -and $PSBoundParameters.ContainsKey('RequestTokenCounter')) {
+        $PSCmdlet.ThrowTerminatingError((New-ShpRequestAdmissionError -Code 'ShpRequestLimitsRequired' -Message 'A request counter requires explicit request limits.'))
+    }
+
     # Resolve the model and the optional model knobs from the session defaults
     # (Select-ShpModel) when not supplied explicitly. An explicit parameter on
     # this call always wins; the built-in model fallback is the last resort.
@@ -959,6 +994,10 @@ function Invoke-Shp {
     }
     if (-not $PSBoundParameters.ContainsKey('MaxOutputTokens') -and $script:ShpDefaults.MaxOutputTokens) {
         $MaxOutputTokens = [int]$script:ShpDefaults.MaxOutputTokens
+    }
+
+    if ($boundedRequests) {
+        $requestBudget = New-ShpRequestBudget -Limits $RequestLimits -Model $Model
     }
 
     # Normalise -FailOn once. An unbound [string[]] is $null and @($null) is a
@@ -1686,7 +1725,7 @@ function Invoke-Shp {
             # Every completed iteration was a billable round-trip, so record what
             # this turn already spent before abandoning it.
             $limitError = "Exceeded MaxToolIterations ($MaxToolIterations)."
-            $null = Add-ShpUsageRecord -RequestedModel $Model -ServerModel $(if ($turn) { $turn.ModelName } else { $null }) -Prompt $Prompt -RoundTrip $roundTrips.ToArray() -ContextTokens $peakPromptTokens -Iterations ($iteration - 1) -ToolCallCount (@($toolCallsExecuted).Count) -DurationMs ([int]$sw.Elapsed.TotalMilliseconds) -ErrorMessage $limitError
+            $null = Add-ShpUsageRecord -RequestedModel $Model -ServerModel $(if ($turn) { $turn.ModelName } else { $null }) -Prompt $Prompt -RoundTrip $roundTrips.ToArray() -ContextTokens $peakPromptTokens -Iterations ($iteration - 1) -ToolCallCount (@($toolCallsExecuted).Count) -DurationMs ([int]$sw.Elapsed.TotalMilliseconds) -ErrorMessage $limitError -RequestBudget $requestBudget
             & $emit 'error' @{ iteration = $iteration; reason = 'ToolIterationLimit'; message = $limitError; errorId = $(if ($failOnCondition -contains 'ToolIterationLimit') { 'ShpToolIterationLimit' } else { $null }) }
             # This condition already terminated the call, so -FailOn does not
             # change WHETHER it fails - only that the error carries a branchable
@@ -1831,10 +1870,53 @@ function Invoke-Shp {
                     Structured = $structuredParams
                     Sampling = $samplingParams
                 }
+                if ($requestBudget) {
+                    $requestJson = ConvertTo-ShpStableJson -InputObject $requestData -Depth 32
+                    $hashAlgorithm = [System.Security.Cryptography.SHA256]::Create()
+                    try {
+                        $requestHash = $hashAlgorithm.ComputeHash([Text.Encoding]::UTF8.GetBytes($requestJson))
+                        $requestData.RequestDigest = [BitConverter]::ToString($requestHash).Replace('-', '').ToLowerInvariant()
+                    } finally {
+                        $hashAlgorithm.Dispose()
+                    }
+                }
                 $requestCopy = ConvertTo-ShpStableJson -InputObject $requestData -Depth 32 | ConvertFrom-Json
-                $transportResults = @(& $RequestTransport $requestCopy)
-                if ($transportResults.Count -ne 1) { throw 'RequestTransport must return exactly one normalized result.' }
+                if ($requestBudget) {
+                    $requestReservation = Add-ShpRequestReservation -Budget $requestBudget -Request $requestCopy -Counter $RequestTokenCounter
+                }
+                try {
+                    $transportResults = @(& $RequestTransport $requestCopy)
+                    if ($transportResults.Count -ne 1) { throw 'RequestTransport must return exactly one normalized result.' }
+                } catch {
+                    if ($requestBudget) {
+                        throw (New-ShpRequestAdmissionError -Code 'ShpRequestTransportFailed' -Message 'The bounded request transport failed; its full reservation is retained and Usage is unknown.' -Budget $requestBudget)
+                    }
+                    throw
+                }
                 $turn = $transportResults[0]
+                if ($requestBudget) {
+                    $requestUsageKnown = $true
+                    $invalidUsage = $turn.ModelName -isnot [string] -or $turn.Mode -isnot [string] -or
+                        $turn.ModelName -cne $requestReservation.Model -or $turn.Mode -cne $requestCopy.Mode
+                    foreach ($field in 'PromptTokens', 'CompletionTokens', 'CachedTokens', 'CacheWriteTokens') {
+                        $value = $turn.$field
+                        if ($null -eq $value) {
+                            $requestUsageKnown = $false
+                        } elseif (($value -isnot [int] -and $value -isnot [long]) -or $value -lt 0 -or $value -gt [int]::MaxValue) {
+                            $invalidUsage = $true
+                        }
+                    }
+                    if (-not $invalidUsage) {
+                        $invalidUsage = ($null -ne $turn.PromptTokens -and $turn.PromptTokens -gt $requestReservation.InputTokens) -or
+                            ($null -ne $turn.CompletionTokens -and $turn.CompletionTokens -gt $requestReservation.OutputTokens) -or
+                            ($null -ne $turn.PromptTokens -and ([long]$turn.CachedTokens + [long]$turn.CacheWriteTokens) -gt $turn.PromptTokens)
+                    }
+                    if ($invalidUsage) {
+                        $turn = $null
+                        throw (New-ShpRequestAdmissionError -Code 'ShpRequestUsageInvalid' -Message 'The transport report contradicts its reservation; further execution is refused and Usage is unknown.' -Budget $requestBudget)
+                    }
+                    if ($requestUsageKnown) { $requestBudget.UnknownUsageRequestCount-- }
+                }
             } else {
                 $turn = Invoke-CopilotTurn -Mode $mode -Model $Model -ApiBase $apiBase -Headers $apiHeaders -Conversation $conv -Tools $tls -RequestReasoningSummary:($mode -eq 'responses' -and $requestReasoning) -ReasoningEffort $ReasoningEffort -MaxOutputTokens $MaxOutputTokens -Stream:($streamingEnabled -and $mode -eq 'chat') -EchoReasoning:($ShowThinking -and $streamingEnabled -and $mode -eq 'chat') -OnReasoningChunk $onReasoningChunk -OnRetry $onRequestRetry -Store:($serverSideActive -and $mode -eq 'responses') -PreviousResponseId $previousResponseId @structuredParams @samplingParams @connectionParams
             }
@@ -1913,7 +1995,7 @@ function Invoke-Shp {
             # No fallback applied, so this turn is over. Record it before
             # rethrowing: a Turn is a loop of billable round-trips, and the ones
             # completed before this failure were charged for.
-            $null = Add-ShpUsageRecord -RequestedModel $Model -ServerModel $(if ($turn) { $turn.ModelName } else { $null }) -Prompt $Prompt -RoundTrip $roundTrips.ToArray() -ContextTokens $peakPromptTokens -Iterations ($iteration - 1) -ToolCallCount (@($toolCallsExecuted).Count) -DurationMs ([int]$sw.Elapsed.TotalMilliseconds) -ErrorMessage $errText
+            $null = Add-ShpUsageRecord -RequestedModel $Model -ServerModel $(if ($turn) { $turn.ModelName } else { $null }) -Prompt $Prompt -RoundTrip $roundTrips.ToArray() -ContextTokens $peakPromptTokens -Iterations ($iteration - 1) -ToolCallCount (@($toolCallsExecuted).Count) -DurationMs ([int]$sw.Elapsed.TotalMilliseconds) -ErrorMessage $errText -RequestBudget $requestBudget
             & $emit 'error' @{ iteration = $iteration; reason = 'RequestFailed'; message = $errText; statusCode = $(if ($_.TargetObject) { $_.TargetObject.StatusCode } else { $null }); errorCode = $(if ($_.TargetObject) { $_.TargetObject.ErrorCode } else { $null }) }
             throw
         }
@@ -1933,14 +2015,18 @@ function Invoke-Shp {
         $totalCompletion += $turn.CompletionTokens
         $totalCached += $turn.CachedTokens
         $totalCacheWrite += $turn.CacheWriteTokens
-        $null = $roundTrips.Add([pscustomobject]@{
+        $roundTrip = [pscustomobject]@{
             PromptTokens     = [int]$turn.PromptTokens
             CompletionTokens = [int]$turn.CompletionTokens
             CachedTokens     = [int]$turn.CachedTokens
             CacheWriteTokens = [int]$turn.CacheWriteTokens
-        })
+        }
+        if ($requestBudget) {
+            $roundTrip | Add-Member -NotePropertyName UsageKnown -NotePropertyValue $requestUsageKnown
+        }
+        $null = $roundTrips.Add($roundTrip)
 
-        & $emit 'usage' @{
+        $usageEventData = @{
             iteration        = $iteration
             model            = $turn.ModelName
             apiMode          = $turn.Mode
@@ -1951,6 +2037,15 @@ function Invoke-Shp {
             cacheWriteTokens = [int]$turn.CacheWriteTokens
             contextTokens    = $peakPromptTokens
         }
+        if ($requestBudget) {
+            $usageEventData.usageKnown = $requestUsageKnown
+            if (-not $requestUsageKnown) {
+                foreach ($name in 'promptTokens', 'completionTokens', 'cachedTokens', 'cacheWriteTokens', 'contextTokens') {
+                    $usageEventData[$name] = $null
+                }
+            }
+        }
+        & $emit 'usage' $usageEventData
 
         # The server-reported model wins over the requested one; both are tried
         # because some models return an empty name.
@@ -2419,11 +2514,35 @@ function Invoke-Shp {
         Headers=$rawHeaders; Raw=$turn.Raw
     }
 
+    if ($requestBudget) {
+        $result | Add-Member -NotePropertyName RequestAdmission -NotePropertyValue ([pscustomobject]@{
+            RequestCount = $requestBudget.RequestCount
+            UnknownUsageRequestCount = $requestBudget.UnknownUsageRequestCount
+            ReservedTokens = $requestBudget.ReservedTokens
+            ReservedCostUSD = $requestBudget.ReservedCostUSD
+            CountSources = @($requestBudget.CountSources)
+        })
+    }
+
     # Record this call in the per-session usage log (every call, including
     # stateless -History calls) so the session's token and credit spend can be
     # analysed afterwards via Get-ShpUsage. A failed turn is recorded too, at
     # the throws above, through this same builder.
-    $null = Add-ShpUsageRecord -RequestedModel $Model -ServerModel $turn.ModelName -Prompt $Prompt -RoundTrip $roundTrips.ToArray() -ContextTokens $peakPromptTokens -Iterations $iteration -ToolCallCount (@($toolCallsExecuted).Count) -FinishReason $turn.FinishReason -DurationMs ([int]$sw.Elapsed.TotalMilliseconds)
+    $usageRecord = Add-ShpUsageRecord -RequestedModel $Model -ServerModel $turn.ModelName -Prompt $Prompt -RoundTrip $roundTrips.ToArray() -ContextTokens $peakPromptTokens -Iterations $iteration -ToolCallCount (@($toolCallsExecuted).Count) -FinishReason $turn.FinishReason -DurationMs ([int]$sw.Elapsed.TotalMilliseconds) -RequestBudget $requestBudget
+    if ($requestBudget -and $requestBudget.UnknownUsageRequestCount -gt 0) {
+        foreach ($name in 'PromptTokens', 'CompletionTokens', 'TotalTokens', 'ContextTokens') {
+            $result.Usage.$name = $null
+        }
+        $result.CostUSD = $null
+        $result.Credits = $null
+        $result.CostBreakdown = $null
+        $result | Add-Member -NotePropertyName KnownUsage -NotePropertyValue $usageRecord.KnownUsage
+        $costUSD = $null
+        $credits = $null
+        $totalPrompt = $null
+        $totalCompletion = $null
+        $peakPromptTokens = $null
+    }
 
     # The answer, redacted. Redaction never touches the result handed back to
     # the caller, but the stream is a file a CI system collects and keeps, so a

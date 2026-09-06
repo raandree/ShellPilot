@@ -84,9 +84,13 @@ choke point (Protect-ShpEgressContent).
 `Invoke-Shp -RequestTransport` skips native credential resolution and HTTP and
 hands a detached request to trusted host code. It implies `NoAutomaticRetry`,
 which also disables API-shape and Session-token resends. Default calls retain
-their prior behavior. The callback does not establish process containment,
-complete-request token bounds, or reservations; those need their own verified
-Engine/provider contract before a host can claim hard admission limits.
+their prior behavior. Optional `RequestLimits` / `RequestTokenCounter` adds
+request-bound pre-dispatch reservations against frozen Engine pricing. Unknown
+Usage retains capacity and stays null in results, events, and summaries, with
+reported partial Usage labeled separately. These conditional reservations do
+not establish process containment or a provider-specific complete-request
+count. No verified Copilot counter ships with the mechanism; fixture counts and
+callback declarations are not evidence of hard provider limits.
 
 ### Dual API abstraction
 

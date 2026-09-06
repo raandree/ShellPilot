@@ -16,7 +16,7 @@ Chronological record of shipped changes and remaining work. Latest first.
   state (011) is implemented but the Copilot proxy does not support it, so it
   falls back to client-side history.
 - The exact detached Sampler gate is currently healthy on PowerShell 7.6.5:
-  1,745 tests passed with 88.78% coverage on 2026-09-06. A prior .NET 10 native
+  1,810 tests passed with 89.12% coverage on 2026-09-06. A prior .NET 10 native
   access violation on PowerShell 7.6.1 remains historical context only.
 
 ## What is left
@@ -43,6 +43,17 @@ Chronological record of shipped changes and remaining work. Latest first.
   `Deserialized.*` copy and break the "same result object" contract.
 
 ## Log
+
+- 2026-09-06 - Add conditional owned-request admission with frozen limits and
+  Engine pricing, complete-request identity binding, retained reservations,
+  and explicit failed/unknown Usage. Full Sampler: 1,810 passed, no failures or
+  skips, 89.12% coverage, 16 tasks without errors/warnings. Independent review
+  approved with zero Blockers/Majors; its Minor missing-test finding was closed
+  with two parameter guards. Final focused proof: 38 public plus seven helper
+  cases. The operator kept DeskPilot V2 unchanged: no verified Copilot counter,
+  complete child integration, live proof, or clean-install release is claimed.
+  Review and source-bound evidence: TEMP/deskpilot-admission-review-20260906-2030.
+  Work remains on the local `ai/child-provider-boundary`; no publication or push.
 
 - 2026-09-06 - Add optional `NoAutomaticRetry` and credentialless
   `RequestTransport` groundwork for the explicitly approved DeskPilot V2
