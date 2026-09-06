@@ -2054,6 +2054,51 @@ Describe 'Invoke-Shp edit_file' {
         }
     }
 
+    It 'Edits the authorized target when the model path is repointed after the policy check' {
+        InModuleScope $script:moduleName -Parameters @{ Root = $TestDrive } {
+            $script:handoffAllowedRoot = Join-Path $Root 'handoff-allowed'
+            $script:handoffDeniedRoot = Join-Path $Root 'handoff-denied'
+            $null = New-Item -ItemType Directory -Path $script:handoffAllowedRoot -Force
+            $null = New-Item -ItemType Directory -Path $script:handoffDeniedRoot -Force
+            $allowedFile = Join-Path $script:handoffAllowedRoot 'target.txt'
+            $deniedFile = Join-Path $script:handoffDeniedRoot 'target.txt'
+            [System.IO.File]::WriteAllText($allowedFile, 'before')
+            [System.IO.File]::WriteAllText($deniedFile, 'before')
+            $deniedBytes = [Convert]::ToBase64String([System.IO.File]::ReadAllBytes($deniedFile))
+
+            $script:handoffLinkType = if ($IsWindows) { 'Junction' } else { 'SymbolicLink' }
+            $script:handoffLinkPath = Join-Path $Root 'handoff-link'
+            $null = New-Item -ItemType $script:handoffLinkType -Path $script:handoffLinkPath -Target $script:handoffAllowedRoot
+
+            $script:editPath = Join-Path $script:handoffLinkPath 'target.txt'
+            $script:editArguments = @{ path = $script:editPath; oldString = 'before'; newString = 'after' }
+            $allowedRoot = Resolve-ShpRealPath -Path $script:handoffAllowedRoot
+            Set-ShpToolPolicy -Rule @('Read({0}/**)' -f $allowedRoot; 'Write({0}/**)' -f $allowedRoot)
+
+            # Authorize for real, then repoint the model's directory link at the
+            # denied tree. The dispatcher must carry the authorized Target
+            # forward instead of resolving the model's path a second time.
+            $script:handoffRealAccess = (Get-Command -Name Test-ShpToolAccess -CommandType Function).ScriptBlock
+            Mock Test-ShpToolAccess {
+                $decision = & $script:handoffRealAccess -Tool $Tool -Path $Path
+                if ($Tool -eq 'edit_file' -and $decision.Allowed) {
+                    Remove-Item -LiteralPath $script:handoffLinkPath -Force
+                    $null = New-Item -ItemType $script:handoffLinkType -Path $script:handoffLinkPath -Target $script:handoffDeniedRoot
+                }
+                $decision
+            }
+
+            $result = Invoke-Shp @script:editInvokeParameters
+
+            $result.ToolCallsDenied | Should -BeNullOrEmpty
+            ($result.ToolCalls[0].ResultPreview | ConvertFrom-Json).path |
+                Should -BeExactly (Resolve-ShpRealPath -Path $allowedFile)
+            [System.IO.File]::ReadAllText($allowedFile) | Should -BeExactly 'after'
+            [Convert]::ToBase64String([System.IO.File]::ReadAllBytes($deniedFile)) |
+                Should -BeExactly $deniedBytes
+        }
+    }
+
     It 'Denies content guesses before reading with <Name>' -ForEach @(
         @{ Name = 'only Write access'; Rules = @('Write({0}/**)') }
         @{ Name = 'Read access to another target'; Rules = @('Write({0}/**)', 'Read({0}/elsewhere/**)') }

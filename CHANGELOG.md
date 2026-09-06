@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **Keep `edit_file` on the target approved by the tool policy.** Repointing
+  the original directory alias after authorization no longer redirects the
+  edit to a different file. Confirmation names the authorized target. Refuse
+  special files again after staging so a named-pipe swap cannot block the
+  final content check. External filesystem races remain outside the tool's
+  guarantees.
+
 - **Tool policy refuses paths when link resolution fails.** A missing runtime
   API or filesystem error no longer leaves an unresolved path eligible for
   Read or Write access. This prevents a junction inside an allowed directory

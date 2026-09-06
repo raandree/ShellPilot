@@ -225,6 +225,102 @@ Describe 'Invoke-EditFileTool' {
         }
     }
 
+    It 'Refuses a named pipe that replaced the file after staging' {
+        $filePath = Join-Path $TestDrive 'staged-pipe.txt'
+        [System.IO.File]::WriteAllText($filePath, 'old')
+
+        # Unix performs the real swap. Windows cannot create a FIFO, so it
+        # injects what a 0644 pipe reports there: UnixMode claims a regular
+        # file while UnixStat.ItemType names the pipe. Windows stays Windows
+        # through staging so no Unix native API runs there.
+        $stageHook = if ($IsWindows) {
+            @'
+                $script:probeStage = {
+                    Set-Variable -Name IsWindows -Value $false -Scope Global -Force
+                }
+                function Get-Item {
+                    [CmdletBinding()]
+                    param([string]$LiteralPath, [switch]$Force)
+                    $item = Microsoft.PowerShell.Management\Get-Item -LiteralPath $LiteralPath -Force:$Force
+                    if ($LiteralPath -ne $script:probeTarget) { return $item }
+                    $itemType = if ($script:probeStaged) { 'NamedPipe' } else { 'File' }
+                    $item | Add-Member -NotePropertyName UnixMode -NotePropertyValue '-rw-r--r--' -Force
+                    $item | Add-Member -NotePropertyName UnixStat -NotePropertyValue ([pscustomobject]@{ ItemType = $itemType }) -Force
+                    $item
+                }
+'@
+        } else {
+            @'
+                $script:probeStage = {
+                    [System.IO.File]::Delete($script:probeTarget)
+                    & mkfifo $script:probeTarget
+                    if ($LASTEXITCODE -ne 0) { throw "mkfifo failed with exit code $LASTEXITCODE." }
+                    & chmod 644 $script:probeTarget
+                    if ($LASTEXITCODE -ne 0) { throw "chmod failed with exit code $LASTEXITCODE." }
+                }
+'@
+        }
+
+        $modulePath = (Get-Module -Name $script:moduleName).Path.Replace("'", "''")
+        $escapedPath = $filePath.Replace("'", "''")
+        $probe = @"
+            `$ErrorActionPreference = 'Stop'
+            `$module = Import-Module -Name '$modulePath' -Force -PassThru
+            & `$module {
+                `$script:probeTarget = `$args[0]
+                `$script:probeStaged = `$false
+                `$script:probeResolveCount = 0
+                `$script:probeRealResolve = (Get-Command -Name Resolve-ShpRealPath -CommandType Function).ScriptBlock
+                function Resolve-ShpRealPath {
+                    [CmdletBinding()]
+                    param([AllowNull()][AllowEmptyString()][string]`$Path)
+                    `$resolved = & `$script:probeRealResolve -Path `$Path
+                    # The second resolution is the post-staging recheck.
+                    `$script:probeResolveCount++
+                    if (`$script:probeResolveCount -eq 2) {
+                        `$script:probeStaged = `$true
+                        & `$script:probeStage
+                    }
+                    `$resolved
+                }
+$stageHook
+                Invoke-EditFileTool -Path `$script:probeTarget -OldString 'old' -NewString 'new'
+            } '$escapedPath'
+"@
+        $startInfo = [System.Diagnostics.ProcessStartInfo]::new((Join-Path $PSHOME 'pwsh'))
+        $startInfo.UseShellExecute = $false
+        $startInfo.RedirectStandardOutput = $true
+        $startInfo.RedirectStandardError = $true
+        foreach ($argument in @('-NoProfile', '-NonInteractive', '-EncodedCommand',
+                [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($probe)))) {
+            $startInfo.ArgumentList.Add($argument)
+        }
+        $worker = [System.Diagnostics.Process]::Start($startInfo)
+        $stdout = $worker.StandardOutput.ReadToEndAsync()
+        $stderr = $worker.StandardError.ReadToEndAsync()
+        try {
+            $completed = $worker.WaitForExit(15000)
+            if (-not $completed) {
+                $worker.Kill($true)
+                $worker.WaitForExit(5000) | Should -BeTrue -Because 'the timed-out probe must be terminated'
+            }
+            $completed | Should -BeTrue -Because (
+                'the type recheck must refuse the pipe before opening it. ' + $stderr.GetAwaiter().GetResult())
+            $worker.ExitCode | Should -Be 0 -Because $stderr.GetAwaiter().GetResult()
+            ($stdout.GetAwaiter().GetResult() | ConvertFrom-Json).error | Should -Match 'type changed'
+            if ($IsWindows) {
+                [System.IO.File]::ReadAllText($filePath) | Should -BeExactly 'old'
+            } else {
+                [string](Get-Item -LiteralPath $filePath -Force).UnixStat.ItemType | Should -BeExactly 'NamedPipe'
+            }
+            @(Get-ChildItem -LiteralPath $TestDrive -Force -Filter '.shp-edit-*') | Should -BeNullOrEmpty
+        } finally {
+            if (-not $worker.HasExited) { $worker.Kill($true) }
+            $worker.Dispose()
+            [System.IO.File]::Delete($filePath)
+        }
+    }
+
     It 'Preserves the original and cleans temporary files after a <Phase> failure' -ForEach @(
         @{ Phase = 'staging' }
         @{ Phase = 'replacement' }
@@ -470,6 +566,46 @@ Describe 'Invoke-EditFileTool' {
         $result.error | Should -BeNullOrEmpty
         [System.IO.File]::GetUnixFileMode($filePath) | Should -Be $mode
         [System.IO.File]::ReadAllText($filePath) | Should -BeExactly 'new'
+    }
+
+    It 'Creates a private empty Unix temporary file before copying content' -Skip:($IsWindows -or -not ('System.IO.UnixFileMode' -as [type])) {
+        $filePath = Join-Path $TestDrive 'staged-unix.txt'
+        [System.IO.File]::WriteAllText($filePath, 'old')
+        $mode = [System.IO.UnixFileMode]::UserRead -bor [System.IO.UnixFileMode]::UserWrite
+        [System.IO.File]::SetUnixFileMode($filePath, $mode)
+
+        $result = InModuleScope $script:moduleName -Parameters @{ FilePath = $filePath } {
+            $FilePath = Resolve-ShpRealPath -Path $FilePath
+            $script:editStagedLength = $null
+            $script:editStagedMode = $null
+            $sourceItem = Get-Item -LiteralPath $FilePath -Force
+            $sourceItem | Add-Member -MemberType ScriptMethod -Name CopyTo -Force -Value {
+                param($Destination, $Overwrite)
+                # Observed before any data is copied, so the window between
+                # creation and the first byte is what gets asserted.
+                if (-not [System.IO.File]::Exists($Destination)) {
+                    throw [System.IO.IOException]::new(
+                        'edit_file did not create the temporary file before copying content into it.')
+                }
+                $script:editStagedLength = [System.IO.FileInfo]::new($Destination).Length
+                $script:editStagedMode = [System.IO.File]::GetUnixFileMode($Destination)
+                [System.IO.File]::Copy($this.FullName, $Destination, $Overwrite)
+                [System.IO.FileInfo]::new($Destination)
+            }
+            Mock Resolve-ShpRealPath { $FilePath }
+            Mock Get-Item { $sourceItem } -ParameterFilter { $LiteralPath -eq $FilePath }
+            $editResult = Invoke-EditFileTool -Path $FilePath -OldString 'old' -NewString 'new' | ConvertFrom-Json
+            $editResult | Add-Member -NotePropertyName StagedLength -NotePropertyValue $script:editStagedLength
+            $editResult | Add-Member -NotePropertyName StagedMode -NotePropertyValue $script:editStagedMode
+            $editResult
+        }
+
+        $result.error | Should -BeNullOrEmpty
+        $result.StagedLength | Should -Be 0
+        ([int]$result.StagedMode -band -bnot [int]$mode) | Should -Be 0
+        [System.IO.File]::GetUnixFileMode($filePath) | Should -Be $mode
+        [System.IO.File]::ReadAllText($filePath) | Should -BeExactly 'new'
+        @(Get-ChildItem -LiteralPath $TestDrive -Force -Filter '.shp-edit-*') | Should -BeNullOrEmpty
     }
 
     It 'Preserves <Name> line endings in a multiline replacement' -ForEach @(

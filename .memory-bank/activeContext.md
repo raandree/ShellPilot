@@ -15,8 +15,27 @@ Packaging passed; deployment skipped. No PR or merge was performed.
 The failed independent review at `13311e1` led to fail-closed resolution with
 a PowerShell 7.2 floor, retained replacement backups, and resolved-path
 contention fixtures. Those fixes passed the local and hosted full suites.
-No independent re-review of the resulting fixes has been performed; recommend
-`review: on` for the security and persistence changes before integration.
+The user requested `review: on`. Independent review at `552020f` returned
+Fail: one Major, five Minor, one Nit. The controller reproduced the Major
+path handoff: the policy allowed one resolved target but dispatch re-resolved
+the original alias after it was repointed to a denied file. Dispatch and
+ShouldProcess now carry the allowed `Target`. The remaining post-staging
+`UnixMode` classifier also now uses `UnixStat.ItemType`. Both new regressions
+failed before the fix and passed afterward; rebuilt Windows suite: 1,767
+passed, zero failed, two skipped, 88.70% coverage, analyzer clean.
+
+Review also exposed .NET 6 Unix CopyFile applying permissions after data copy.
+The user explicitly approved raising the minimum to PowerShell 7.4 and applying
+Unix staging permissions at creation. A new native Unix staging regression is
+ready for hosted red validation; it currently skips on Windows. Runtime and
+staging production changes follow that evidence. Do not merge or claim final
+review approval while this remediation is pending.
+
+The exact test-first checkpoint passed the rebuilt local full gate on
+2026-09-06: 1,767 passed, zero failed, three skipped, 88.70% coverage; nine
+test tasks, zero errors or warnings, and changed-file analyzer clean.
+The additional skip is the native Unix staging regression. Next is the
+authorized hosted red run before implementing creation-time Unix protection.
 
 The user confirmed a normal push of this branch to origin and workflow_dispatch
 of CI on that ref in this session. No force-push, merge, or PR is authorized.

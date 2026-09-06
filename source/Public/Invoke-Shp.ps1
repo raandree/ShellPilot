@@ -2075,9 +2075,14 @@ function Invoke-Shp {
                                     throw ("edit_file requires '{0}' as a string. Supply path, oldString and newString; newString may be empty to delete the match." -f $argumentName)
                                 }
                             }
-                            if ($PSCmdlet.ShouldProcess([string]$fargs.path, 'edit_file')) {
+                            # The gate's Target, not the model's path: resolving
+                            # that string again here would follow a directory
+                            # link repointed since the check and edit a target
+                            # the policy never authorized.
+                            $editTarget = [string]$access.Target
+                            if ($PSCmdlet.ShouldProcess($editTarget, 'edit_file')) {
                                 $editFileArgs = @{
-                                    Path = $fargs.path
+                                    Path = $editTarget
                                     OldString = $fargs.oldString
                                     NewString = $fargs.newString
                                 }

@@ -44,6 +44,24 @@ Chronological record of shipped changes and remaining work. Latest first.
 
 ## Log
 
+- 2026-09-06 - Final-review test-first checkpoint passed the rebuilt local
+  gate: 1,767 passed, zero failed, three skipped, 88.70% coverage; nine test
+  tasks, zero errors or warnings, analyzer clean. The new Unix staging test
+  is intentionally unfixed for hosted red evidence; it skips on Windows.
+  Do not merge this checkpoint. Preserve the unrelated public-test EOF edit.
+
+- 2026-09-06 - User requested final independent review (`review: on`) at
+  `552020f`: Fail, one Major, five Minor, one Nit. Reproduced a denied-file
+  edit after repointing the model's directory alias between policy and
+  dispatch. Carried the authorized target through edit_file and ShouldProcess;
+  corrected the remaining post-staging Unix file-type check. Two new
+  regressions failed before the changes and passed after them. Rebuilt local
+  suite: 1,767 passed, zero failed, two skipped, 88.70% coverage; analyzer clean.
+  .NET 6 source confirms Unix copying precedes permission restoration. User
+  approved a 7.4 minimum and creation-time Unix staging protection. Native
+  staging regression added test-first; hosted red run pending. The previous
+  three-OS green result applies to `e06efca`, not this pending revision.
+
 - 2026-09-06 - Three-OS verification passed after the review fixes and Unix
   file-type correction, at `e06efca82761eee487487803820ab2fb1e7c4e4e`:
   [run 34047410571](https://github.com/raandree/ShellPilot/actions/runs/34047410571).

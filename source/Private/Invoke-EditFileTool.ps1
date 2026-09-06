@@ -225,7 +225,7 @@ function Invoke-EditFileTool {
         $currentItem = Get-Item -LiteralPath $currentPath -Force -ErrorAction Stop
         if ($currentItem -isnot [System.IO.FileInfo] -or
             $currentItem.Attributes.HasFlag([System.IO.FileAttributes]::Device) -or
-            (-not $IsWindows -and -not ([string]$currentItem.UnixMode).StartsWith('-'))) {
+            (-not $IsWindows -and [string]$currentItem.UnixStat.ItemType -ne 'File')) {
             throw 'The file type changed during the edit. Read the current file and retry; no edit was committed.'
         }
         $currentStream = [System.IO.File]::Open($currentPath, 'Open', 'Read', $fileShare)
