@@ -44,6 +44,16 @@ Chronological record of shipped changes and remaining work. Latest first.
 
 ## Log
 
+- 2026-09-06 - Three-OS CI at `ca703dc`:
+  [run 34045051136](https://github.com/raandree/ShellPilot/actions/runs/34045051136)
+  passed packaging and Windows (1,765 passed, zero failed, two skips, 88.70%
+  coverage). Both Unix logs stopped before the named-pipe test for over 15
+  minutes; cancelled the run to collect logs, with no Unix result artifacts.
+  Replaced the pipe fixture's in-process runspace with a killable child process,
+  retaining the 15-second timeout and regular-file refusal assertion. Syntax,
+  generated-script validation, and analyzer passed. Rebuilt local gate:
+  1,765 passed, zero failed, two skips, 88.70% coverage. Unix rerun pending.
+
 - 2026-09-06 - Independent review of F2 at `13311e1` failed on a PowerShell
   7.1 junction-policy bypass and destructive recovery after native replacement
   failure; also reproduced the linked-TEMP contention fixture defect. Added

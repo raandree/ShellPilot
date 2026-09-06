@@ -174,24 +174,38 @@ Describe 'Invoke-EditFileTool' {
     It 'Refuses a named pipe instead of blocking on it' -Skip:$IsWindows {
         $fifoPath = Join-Path $TestDrive 'pipe-target'
         & mkfifo $fifoPath
+        $LASTEXITCODE | Should -Be 0
         Test-Path -LiteralPath $fifoPath | Should -BeTrue
 
-        $worker = [powershell]::Create()
-        $null = $worker.AddScript({
-            param($ModuleName, $FilePath)
-            Import-Module -Name $ModuleName -Force -ErrorAction Stop
-            & (Get-Module -Name $ModuleName) {
-                Invoke-EditFileTool -Path $args[0] -OldString 'old' -NewString 'new'
-            } $FilePath
-        }.ToString()).AddArgument($script:moduleName).AddArgument($fifoPath)
-        $workerRun = $worker.BeginInvoke()
+        $modulePath = (Get-Module -Name $script:moduleName).Path.Replace("'", "''")
+        $escapedPath = $fifoPath.Replace("'", "''")
+        $probe = @"
+            `$ErrorActionPreference = 'Stop'
+            `$module = Import-Module -Name '$modulePath' -Force -PassThru
+            & `$module {
+                Invoke-EditFileTool -Path `$args[0] -OldString 'old' -NewString 'new'
+            } '$escapedPath'
+"@
+        $startInfo = [System.Diagnostics.ProcessStartInfo]::new((Join-Path $PSHOME 'pwsh'))
+        $startInfo.UseShellExecute = $false
+        $startInfo.RedirectStandardOutput = $true
+        $startInfo.RedirectStandardError = $true
+        foreach ($argument in @('-NoProfile', '-NonInteractive', '-EncodedCommand',
+                [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($probe)))) {
+            $startInfo.ArgumentList.Add($argument)
+        }
+        $worker = [System.Diagnostics.Process]::Start($startInfo)
+        $stdout = $worker.StandardOutput.ReadToEndAsync()
+        $stderr = $worker.StandardError.ReadToEndAsync()
         try {
-            $workerRun.AsyncWaitHandle.WaitOne(15000) |
+            $worker.WaitForExit(15000) |
                 Should -BeTrue -Because 'the type check must run before the file is opened'
-            ($worker.EndInvoke($workerRun) | ConvertFrom-Json).error | Should -Match 'regular file'
+            $worker.ExitCode | Should -Be 0 -Because $stderr.GetAwaiter().GetResult()
+            ($stdout.GetAwaiter().GetResult() | ConvertFrom-Json).error | Should -Match 'regular file'
         } finally {
-            if (-not $workerRun.IsCompleted) { $worker.Stop() }
+            if (-not $worker.HasExited) { $worker.Kill($true) }
             $worker.Dispose()
+            [System.IO.File]::Delete($fifoPath)
         }
     }
 

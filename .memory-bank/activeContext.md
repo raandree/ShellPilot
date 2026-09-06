@@ -21,6 +21,19 @@ Preserve the user's public-test trailing-blank-line edit uncommitted. The
 accepted Read+Write rule remains
 [decision 003](decisions/003-edit-file-authorization.md).
 
+Commit `ca703dc` was pushed normally to origin. The authorized CI dispatch is
+[run 34045051136](https://github.com/raandree/ShellPilot/actions/runs/34045051136).
+Packaging and Windows passed. The Windows artifact confirms 1,765 passed,
+zero failed, two Unix-only skips, and 88.70% coverage. Both Unix logs stopped
+after the device-refusal test, immediately before the named-pipe case, for
+over 15 minutes; the previous successful legs took about two minutes. The run
+was cancelled to collect diagnostics, with no Unix result artifacts produced.
+The pipe fixture now uses a killable child process instead of synchronous
+runspace Stop/Dispose after its 15-second wait. The rebuilt local gate passed:
+1,765 passed, zero failed, two skips, 88.70% coverage, and analyzer clean.
+A fresh three-OS run is pending. Require both Unix-only edit_file cases to
+execute successfully on Linux and macOS, and record counts before sign-off.
+
 Three scoping constraints decide what is admissible at all, and they are stated
 once so they are not re-argued per item: ShellPilot is a **module, not a host**
 (so nothing whose value is a full-screen interface has a shape here), **state on
