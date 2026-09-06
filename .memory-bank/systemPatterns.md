@@ -156,6 +156,11 @@ and `Write()` Tool rules for the target, even for a no-op replacement. This
 supersedes F2's original Write-only contract. Write is checked first to retain
 existing denial messages.
 
+Carry the Tool policy's authorized Target into edit_file dispatch and
+ShouldProcess. Re-resolving the original model-supplied alias after the gate
+can select a different file if a directory link was repointed. This handoff
+does not make subsequent filesystem operations an atomic authorization check.
+
 | Threat | Control |
 | --- | --- |
 | Disabled tool | Built-in registration and offered-set enforcement. |

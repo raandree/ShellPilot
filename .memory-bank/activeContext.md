@@ -5,11 +5,11 @@ Current working focus for ShellPilot. Overwrite this file as the focus shifts.
 ## Focus
 
 Tranche 1 / F2 three-OS verification is complete on `ai/edit-file-tool`.
-[Run 34047410571](https://github.com/raandree/ShellPilot/actions/runs/34047410571)
-passed at `e06efca82761eee487487803820ab2fb1e7c4e4e`: Windows 1,765 passed,
-zero failed, two skipped, 88.70% coverage; Linux and macOS each 1,752 passed,
-zero failed, 15 skipped, 87.44% coverage. Both required Unix tests executed
-successfully on both Unix platforms, confirmed in NUnit and hosted logs.
+[Run 34057101224](https://github.com/raandree/ShellPilot/actions/runs/34057101224)
+passed at `d32ede339e9e42edc39833a652ce27e0ae097a0e`: Windows 1,767 passed,
+zero failed, three skipped, 88.60% coverage; Linux and macOS each 1,755 passed,
+zero failed, 15 skipped, 87.45% coverage. All five targeted Unix regressions
+executed successfully on both Unix platforms, confirmed in NUnit artifacts.
 Packaging passed; deployment skipped. No PR or merge was performed.
 
 The failed independent review at `13311e1` led to fail-closed resolution with
@@ -32,13 +32,14 @@ file existed before CopyTo. Both named-pipe tests, mode preservation, and the
 authorized-target handoff passed on both Unix platforms. The helper now
 pre-creates Unix staging with FileStreamOptions.UnixCreateMode and copies into
 that existing file. The manifest and README now require PowerShell 7.4.
-Do not merge or claim final review approval while final validation is pending.
+Implementation and requested three-OS validation are complete. Merge remains
+the user's action; no fresh independent approval of the remediation is claimed.
 
 The exact test-first checkpoint passed the rebuilt local full gate on
 2026-09-06: 1,767 passed, zero failed, three skipped, 88.70% coverage; nine
 test tasks, zero errors or warnings, and changed-file analyzer clean.
-The additional skip is the native Unix staging regression. Next is the
-authorized hosted red run before implementing creation-time Unix protection.
+The additional skip is the native Unix staging regression. The subsequent
+authorized hosted red run preceded the creation-time Unix protection fix.
 Checkpoint `2932457` is pushed. Hosted red verification started at
 2026-09-06 19:59:59 UTC:
 [run 34056597601](https://github.com/raandree/ShellPilot/actions/runs/34056597601).
@@ -52,9 +53,30 @@ AST and manifest validation passed. Full rebuilt local gate passed on
 nine tasks, zero errors or warnings, changed-file analyzer clean. Evidence:
 `%TEMP%/shp-staging-green-full-7cfd7703.log`, completion marker
 `%TEMP%/detached-fb6c65ec21d6481a8713e45d5515b5e4.exit`.
-Next: commit/push and dispatch the hosted green matrix.
-Hosted Unix red used PowerShell 7.6.4 (macOS) and 7.6.5 (Linux); exact 7.4
-runtime execution is not proven by those runs.
+Fix committed and pushed as `d32ede3`. Hosted green verification started at
+2026-09-06 20:09:23 UTC:
+[run 34057101224](https://github.com/raandree/ShellPilot/actions/runs/34057101224).
+All three full suites passed. Both Unix reports explicitly mark these cases
+as Success with executed=True: entry named-pipe refusal, post-staging
+named-pipe refusal, Unix mode preservation, private empty staging before
+copying, and dispatch retaining the authorized target after alias repointing.
+Artifacts: `%TEMP%/shellpilot-ci-34057101224-artifacts`.
+Hosted runs used PowerShell 7.6.4 (macOS) and 7.6.5 (Linux and Windows);
+exact 7.4 runtime execution is not proven by those runs.
+
+Final review adjudication: MAJOR-1 (authorized-target handoff) and MINOR-2
+(post-staging type guard and stale rationale) have regression evidence.
+MINOR-1 (Unix staging disclosure) has native red-to-green evidence.
+MINOR-3's conservative backup retention remains intentional: a replacement
+error can follow filesystem mutation, so reported recovery files are kept
+for inspection even when the target still exists. MINOR-4's raw replacement
+error wording is a deferred usability improvement. MINOR-5's confirmation
+target is fixed; permissive defaults and opt-in confirmation remain the
+accepted posture. NIT-1's original path in FilesWritten remains unchanged
+to preserve the public result contract; the tool result names the resolved
+path. The inherited read_file/write_file handoff pattern needs a separate
+security fix, outside this edit_file scope. No universal TOCTOU safety or
+fresh independent approval of the remediation is claimed.
 
 The user confirmed a normal push of this branch to origin and workflow_dispatch
 of CI on that ref in this session. No force-push, merge, or PR is authorized.

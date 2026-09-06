@@ -16,7 +16,7 @@ Chronological record of shipped changes and remaining work. Latest first.
   state (011) is implemented but the Copilot proxy does not support it, so it
   falls back to client-side history.
 - The exact detached Sampler gate is currently healthy on PowerShell 7.6.5:
-  1,765 tests passed, two Unix-only skips, and 88.70% coverage on 2026-09-06.
+  1,767 tests passed, three Unix-only skips, and 88.60% coverage on 2026-09-06.
   A prior .NET 10 native access violation on 7.6.1 remains historical only.
 
 ## What is left
@@ -44,10 +44,26 @@ Chronological record of shipped changes and remaining work. Latest first.
 
 ## Log
 
+- 2026-09-06 - Final edit_file remediation verified on all three platforms
+  at `d32ede339e9e42edc39833a652ce27e0ae097a0e`:
+  [run 34057101224](https://github.com/raandree/ShellPilot/actions/runs/34057101224).
+  Windows: 1,767 passed, zero failed, three skipped, 88.60% coverage.
+  Linux and macOS: each 1,755 passed, zero failed, 15 skipped, 87.45% coverage.
+  All five targeted Unix regressions executed and passed on both Unix hosts,
+  including creation-time staging protection that failed in run 34056597601.
+  Packaging passed; deployment skipped. Runtimes: Windows/Linux 7.6.5,
+  macOS 7.6.4; exact minimum 7.4 execution remains unverified. Review findings
+  have controller adjudications and regression evidence, not a new independent
+  sign-off. No merge or PR; preserve the user's unrelated public-test EOF edit.
+
 - 2026-09-06 - Creation-time Unix staging fix and PowerShell 7.4 manifest
   passed the rebuilt full local gate: 1,767 passed, zero failed, three Unix
   skips, 88.60% coverage; nine tasks, zero errors or warnings, changed-file
   analyzer clean. Native green matrix is the remaining behavioral gate.
+  Committed/pushed as `d32ede3`; green verification
+  [run 34057101224](https://github.com/raandree/ShellPilot/actions/runs/34057101224)
+  started at 20:09:23 UTC. Review adjudications and deferred minor findings
+  are recorded in activeContext; no fresh independent approval is claimed.
 
 - 2026-09-06 - Native red confirmed at `2932457` in run `34056597601`:
   Linux and macOS each passed 1,754 tests, failed only the new staging test,
