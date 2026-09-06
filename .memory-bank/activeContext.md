@@ -4,15 +4,22 @@ Current working focus for ShellPilot. Overwrite this file as the focus shifts.
 
 ## Focus
 
-Tranche 1 / F2 security review remediation is complete on `ai/edit-file-tool`.
-A self-review of the first remediation found four further defects, fixed in a
-second round: the Unix regular-file guard silently refused everything on
-PowerShell 7.0, the commit message would have bumped the module to 1.0.0, the
-device test passed for the wrong reason, and the authorization reversal had no
-decision record. The Read+Write rule is now
-[decision 003](decisions/003-edit-file-authorization.md). F1 is already on
-`main`; F6, F7/F8, F17, F22 and F23 remain ready to run. No push is
-authorized; the user's public-test trailing-blank-line edit stays uncommitted.
+Tranche 1 / F2 is undergoing three-OS CI verification on `ai/edit-file-tool`.
+The independent review of `13311e1` failed: PowerShell 7.1 allowed junction
+policy bypass, partial Windows replacement failures could lose recovery data,
+and the contention fixture hashed an unresolved path. These findings now have
+test-first fixes: fail-closed resolution with a 7.2 floor, retained replacement
+backups, and a resolved-path contention fixture. Focused Windows validation:
+70 passed, zero failed, two Unix-only skips. The rebuilt detached full local
+gate passed: 1,765 passed, zero failed, two skipped, 88.70% coverage; nine test
+tasks, zero errors/warnings, and changed-file analyzer clean. CI remains
+pending; do not treat Windows results as platform sign-off.
+
+The user confirmed a normal push of this branch to origin and workflow_dispatch
+of CI on that ref in this session. No force-push, merge, or PR is authorized.
+Preserve the user's public-test trailing-blank-line edit uncommitted. The
+accepted Read+Write rule remains
+[decision 003](decisions/003-edit-file-authorization.md).
 
 Three scoping constraints decide what is admissible at all, and they are stated
 once so they are not re-argued per item: ShellPilot is a **module, not a host**
@@ -101,7 +108,7 @@ the same guard and splitting them means touching it twice. **F1 must run before
 F22** - a plan preset that forbids `Shell()` is dishonest until the model can
 search without it. The other five carry no ordering constraint.
 
-## F2 complete
+## F2 implementation and pending verification
 
 `Invoke-EditFileTool` accepts `Path`, `OldString` and `NewString`. The model
 schema uses `path`, `oldString` and `newString`, all required strings. Empty
@@ -124,14 +131,15 @@ README migration instructions, and the unreleased changelog describe it.
 
 Only regular, seekable files are accepted. The type guard is three separate
 checks with distinct messages, so each one is assertable: not a file, a device,
-and a non-regular Unix mode. `UnixMode` is why the module floor moved from
-PowerShell 7.0 to 7.1 - on 7.0 the property is absent, and the original single
-combined check therefore refused every edit on Linux and macOS. Input and
+and a non-regular Unix mode. The module floor is now 7.2 because the resolver
+requires the .NET 6 link API; 7.1 was not sufficient. Input and
 output each have an 8 MiB ceiling including the BOM, hoisted to
 `$script:ShpEditFileMaxBytes` beside the other module bounds. Same-path
 ShellPilot edits use a named mutex; staging is flushed and a bounded SHA-256
 recheck precedes atomic replacement. Windows temporary files are secured before
-any content is copied, not only after replacement.
+any content is copied, not only after replacement. Replacement requests a
+backup; partial native failures report and retain `recoveryPath` for manual
+recovery. Cleanup is best effort, not an unconditional absence guarantee.
 
 Evidence: Pester 5.7.1 policy cases passed 13/13; helper cases passed 41 with
 two Unix-only skips. Each new refusal, conflict, failure and temporary-security
@@ -142,12 +150,12 @@ tasks, zero errors or warnings. Linux execution was unavailable locally.
 Existing Markdown lint findings outside the edited sections were left
 unchanged.
 
-Self-review is complete. Recommend `review: on` before merging the changed
-Tool policy and persistence contract. Other programs must coordinate their
-renames: the final content check and replacement are not a filesystem
-compare-and-swap guarantee. Serialization is per logon session. No process
-isolation was added. Two tests are Unix-only and skip on Windows, so the
-named-pipe refusal and Unix mode preservation are proven by CI, not here.
+The earlier self-review was superseded by the failed independent review.
+The new fixes received self-review and passed the complete local gate.
+Other programs must coordinate their renames: the final content check and
+replacement are not compare-and-swap. Serialization is per logon session.
+The named-pipe refusal and Unix mode preservation have not yet run on Unix;
+the earlier claim that CI proved them was incorrect.
 
 ## F1 complete
 

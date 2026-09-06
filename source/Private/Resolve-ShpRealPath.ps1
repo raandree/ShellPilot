@@ -23,8 +23,9 @@ function Resolve-ShpRealPath {
           existing ancestor is resolved and the remainder appended, because a
           new file's parent is the part that can be a link.
 
-        Returns $null for an empty path rather than silently resolving to the
-        current directory, so a caller cannot be granted access by omission.
+        Returns $null for an empty path or a link-resolution failure rather
+        than authorizing an unchecked path. Missing ancestors are still
+        supported when creating a new file.
 
     .PARAMETER Path
         The path to resolve. May be relative, may contain `..`, and need not
@@ -38,7 +39,7 @@ function Resolve-ShpRealPath {
     .OUTPUTS
         System.String
 
-        The absolute, link-resolved path, or $null when the input is empty.
+        The absolute, link-resolved path, or $null when resolution fails.
     #>
     [CmdletBinding()]
     [OutputType([string])]
@@ -77,10 +78,8 @@ function Resolve-ShpRealPath {
 
             $target = $null
             try { $target = (Get-Item -LiteralPath $current -Force -ErrorAction Stop).ResolveLinkTarget($true) } catch {
-                # Unreadable is not the same as unresolvable: keep the collapsed
-                # path so the rule check still has something exact to match, and
-                # let the policy deny it if no rule covers it.
                 Write-Verbose ("Could not resolve a link target for '{0}': {1}" -f $current, $_.Exception.Message)
+                return $null
             }
             if (-not $target) { continue }
 

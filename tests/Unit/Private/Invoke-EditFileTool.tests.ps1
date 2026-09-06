@@ -145,6 +145,8 @@ Describe 'Invoke-EditFileTool' {
         [System.IO.File]::WriteAllText($filePath, 'old')
 
         $result = InModuleScope $script:moduleName -Parameters @{ FilePath = $filePath } {
+            $FilePath = Resolve-ShpRealPath -Path $FilePath
+            Mock Resolve-ShpRealPath { $FilePath }
             Mock Get-Item { [pscustomobject]@{ FullName = $FilePath } }
             Invoke-EditFileTool -Path $FilePath -OldString 'old' -NewString 'new' | ConvertFrom-Json
         }
@@ -202,6 +204,7 @@ Describe 'Invoke-EditFileTool' {
         $originalHash = (Get-FileHash -LiteralPath $filePath).Hash
 
         $result = InModuleScope $script:moduleName -Parameters @{ FilePath = $filePath; Phase = $Phase } {
+            $FilePath = Resolve-ShpRealPath -Path $FilePath
             $sourceItem = Get-Item -LiteralPath $FilePath
             $sourceItem | Add-Member -NotePropertyName FailurePhase -NotePropertyValue $Phase
             $sourceItem | Add-Member -MemberType ScriptMethod -Name CopyTo -Force -Value {
@@ -217,6 +220,7 @@ Describe 'Invoke-EditFileTool' {
                 }
                 $temporaryItem
             }
+            Mock Resolve-ShpRealPath { $FilePath }
             Mock Get-Item { $sourceItem } -ParameterFilter { $LiteralPath -eq $FilePath }
 
             Invoke-EditFileTool -Path $FilePath -OldString 'old' -NewString 'new' | ConvertFrom-Json
@@ -227,11 +231,64 @@ Describe 'Invoke-EditFileTool' {
         @(Get-ChildItem -LiteralPath $TestDrive -Force -Filter '.shp-edit-*') | Should -BeNullOrEmpty
     }
 
+    It 'Retains recoverable original bytes after native replacement error <ErrorCode>' -ForEach @(
+        @{ ErrorCode = 1176 }
+        @{ ErrorCode = 1177 }
+    ) {
+        $filePath = Join-Path $TestDrive 'partial-replacement.txt'
+        [System.IO.File]::WriteAllText($filePath, 'original')
+        $originalHash = (Get-FileHash -LiteralPath $filePath).Hash
+
+        $result = InModuleScope $script:moduleName -Parameters @{ FilePath = $filePath; ErrorCode = $ErrorCode } {
+            $FilePath = Resolve-ShpRealPath -Path $FilePath
+            $sourceItem = Get-Item -LiteralPath $FilePath
+            $sourceItem | Add-Member -NotePropertyName NativeErrorCode -NotePropertyValue $ErrorCode
+            $sourceItem | Add-Member -MemberType ScriptMethod -Name CopyTo -Force -Value {
+                param($Destination, $Overwrite)
+                [System.IO.File]::Copy($this.FullName, $Destination, $Overwrite)
+                $temporaryItem = [System.IO.FileInfo]::new($Destination)
+                $temporaryItem | Add-Member -NotePropertyName NativeErrorCode -NotePropertyValue $this.NativeErrorCode
+                $temporaryItem | Add-Member -MemberType ScriptMethod -Name Replace -Force -Value {
+                    param($Destination, $Backup)
+                    if ($this.NativeErrorCode -eq 1176) {
+                        if ([string]::IsNullOrEmpty([string]$Backup)) {
+                            [System.IO.File]::Delete($Destination)
+                        }
+                    } else {
+                        $displacedPath = if ([string]::IsNullOrEmpty([string]$Backup)) { "$Destination.displaced" } else { $Backup }
+                        [System.IO.File]::Move($Destination, $displacedPath)
+                    }
+                    throw [System.IO.IOException]::new(('Injected native replacement error {0}.' -f $this.NativeErrorCode))
+                }
+                $temporaryItem
+            }
+            Mock Resolve-ShpRealPath { $FilePath }
+            Mock Get-Item { $sourceItem } -ParameterFilter { $LiteralPath -eq $FilePath }
+
+            Invoke-EditFileTool -Path $FilePath -OldString 'original' -NewString 'updated' | ConvertFrom-Json
+        }
+
+        try {
+            $result.error | Should -Match "Injected native replacement error $ErrorCode"
+            $recoverablePath = if ([System.IO.File]::Exists($filePath)) { $filePath } else { $result.recoveryPath }
+            $recoverablePath | Should -Not -BeNullOrEmpty
+            (Get-FileHash -LiteralPath $recoverablePath).Hash | Should -BeExactly $originalHash
+            if ($ErrorCode -eq 1177) {
+                $result.recoveryPath | Should -Match '\.bak$'
+                $result.error | Should -Match 'recoveryPath'
+            }
+            @(Get-ChildItem -LiteralPath $TestDrive -Force -Filter '.shp-edit-*.tmp') | Should -BeNullOrEmpty
+        } finally {
+            if ($result.recoveryPath) { Remove-Item -LiteralPath $result.recoveryPath -Force }
+        }
+    }
+
     It 'Refuses a concurrent change even when its length and modification time match' {
         $filePath = Join-Path $TestDrive 'concurrent.txt'
         [System.IO.File]::WriteAllText($filePath, 'old')
 
         $result = InModuleScope $script:moduleName -Parameters @{ FilePath = $filePath } {
+            $FilePath = Resolve-ShpRealPath -Path $FilePath
             $sourceItem = Get-Item -LiteralPath $FilePath
             $sourceItem | Add-Member -MemberType ScriptMethod -Name CopyTo -Force -Value {
                 param($Destination, $Overwrite)
@@ -242,6 +299,7 @@ Describe 'Invoke-EditFileTool' {
                 [System.IO.File]::Move($otherPath, $this.FullName, $true)
                 [System.IO.FileInfo]::new($Destination)
             }
+            Mock Resolve-ShpRealPath { $FilePath }
             Mock Get-Item { $sourceItem } -ParameterFilter { $LiteralPath -eq $FilePath }
 
             Invoke-EditFileTool -Path $FilePath -OldString 'old' -NewString 'new' | ConvertFrom-Json
@@ -252,10 +310,24 @@ Describe 'Invoke-EditFileTool' {
         @(Get-ChildItem -LiteralPath $TestDrive -Force -Filter '.shp-edit-*') | Should -BeNullOrEmpty
     }
 
-    It 'Refuses an edit already in progress on the same resolved path' {
-        $filePath = Join-Path $TestDrive 'busy.txt'
+    It 'Refuses an edit already in progress on the same resolved path: linked=<LinkedRoot>' -ForEach @(
+        @{ LinkedRoot = $false }
+        @{ LinkedRoot = $true }
+    ) {
+        $root = Join-Path $TestDrive 'busy-root'
+        $null = New-Item -ItemType Directory -Path $root -Force
+        if ($LinkedRoot) {
+            $linkPath = Join-Path $TestDrive 'busy-link'
+            $linkType = if ($IsWindows) { 'Junction' } else { 'SymbolicLink' }
+            $null = New-Item -ItemType $linkType -Path $linkPath -Target $root
+            $root = $linkPath
+        }
+        $filePath = Join-Path $root 'busy.txt'
         [System.IO.File]::WriteAllText($filePath, 'old')
-        $lockPath = if ($IsWindows) { $filePath.ToUpperInvariant() } else { $filePath }
+        $resolvedPath = InModuleScope $script:moduleName -Parameters @{ FilePath = $filePath } {
+            Resolve-ShpRealPath -Path $FilePath
+        }
+        $lockPath = if ($IsWindows) { $resolvedPath.ToUpperInvariant() } else { $resolvedPath }
         $hasher = [System.Security.Cryptography.SHA256]::Create()
         try {
             $lockName = 'ShellPilot.EditFile.' + [BitConverter]::ToString(
@@ -332,6 +404,7 @@ Describe 'Invoke-EditFileTool' {
         $originalDescriptor = (Get-Acl -LiteralPath $filePath).Sddl
 
         $result = InModuleScope $script:moduleName -Parameters @{ FilePath = $filePath } {
+            $FilePath = Resolve-ShpRealPath -Path $FilePath
             $script:editTemporaryDescriptor = $null
             $sourceItem = Get-Item -LiteralPath $FilePath
             $sourceItem | Add-Member -MemberType ScriptMethod -Name CopyTo -Force -Value {
@@ -340,6 +413,7 @@ Describe 'Invoke-EditFileTool' {
                 $script:editTemporaryDescriptor = (Get-Acl -LiteralPath $Destination).Sddl
                 [System.IO.FileInfo]::new($Destination)
             }
+            Mock Resolve-ShpRealPath { $FilePath }
             Mock Get-Item { $sourceItem } -ParameterFilter { $LiteralPath -eq $FilePath }
             $editResult = Invoke-EditFileTool -Path $FilePath -OldString 'old' -NewString 'new' | ConvertFrom-Json
             $editResult | Add-Member -NotePropertyName TemporaryDescriptor -NotePropertyValue $script:editTemporaryDescriptor

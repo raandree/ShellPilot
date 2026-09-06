@@ -71,4 +71,31 @@ Describe 'Resolve-ShpRealPath' {
             Resolve-ShpRealPath -Path '' | Should -BeNullOrEmpty
         }
     }
+
+    It 'Fails closed when link resolution throws <Name>' -ForEach @(
+        @{ Name = 'a missing runtime API'; Failure = [System.MissingMethodException]::new('ResolveLinkTarget is unavailable.') }
+        @{ Name = 'an I/O error'; Failure = [System.IO.IOException]::new('Link target cannot be resolved.') }
+    ) {
+        InModuleScope $script:moduleName -Parameters @{ Root = $TestDrive; Failure = $Failure } {
+            param($Root, $Failure)
+            $filePath = Join-Path (Resolve-ShpRealPath -Path $Root) 'unresolved.txt'
+            [System.IO.File]::WriteAllText($filePath, 'private')
+            $item = Get-Item -LiteralPath $filePath
+            $item | Add-Member -NotePropertyName ResolutionFailure -NotePropertyValue $Failure
+            $item | Add-Member -MemberType ScriptMethod -Name ResolveLinkTarget -Force -Value {
+                throw $this.ResolutionFailure
+            }
+            $itemsByPath = @{}
+            $ancestorPath = $filePath
+            while ($ancestorPath) {
+                $itemsByPath[$ancestorPath] = Get-Item -LiteralPath $ancestorPath -Force
+                $ancestorPath = [System.IO.Path]::GetDirectoryName($ancestorPath)
+            }
+            $itemsByPath[$filePath] = $item
+            Mock Get-Item { $itemsByPath[[string]$LiteralPath] }
+
+            Resolve-ShpRealPath -Path $filePath | Should -BeNullOrEmpty
+            Should -Invoke Get-Item -ParameterFilter { $LiteralPath -eq $filePath } -Times 1 -Exactly
+        }
+    }
 }

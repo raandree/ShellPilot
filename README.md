@@ -36,7 +36,7 @@ structured objects carrying token usage and estimated cost.
 
 ## Requirements
 
-- PowerShell 7.0 or later (Windows, macOS, or Linux).
+- PowerShell 7.2 or later (Windows, macOS, or Linux).
 - A GitHub account with GitHub Copilot access.
 
 ## Install
@@ -159,7 +159,14 @@ The destination directory must allow temporary-file creation and replacement.
 The tool stages and flushes the edit in that directory, checks for changed
 content, then atomically replaces the target. Windows security descriptors
 protect the temporary file as well as the result; Unix file modes are retained.
-Failures before replacement leave the target unchanged and clean up staging.
+Failures before replacement leave the target unchanged. Replacement requests
+a same-directory backup of the original. If a native failure moves the
+original away, the error reports `recoveryPath` and retains the backup for
+manual recovery. Inspect that file before retrying; the target may be absent.
+Cleanup is best effort and warns if a staging file cannot be removed. Reported
+recovery files are never deleted by cleanup. A successful edit removes its
+backup. Paths whose links cannot be resolved are refused, not authorized by
+their apparent location.
 
 ShellPilot edits to the same resolved path are serialized within a logon
 session; separate sessions and other programs are not coordinated. Detected

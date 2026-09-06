@@ -16,7 +16,7 @@ Chronological record of shipped changes and remaining work. Latest first.
   state (011) is implemented but the Copilot proxy does not support it, so it
   falls back to client-side history.
 - The exact detached Sampler gate is currently healthy on PowerShell 7.6.5:
-  1,760 tests passed, two Unix-only skips, and 88.67% coverage on 2026-09-06.
+  1,765 tests passed, two Unix-only skips, and 88.70% coverage on 2026-09-06.
   A prior .NET 10 native access violation on 7.6.1 remains historical only.
 
 ## What is left
@@ -43,6 +43,15 @@ Chronological record of shipped changes and remaining work. Latest first.
   `Deserialized.*` copy and break the "same result object" contract.
 
 ## Log
+
+- 2026-09-06 - Independent review of F2 at `13311e1` failed on a PowerShell
+  7.1 junction-policy bypass and destructive recovery after native replacement
+  failure; also reproduced the linked-TEMP contention fixture defect. Added
+  test-first fixes and corrected the runtime floor to 7.2. Focused detached
+  Windows validation: 70 passed, zero failed, two Unix-only skips. Full local
+  gate: 1,765 passed, zero failed, two skipped, 88.70% coverage, nine test tasks,
+  zero errors/warnings; changed-file analyzer clean. User confirmed normal
+  push and three-OS workflow_dispatch. CI is pending; no platform sign-off yet.
 
 - 2026-09-06 - Fix four defects a self-review found in the F2 remediation.
   `UnixMode` is absent on PowerShell 7.0, so the combined regular-file guard
@@ -1786,20 +1795,11 @@ Chronological record of shipped changes and remaining work. Latest first.
   token/tool-call/usage deltas). -Stream forces chat and takes precedence over
   -ShowThinking's responses routing. Added unit tests for both helpers plus
   streaming tests on Invoke-CopilotTurn and Invoke-Shp.
-- 2026-06-06 - Fixed conversation continuation: Invoke-Shp now records every
-  call's exchange to the session chat (not only -ContinueChat calls), so a
-  follow-up with -ContinueChat continues from a first call that had no switch -
-  matching the natural usage. A plain call resets the running chat to its own
-  turn; -History stays stateless. Verified live with the user's exact commands
-  (claude-opus-4.8): turn 1 'what is 43+43?' recorded, turn 2 -ContinueChat
-  answered '86'. Build green: 169 tests, coverage 53.93%.
-- 2026-06-06 - Added conversation continuation: Invoke-Shp -ContinueChat keeps
-  a module-scoped running chat (seed from history, save reply back) and -History
-  continues from an explicit array; every result now carries a History property.
-  Added Get-ShpChat and Clear-ShpChat. Build green: 168 tests, coverage 53.93%.
-  Verified live with claude-haiku-4.5: "what is 43+43?" then "what was the result
-  of the last prompt?" correctly answered 86; explicit -History round-trip recalled
-  a remembered word.
+- 2026-06-06 - Added Get-ShpChat, Clear-ShpChat, explicit History, and
+  continuation; then fixed recording so every call can seed a later
+  ContinueChat exchange. Both forms were live-verified with remembered values.
+  Validation grew from 168 to 169 tests at 53.93% coverage. Later continuation
+  semantics supersede this initial behavior.
 - 2026-06-06 - Added Select-ShpModel and Get-ShpDefault: a session default
   model (plus optional reasoning effort and max output tokens) applied by
   Invoke-Shp when the matching parameter is omitted (explicit wins, then

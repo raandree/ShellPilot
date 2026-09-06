@@ -30,6 +30,11 @@ function Invoke-EditFileTool {
         programs must coordinate their own renames: the final check and rename
         are not a filesystem compare-and-swap operation.
 
+        Replacement requests a same-directory backup of the original. If a
+        native replacement failure moves the original away, the error names
+        recoveryPath and retains that backup for manual recovery. Cleanup is
+        best effort; it never deletes a reported recovery file.
+
     .PARAMETER Path
         Literal file path, absolute or relative to the PowerShell location. The
         returned path is the resolved one, so a link reports its target.
@@ -70,6 +75,9 @@ function Invoke-EditFileTool {
 
     $readStream = $null
     $temporaryPath = $null
+    $backupPath = $null
+    $recoveryPath = $null
+    $replacementComplete = $false
     $editLock = $null
     $lockTaken = $false
     $hasher = $null
@@ -93,7 +101,7 @@ function Invoke-EditFileTool {
         if ($item.Attributes.HasFlag([System.IO.FileAttributes]::Device)) {
             throw 'Path must identify a regular file, not a device. Choose a regular file to edit.'
         }
-        # UnixMode carries the file-type character, and is why the module floor is PowerShell 7.1.
+        # UnixMode carries the file-type character.
         if (-not $IsWindows -and -not ([string]$item.UnixMode).StartsWith('-')) {
             throw 'Path must identify a regular file, not a directory, socket or pipe. Choose a regular file to edit.'
         }
@@ -242,7 +250,19 @@ function Invoke-EditFileTool {
         } finally {
             $currentStream.Dispose()
         }
-        $null = $temporaryItem.Replace($currentPath, [NullString]::Value, $false)
+        $backupPath = [System.IO.Path]::ChangeExtension($temporaryPath, '.bak')
+        try {
+            $null = $temporaryItem.Replace($currentPath, $backupPath, $false)
+            $replacementComplete = $true
+        } catch {
+            $replacementError = $_
+            if ([System.IO.File]::Exists($backupPath)) {
+                $recoveryPath = $backupPath
+            } elseif (-not [System.IO.File]::Exists($currentPath) -and [System.IO.File]::Exists($temporaryPath)) {
+                $recoveryPath = $temporaryPath
+            }
+            throw $replacementError
+        }
 
         return ([pscustomobject]@{
             path = $item.FullName
@@ -251,15 +271,23 @@ function Invoke-EditFileTool {
         } | ConvertTo-Json -Compress)
     } catch {
         $errorRecord = $_
-        return (@{ path = $Path; error = $errorRecord.Exception.Message } | ConvertTo-Json -Compress)
+        $failure = @{ path = $Path; error = $errorRecord.Exception.Message }
+        if ($recoveryPath) {
+            $failure.recoveryPath = $recoveryPath
+            $failure.error += ' A recovery file was retained at recoveryPath. Ask the user to inspect it before retrying.'
+        }
+        return ($failure | ConvertTo-Json -Compress)
     } finally {
         if ($readStream) { $readStream.Dispose() }
-        if ($temporaryPath -and [System.IO.File]::Exists($temporaryPath)) {
+        $cleanupPaths = @($temporaryPath)
+        if ($replacementComplete) { $cleanupPaths += $backupPath }
+        foreach ($cleanupPath in $cleanupPaths) {
+            if (-not $cleanupPath -or $cleanupPath -eq $recoveryPath -or -not [System.IO.File]::Exists($cleanupPath)) { continue }
             try {
-                [System.IO.File]::Delete($temporaryPath)
+                [System.IO.File]::Delete($cleanupPath)
             } catch {
                 $cleanupError = $_
-                Write-Warning ("Could not remove edit temporary file '{0}': {1}" -f $temporaryPath, $cleanupError.Exception.Message)
+                Write-Warning ("Could not remove edit temporary file '{0}': {1}" -f $cleanupPath, $cleanupError.Exception.Message)
             }
         }
         if ($lockTaken) { $editLock.ReleaseMutex() }

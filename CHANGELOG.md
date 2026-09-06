@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **Tool policy refuses paths when link resolution fails.** A missing runtime
+  API or filesystem error no longer leaves an unresolved path eligible for
+  Read or Write access. This prevents a junction inside an allowed directory
+  from bypassing rules for its destination on an unsupported runtime.
+
 - **A disabled tool can no longer be executed.** `-DisableTerminal`,
   `-DisableFileAccess`, `-DisableBrowsing`, `-DisableUserPrompts` and
   `-DisableTodoList` removed a tool from the set offered to the model, but the
@@ -54,8 +59,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Only regular, seekable files are eligible, and input and output are each
   capped at 8 MiB including the BOM. The edit is staged in the target's own
   directory, flushed, checked against the file's current bytes, and then put in
-  place atomically, so a failure part-way leaves the original untouched. A file
-  that changed under the edit is refused rather than overwritten.
+  place with a backup of the original. A native replacement failure that moves
+  the original away retains the backup and reports `recoveryPath` for manual
+  recovery instead of deleting the remaining copy. Cleanup is best effort.
+  Detected concurrent changes are refused; the final check and replacement
+  are not a compare-and-swap guarantee.
   See [README.md](README.md#agent-tools-on-by-default).
 
 - **`glob_files` and `grep_files` let the model search without a shell.**
@@ -192,11 +200,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **Raise the required PowerShell version from 7.0 to 7.1.** The file tools
-  identify a regular file on Linux and macOS through the `UnixMode` property,
-  which PowerShell adds in 7.1. On 7.0 that property is absent, so the check
-  could not tell a regular file from a socket or a pipe. PowerShell 7.0 left
-  support in December 2022.
+- **Raise the required PowerShell version from 7.0 to 7.2.** Tool policy path
+  resolution requires the .NET 6 `ResolveLinkTarget()` API. PowerShell 7.1
+  uses .NET 5 and cannot enforce that boundary with the current implementation.
+  The Unix regular-file guard also requires the `UnixMode` property.
 
 - **An alternative backend (`-ApiBase`) no longer carries the Copilot session
   token.** It previously fell back to that token whenever no `ApiKey` was

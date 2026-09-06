@@ -174,8 +174,17 @@ retains regression tests for both temporary and final security descriptors.
 Windows `CopyTo` alone inherits the directory's access rules, even when the
 source file is restricted. Secure creation followed by descriptor restoration
 on the empty file avoids a disclosure window and retains inheritance metadata.
-Use `[NullString]::Value` for the .NET replacement's absent backup path: plain
-PowerShell `$null` binds as an empty string and causes replacement to fail.
+Always provide a same-directory backup path to replacement. Windows native
+errors 1176/1177 can occur after filesystem mutation; an immediate-throw mock
+does not prove failure atomicity. Retain a displaced original at `recoveryPath`
+on failure, and remove the backup only after successful replacement. Cleanup
+is best effort and must not delete a reported recovery file.
+
+Path resolution requires .NET 6 / PowerShell 7.2 and fails closed on a missing
+API or I/O error. Test fixtures that mock `Get-Item` must isolate the resolver
+boundary or provide real ancestor objects; otherwise they can exercise a
+resolution failure instead of the named guard. Contention fixtures hash the
+resolved path, including when the temporary directory itself is a link.
 
 The caller's privileges and external path-resolution races remain. Other
 programs must coordinate renames; the final check and replacement are separate
