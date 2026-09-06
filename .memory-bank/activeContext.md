@@ -4,11 +4,11 @@ Current working focus for ShellPilot. Overwrite this file as the focus shifts.
 
 ## Focus
 
-`specs/029-candidate-features.md` proposes twenty-five features ShellPilot does
-not have, each written as what it is, why it matters, what it costs and what it
-depends on. Tranche 1 is accepted (decision 001) and open decision 14 is
-accepted (decision 002). F1 is implemented; the remaining tranche-1 prompts
-are ready to run.
+Tranche 1 / F2 is complete on `ai/edit-file-tool`, branched from `main`.
+The built-in `edit_file` replaces one exact string and refuses zero or
+multiple matches. F1 is already on `main`; F6, F7/F8, F17, F22 and F23 remain
+ready to run. Tranche 1 and decision 14 remain accepted (decisions 001 and
+002). No push is authorized for this work.
 
 Three scoping constraints decide what is admissible at all, and they are stated
 once so they are not re-argued per item: ShellPilot is a **module, not a host**
@@ -96,6 +96,40 @@ Seven prompts for eight features: **F7 and F8 share one**, because both change
 the same guard and splitting them means touching it twice. **F1 must run before
 F22** - a plan preset that forbids `Shell()` is dishonest until the model can
 search without it. The other five carry no ordering constraint.
+
+## F2 complete
+
+`Invoke-EditFileTool` accepts `Path`, `OldString` and `NewString`. The model
+schema uses `path`, `oldString` and `newString`, all required strings. Empty
+replacement text deletes the match; a missing replacement is refused rather
+than being coerced into a deletion. Only successful edits enter `FilesWritten`.
+
+Matching is ordinal and counts overlapping occurrences. Strict UTF-8 and
+BOM-marked UTF-16/UTF-32 decoding preserve the original BOM, encoding and
+unchanged text; invalid or unsupported text is refused before writing. Mixed
+newlines and the final newline are retained. Existing `read_file` windows use
+LF, so a multiline edit of CRLF text must explicitly supply CRLF; matching
+does not normalize either string. The schema, recovery error and README name
+this limitation. No existing file-reader behavior was changed.
+
+The tool joins the built-in name list, file-access offered set, existing
+resolved-path `Write()` policy gate, and `ShouldProcess` dispatch. Tests compare
+its `ToolCallsDenied`, `tool.call` policy and JSON denial envelope directly
+with `write_file`, including explicit denials and uncovered targets.
+
+Evidence: 39 new cases failed for the missing feature under Pester 5.7.1,
+then passed; the complete public/helper regression passed 210/210. All six
+changed PowerShell files are AST- and PSScriptAnalyzer-clean. A fresh build
+followed by the exact detached `./build.ps1 -AutoRestore -Tasks test` passed
+1,745/1,745 tests with 88.78% coverage and nine test tasks, zero errors or
+warnings. The authoritative gate resolved Pester 6.1.0 on PowerShell 7.6.5;
+the explicit Pester 5 proof used a temporary dependency without changing the
+repository dependencies. Final-newline-only cleanup was parse/analyzer checked.
+
+Self-review is complete. Independent review remains off by default; recommend
+`review: on` for the model-driven file mutation and shared dispatch boundary.
+No process isolation or concurrent-writer guarantee was added. The user's
+pre-existing public-test trailing-blank-line removal remains uncommitted.
 
 ## F1 complete
 

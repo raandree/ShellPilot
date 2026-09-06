@@ -7,11 +7,11 @@ function Invoke-Shp {
         Obtains a Copilot session token, sends -Prompt to the chat API (falling
         back to the responses API for models that require it), streams the reply
         to the host by default, and runs a tool-calling loop that lets the model
-        fetch web pages, read/list/search/create/write local files, run shell
+        fetch web pages, read/list/search/create/write/edit local files, run shell
         commands, and ask the user questions on the console. All four tool
         categories are on by default; turn them off individually with
         -DisableBrowsing (the fetch_url tool), -DisableFileAccess (read_file /
-        list_directory / glob_files / grep_files / write_file /
+        list_directory / glob_files / grep_files / write_file / edit_file /
         create_directory), -DisableTerminal (run_command), and
         -DisableUserPrompts (ask_user). Pass -DisableStreaming for a single
         buffered reply instead of live token streaming.
@@ -116,8 +116,8 @@ function Invoke-Shp {
 
     .PARAMETER DisableFileAccess
         Turn off local file access. By default the read_file, list_directory,
-        glob_files, grep_files, write_file and create_directory tools are
-        exposed to the model so it can read, list, search, create and write
+        glob_files, grep_files, write_file, edit_file and create_directory tools
+        are exposed to the model so it can read, list, search, create, write and edit
         files and folders (with the caller's own privileges, no path
         sandboxing); this switch disables all of them.
 
@@ -586,7 +586,7 @@ function Invoke-Shp {
         Invoke-Shp -Prompt 'Explain this prompt.' -DisableFileAccess
 
         Disables the file tools (read_file / list_directory / glob_files /
-        grep_files / write_file / create_directory) for this call.
+        grep_files / write_file / edit_file / create_directory) for this call.
 
     .EXAMPLE
         Invoke-Shp -Prompt 'Worum geht es in dieser Mail?' -Attachment '.\flight-delay.msg'
@@ -1213,6 +1213,18 @@ function Invoke-Shp {
         $null = $tools.Add(@{
             type='function'
             function=@{
+                name='edit_file'
+                description='Replace exactly one occurrence of oldString in an existing local file with newString. Matching is literal and case-sensitive, with no newline or Unicode normalization. Zero or multiple matches are refused; include enough surrounding text to identify one occurrence. Preserves encoding, BOM and unchanged line endings. Supports UTF-8 and BOM-marked UTF-16/UTF-32; other encodings are refused.'
+                parameters=@{ type='object'; required=@('path','oldString','newString'); properties=@{
+                    path=@{ type='string'; description='Literal path to an existing file (absolute or relative to the current working directory).' }
+                    oldString=@{ type='string'; minLength=1; description='Exact nonempty text to replace, including case and line endings. CRLF must be supplied as \r\n even if a read_file window used \n.' }
+                    newString=@{ type='string'; description='Replacement text with the intended line endings. Use an empty string to delete oldString.' }
+                } }
+            }
+        })
+        $null = $tools.Add(@{
+            type='function'
+            function=@{
                 name='create_directory'
                 description='Create a local directory (and any missing parent directories). Succeeds quietly if it already exists.'
                 parameters=@{ type='object'; required=@('path'); properties=@{ path=@{ type='string'; description='Path to the directory to create (absolute or relative to the current working directory).' } } }
@@ -1358,6 +1370,7 @@ function Invoke-Shp {
     }
     if ($fileAccessEnabled) {
         $systemContent += ' You have read_file and list_directory tools - use them whenever the user refers to a local file or directory by path. Read a file before reasoning about its contents; never guess. You also have glob_files (find files by name pattern) and grep_files (search file contents) - use them to locate a file or a definition instead of running a shell command, then read_file to read around a hit. You also have write_file and create_directory tools - use write_file whenever the user asks you to create, write, save or generate a file (do not just print the content and claim you cannot write files).'
+        $systemContent += ' For targeted changes to an existing file, prefer edit_file with path, oldString and newString. It requires exactly one literal match, preserving encoding and unchanged line endings. If it refuses zero matches, check the current text, case and literal line endings; for multiple matches, include more surrounding text. An explicitly empty newString deletes the match.'
     }
     if ($terminalEnabled) {
         $systemContent += ' You have a run_command tool that runs a shell command line in PowerShell and returns its stdout, stderr and exit code - use it to run commands the user asks for and to inspect or change system state the file tools cannot (git, builds, package managers, processes, services). Prefer non-destructive commands and explain any destructive one before running it.'
@@ -1984,7 +1997,7 @@ function Invoke-Shp {
                     # cover this - it is interactive only, so an unattended run
                     # never prompts, which is exactly the run that needs scoping.
                     $access = switch ($tc.Name) {
-                        { $_ -in 'read_file', 'list_directory', 'glob_files', 'grep_files', 'write_file', 'create_directory' } {
+                        { $_ -in 'read_file', 'list_directory', 'glob_files', 'grep_files', 'write_file', 'edit_file', 'create_directory' } {
                             Test-ShpToolAccess -Tool $tc.Name -Path ([string]$fargs.path)
                         }
                         'run_command' { Test-ShpToolAccess -Tool $tc.Name -Command ([string]$fargs.command) }
@@ -2054,6 +2067,26 @@ function Invoke-Shp {
                                 if (-not $filesWritten.Contains($fargs.path)) { $null = $filesWritten.Add($fargs.path) }
                             } else {
                                 $toolResult = @{ skipped = 'The user did not approve this write_file call.' } | ConvertTo-Json -Compress
+                            }
+                        }
+                        'edit_file' {
+                            foreach ($argumentName in 'path', 'oldString', 'newString') {
+                                if ($fargs.$argumentName -isnot [string]) {
+                                    throw ("edit_file requires '{0}' as a string. Supply path, oldString and newString; newString may be empty to delete the match." -f $argumentName)
+                                }
+                            }
+                            if ($PSCmdlet.ShouldProcess([string]$fargs.path, 'edit_file')) {
+                                $editFileArgs = @{
+                                    Path = $fargs.path
+                                    OldString = $fargs.oldString
+                                    NewString = $fargs.newString
+                                }
+                                $toolResult = Invoke-EditFileTool @editFileArgs
+                                if (($toolResult | ConvertFrom-Json).replacements -eq 1 -and -not $filesWritten.Contains($fargs.path)) {
+                                    $null = $filesWritten.Add($fargs.path)
+                                }
+                            } else {
+                                $toolResult = @{ skipped = 'The user did not approve this edit_file call.' } | ConvertTo-Json -Compress
                             }
                         }
                         'create_directory' {

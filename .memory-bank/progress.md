@@ -16,7 +16,7 @@ Chronological record of shipped changes and remaining work. Latest first.
   state (011) is implemented but the Copilot proxy does not support it, so it
   falls back to client-side history.
 - The exact detached Sampler gate is currently healthy on PowerShell 7.6.5:
-  1,656 tests passed with 89.08% coverage on 2026-08-26. A prior .NET 10 native
+  1,745 tests passed with 88.78% coverage on 2026-09-06. A prior .NET 10 native
   access violation on PowerShell 7.6.1 remains historical context only.
 
 ## What is left
@@ -43,6 +43,17 @@ Chronological record of shipped changes and remaining work. Latest first.
   `Deserialized.*` copy and break the "same result object" contract.
 
 ## Log
+
+- 2026-09-06 - Tranche 1 / F2: add `edit_file` for one ordinal string
+  replacement, refusing zero or multiple matches (including overlaps).
+  Preserve BOM, encoding and unchanged newlines; refuse unsupported text.
+  Reuse `Write()` policy events, disabled-tool enforcement and `ShouldProcess`.
+  Pester 5 red/green: 39 cases; public/helper regression: 210 passed. All six
+  changed PowerShell files are analyzer-clean. Fresh build plus the exact
+  detached test gate: 1,745 passed, zero failures/skips, 88.78% coverage,
+  nine test tasks, zero errors/warnings. Branch: `ai/edit-file-tool` from
+  `main`; no push. Existing `read_file` LF windows are unchanged and the CRLF
+  exact-match caveat is documented.
 
 - 2026-09-06 - Consolidated tranche-1 planning and F1 implementation on
   `main`. The candidate-feature specifications, accepted decisions, and seven

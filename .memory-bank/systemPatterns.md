@@ -66,7 +66,8 @@ flowchart TD
 Get-ShpSessionToken, Invoke-CopilotTurn, the streaming helpers
 (Invoke-ShpStreamRequest, Read-ShpChatStream), the tool back-ends
 (Invoke-FetchUrlTool, Invoke-ReadFileTool, Invoke-ListDirectoryTool,
-Invoke-WriteFileTool, New-DirectoryTool, Invoke-RunCommandTool [run_command],
+Invoke-WriteFileTool, Invoke-EditFileTool, New-DirectoryTool,
+Invoke-RunCommandTool [run_command],
 Read-ShpUserInput [ask_user]), the customisation loaders
 (Get-ShpInstructionContent, Get-ShpSkillCatalog, Get-ShpInstructionCatalog),
 the retry wrapper (Invoke-ShpWithRetry), the shared connection-pooling HTTP
@@ -130,6 +131,38 @@ child PowerShell with full, unsandboxed privileges; ask_user blocks on Read-Host
 and degrades gracefully (a "no console" envelope) when non-interactive. Both
 run_command and ask_user surface what happened on the result (CommandsRun,
 QuestionsAsked). load_instruction mirrors load_skill for -InstructionRoot.
+
+### Exact file edits refuse before writing
+
+`edit_file` matches with ordinal `IndexOf`, counts every occurrence (including
+overlaps), and only writes for one match. It uses strict decoders: UTF-8 when
+no BOM exists, otherwise BOM-marked UTF-8, UTF-16 or UTF-32. Check UTF-32 BOMs
+before UTF-16 because their little-endian prefixes overlap. Preserve the
+original preamble and re-encode without newline or Unicode normalization.
+Unsupported text is refused, never decoded with replacement characters.
+
+The JSON result contains only path, byte count and replacement count, or an
+actionable error. Only success adds to `FilesWritten`. Missing `newString`
+cannot be coerced to an empty string: deletion requires an explicit empty
+replacement. Existing `read_file` windows join lines with LF, so the tool
+schema and zero-match error explain that CRLF matching requires literal CRLF.
+
+#### File-edit threat model
+
+Model arguments and file content are untrusted. The tool adds no outbound
+channel or code evaluation and returns no file content. `Write()` authorizes
+reading the target internally to count matches as well as changing it.
+
+| Threat | Control |
+| --- | --- |
+| Model names a disabled tool | Include `edit_file` in the built-in name list; the offered-set guard denies it before dispatch. |
+| Target outside the allowed paths | Use the existing resolved-path `Write()` policy gate and denial event contract. |
+| Unapproved mutation | Apply `ShouldProcess` around dispatch; `-WhatIf` returns a skipped result. |
+| Ambiguous edit or encoding loss | Refuse nonunique matches and invalid text before writing; retain byte-level tests. |
+
+The caller's privileges and existing path-resolution race limits remain.
+There is no process isolation, atomic-write or concurrent-writer guarantee.
+Independent review is recommended for changes to this mutation boundary.
 
 ### Bounded tool results and the context-window guard
 

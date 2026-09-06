@@ -26,7 +26,7 @@ function Test-ShpToolAccess {
 
     .PARAMETER Tool
         The tool being dispatched: read_file, list_directory, glob_files,
-        grep_files, write_file, create_directory or run_command.
+        grep_files, write_file, edit_file, create_directory or run_command.
 
     .PARAMETER Path
         The path the tool was asked to act on, for the file tools.
@@ -77,6 +77,7 @@ function Test-ShpToolAccess {
         'glob_files'       { 'Read' }
         'grep_files'       { 'Read' }
         'write_file'       { 'Write' }
+        'edit_file'        { 'Write' }
         'create_directory' { 'Write' }
         'run_command'      { 'Shell' }
         default            { $null }

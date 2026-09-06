@@ -129,6 +129,21 @@ Tool switches: `-DisableBrowsing`, `-DisableFileAccess`, `-DisableTerminal`,
 `-DisableUserPrompts`. The result lists what ran (`FilesRead`, `FilesWritten`,
 `CommandsRun`, `QuestionsAsked`).
 
+For a targeted file change, the model can call `edit_file` with `path`,
+`oldString`, and `newString`. It replaces exactly one literal, case-sensitive
+match. Zero matches or multiple matches (including overlaps) return a distinct
+error without writing; add surrounding text to make an ambiguous match unique.
+An explicitly empty `newString` deletes the match; omitting it is an error.
+
+The tool preserves the BOM, encoding, and text outside the replacement,
+including mixed line endings and the final newline. It accepts UTF-8 without
+a BOM and BOM-marked UTF-8, UTF-16, and UTF-32; malformed or unsupported text
+is refused instead of being converted. Neither string is normalized:
+`read_file` windows use LF, so an edit of CRLF text must supply literal `\r\n`
+line endings. `edit_file` uses the same `Write()` tool rules as `write_file`,
+is withdrawn by `-DisableFileAccess`, and is skipped under `-WhatIf`.
+Successful edits appear in `FilesWritten`.
+
 ### User-defined tools
 
 Expose any PowerShell command to the model as a callable tool. The schema is

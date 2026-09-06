@@ -19,7 +19,7 @@ BeforeAll {
     # the real buffered sender (Invoke-ShpHttpRequest) instead of mocking it -
     # the API-shape fallbacks key off the error message that sender produces.
     # See Invoke-ShpHttpRequest.Tests.ps1.
-    function New-ShpFakeHttpClient {
+    function Get-ShpFakeHttpClient {
         param(
             [Parameter(Mandatory)]
             [scriptblock]$Responder
@@ -27,7 +27,7 @@ BeforeAll {
 
         $client = [pscustomobject]@{ CallCount = 0; Responder = $Responder }
         $client | Add-Member -MemberType ScriptMethod -Name SendAsync -Value {
-            param($request, $cancelToken)
+            param($request)
             $this.CallCount++
             [System.Threading.Tasks.Task]::FromResult((& $this.Responder $request))
         }
@@ -205,7 +205,7 @@ Describe 'Invoke-Shp' {
                 $response.Content = [System.Net.Http.StringContent]::new($payload, [System.Text.Encoding]::UTF8, 'application/json')
                 $response
             }.GetNewClosure()
-            $client = New-ShpFakeHttpClient -Responder $responder
+            $client = Get-ShpFakeHttpClient -Responder $responder
 
             $result = InModuleScope $script:moduleName -Parameters @{ Client = $client } {
                 param($Client)
@@ -229,8 +229,6 @@ Describe 'Invoke-Shp' {
             # instead of hanging it - a correct turn stops after two.
             $state = @{ Calls = 0 }
             $responder = {
-                param($request)
-
                 $state.Calls++
                 $body = if ($state.Calls -ge 8) {
                     '{"error":{"message":"probe cap reached","code":"probe_stop"}}'
@@ -242,7 +240,7 @@ Describe 'Invoke-Shp' {
                 $response.Content = [System.Net.Http.StringContent]::new($body, [System.Text.Encoding]::UTF8, 'application/json')
                 $response
             }.GetNewClosure()
-            $client = New-ShpFakeHttpClient -Responder $responder
+            $client = Get-ShpFakeHttpClient -Responder $responder
 
             InModuleScope $script:moduleName -Parameters @{ Client = $client } {
                 param($Client)
@@ -402,14 +400,13 @@ Describe 'Invoke-Shp' {
             # elides tool results, and this overflow is user/assistant history -
             # so the only honest help is to name the cause and the remedy.
             $responder = {
-                param($request)
                 $response = [System.Net.Http.HttpResponseMessage]::new([System.Net.HttpStatusCode]::BadRequest)
                 $response.Content = [System.Net.Http.StringContent]::new(
                     '{"error":{"message":"prompt token count of 176372 exceeds the limit of 136000","code":"model_max_prompt_tokens_exceeded"}}',
                     [System.Text.Encoding]::UTF8, 'application/json')
                 $response
             }
-            $client = New-ShpFakeHttpClient -Responder $responder
+            $client = Get-ShpFakeHttpClient -Responder $responder
 
             $warnings = InModuleScope $script:moduleName -Parameters @{ Client = $client } {
                 param($Client)
@@ -418,9 +415,11 @@ Describe 'Invoke-Shp' {
                 Mock Get-ShpSessionToken { [pscustomobject]@{ token = 't'; expires_at = 0; endpoints = [pscustomobject]@{ api = 'https://api.example' } } }
 
                 $captured = $null
+                $failure = $null
                 try {
                     Invoke-Shp -Prompt 'hi' -DisableStreaming -DisableBrowsing -DisableFileAccess -DisableTerminal -DisableUserPrompts -DisableTodoList -MaxRetryCount 0 -NetworkOutageToleranceSec 0 -WarningVariable captured -ErrorAction Stop
-                } catch { }
+                } catch { $failure = $_ }
+                $failure.Exception.Message | Should -Match 'model_max_prompt_tokens_exceeded'
                 @($captured | ForEach-Object { [string]$_ })
             }
 
@@ -433,14 +432,13 @@ Describe 'Invoke-Shp' {
             # exchange restored service. Naming only Clear-ShpChat and -History
             # tells the caller to throw the whole session away.
             $responder = {
-                param($request)
                 $response = [System.Net.Http.HttpResponseMessage]::new([System.Net.HttpStatusCode]::BadRequest)
                 $response.Content = [System.Net.Http.StringContent]::new(
                     '{"error":{"message":"prompt token count of 176372 exceeds the limit of 136000","code":"model_max_prompt_tokens_exceeded"}}',
                     [System.Text.Encoding]::UTF8, 'application/json')
                 $response
             }
-            $client = New-ShpFakeHttpClient -Responder $responder
+            $client = Get-ShpFakeHttpClient -Responder $responder
 
             $warnings = InModuleScope $script:moduleName -Parameters @{ Client = $client } {
                 param($Client)
@@ -449,9 +447,11 @@ Describe 'Invoke-Shp' {
                 Mock Get-ShpSessionToken { [pscustomobject]@{ token = 't'; expires_at = 0; endpoints = [pscustomobject]@{ api = 'https://api.example' } } }
 
                 $captured = $null
+                $failure = $null
                 try {
                     Invoke-Shp -Prompt 'hi' -DisableStreaming -DisableBrowsing -DisableFileAccess -DisableTerminal -DisableUserPrompts -DisableTodoList -MaxRetryCount 0 -NetworkOutageToleranceSec 0 -WarningVariable captured -ErrorAction Stop
-                } catch { }
+                } catch { $failure = $_ }
+                $failure.Exception.Message | Should -Match 'model_max_prompt_tokens_exceeded'
                 @($captured | ForEach-Object { [string]$_ })
             }
 
@@ -1953,6 +1953,183 @@ Describe 'Invoke-Shp' {
                 $null = Invoke-Shp -Prompt 'one step' -DisableProgressEvents -DisableBrowsing -DisableFileAccess -DisableTerminal -DisableUserPrompts -InformationVariable todoInfo2
                 @($todoInfo2 | Where-Object { $_.Tags -contains 'ShpProgress' }) | Should -BeNullOrEmpty
             }
+        }
+    }
+}
+
+Describe 'Invoke-Shp edit_file' {
+    BeforeEach {
+        InModuleScope $script:moduleName -Parameters @{ Root = $TestDrive } {
+            Clear-ShpContext
+            Clear-ShpToolPolicy
+            $script:ShpChat = @()
+            $script:editTurns = 0
+            $script:editOffered = @()
+            $script:editToolNames = @('edit_file')
+            $script:editPath = Join-Path $Root 'edit[1].txt'
+            [System.IO.File]::WriteAllText($script:editPath, 'before')
+            $script:editArguments = @{ path = $script:editPath; oldString = 'before'; newString = 'after' }
+            $script:editInvokeParameters = @{
+                Prompt = 'edit the file'
+                DisableBrowsing = $true
+                DisableTerminal = $true
+                DisableUserPrompts = $true
+                DisableTodoList = $true
+                DisableStreaming = $true
+            }
+            Mock Get-ShpSessionToken {
+                [pscustomobject]@{
+                    token = 't'; expires_at = 0; endpoints = [pscustomobject]@{ api = 'https://api.example' }
+                }
+            }
+            Mock Invoke-CopilotTurn {
+                $script:editTurns++
+                $script:editOffered = @($Tools)
+                $calls = if ($script:editTurns -eq 1) {
+                    foreach ($toolName in $script:editToolNames) {
+                        $arguments = if ($toolName -eq 'write_file') {
+                            @{ path = $script:editPath; content = 'overwritten' }
+                        } else {
+                            $script:editArguments
+                        }
+                        [pscustomobject]@{
+                            Id = $toolName
+                            Name = $toolName
+                            Arguments = ($arguments | ConvertTo-Json -Compress)
+                        }
+                    }
+                } else { @() }
+                [pscustomobject]@{
+                    Mode = 'chat'; Content = 'done'; FinishReason = 'stop'; ToolCalls = @($calls)
+                    AssistantMessage = [pscustomobject]@{ content = ''; tool_calls = @() }
+                    AssistantItems = @(); Reasoning = ''
+                    PromptTokens = 1; CompletionTokens = 1; CachedTokens = 0; CacheWriteTokens = 0
+                    ModelName = $Model; ResponseId = $null; CopilotUsage = $null
+                    Raw = @{}; Response = [pscustomobject]@{ Headers = @{} }
+                }
+            }
+        }
+    }
+
+    AfterEach {
+        InModuleScope $script:moduleName {
+            Clear-ShpToolPolicy
+            Clear-ShpContext
+            $script:ShpChat = @()
+        }
+    }
+
+    It 'Offers edit_file with three required string arguments' {
+        InModuleScope $script:moduleName {
+            $null = Invoke-Shp @script:editInvokeParameters
+            $schema = @($script:editOffered | Where-Object { $_.function.name -eq 'edit_file' })
+            $schema | Should -HaveCount 1
+            $schema[0].function.parameters.required | Should -Be @('path', 'oldString', 'newString')
+            foreach ($parameterName in 'path', 'oldString', 'newString') {
+                $schema[0].function.parameters.properties[$parameterName].type | Should -Be 'string'
+            }
+        }
+    }
+
+    It 'Edits the file and records FilesWritten when no tool policy is set' {
+        InModuleScope $script:moduleName {
+            $result = Invoke-Shp @script:editInvokeParameters
+
+            [System.IO.File]::ReadAllText($script:editPath) | Should -BeExactly 'after'
+            $result.FilesWritten | Should -Contain $script:editPath
+            $result.ToolCallsDenied | Should -BeNullOrEmpty
+            ($result.ToolCalls[0].ResultPreview | ConvertFrom-Json).replacements | Should -Be 1
+        }
+    }
+
+    It 'Allows an edit covered by a Write rule' {
+        InModuleScope $script:moduleName {
+            Set-ShpToolPolicy -Rule @(('Write({0})' -f (Resolve-ShpRealPath -Path $script:editPath)))
+
+            $result = Invoke-Shp @script:editInvokeParameters
+
+            [System.IO.File]::ReadAllText($script:editPath) | Should -BeExactly 'after'
+            $result.ToolCallsDenied | Should -BeNullOrEmpty
+        }
+    }
+
+    It 'Denies edit_file like write_file with <Name>' -ForEach @(
+        @{ Name = 'only Read access'; Rules = @('Read({0}/**)') }
+        @{ Name = 'a Write rule for another target'; Rules = @('Write({0}/elsewhere/**)') }
+        @{ Name = 'an explicit Write denial'; Rules = @('Write({0}/**)', '!Write({0}/**)') }
+    ) {
+        InModuleScope $script:moduleName -Parameters @{ Root = $TestDrive; Rules = $Rules } {
+            $resolvedRoot = Resolve-ShpRealPath -Path $Root
+            Set-ShpToolPolicy -Rule @($Rules | ForEach-Object { $_ -f $resolvedRoot })
+            $script:editToolNames = @('edit_file', 'write_file')
+            $eventPath = Join-Path $Root ('denied-{0}.jsonl' -f [guid]::NewGuid())
+
+            $result = Invoke-Shp @script:editInvokeParameters -EventStream $eventPath
+
+            [System.IO.File]::ReadAllText($script:editPath) | Should -BeExactly 'before'
+            $result.FilesWritten | Should -BeNullOrEmpty
+            $result.ToolCallsDenied | Should -HaveCount 2
+            $writeDenial = $result.ToolCallsDenied | Where-Object { $_ -like 'write_file: *' }
+            $reason = $writeDenial.Substring('write_file: '.Length)
+            $result.ToolCallsDenied | Should -Contain "edit_file: $reason"
+            foreach ($call in $result.ToolCalls) {
+                ($call.ResultPreview | ConvertFrom-Json).denied | Should -BeExactly $reason
+            }
+            $events = @(Get-Content -LiteralPath $eventPath | ConvertFrom-Json | Where-Object type -eq 'tool.call')
+            $events | Should -HaveCount 2
+            $events[0].data.tool | Should -Be 'edit_file'
+            $events[1].data.tool | Should -Be 'write_file'
+            foreach ($eventRecord in $events) {
+                $eventRecord.data.policy | Should -Be 'denied'
+                $eventRecord.data.reason | Should -BeExactly $reason
+                $eventRecord.data.callId | Should -Be $eventRecord.data.tool
+            }
+        }
+    }
+
+    It 'Withdraws and refuses edit_file when file access is disabled' {
+        InModuleScope $script:moduleName {
+            $result = Invoke-Shp @script:editInvokeParameters -DisableFileAccess
+
+            @($script:editOffered | ForEach-Object { $_.function.name }) | Should -Not -Contain 'edit_file'
+            [System.IO.File]::ReadAllText($script:editPath) | Should -BeExactly 'before'
+            $result.FilesWritten | Should -BeNullOrEmpty
+            $result.ToolCallsDenied | Should -HaveCount 1
+            $result.ToolCallsDenied[0] | Should -Match 'edit_file.*disabled'
+            ($result.ToolCalls[0].ResultPreview | ConvertFrom-Json).denied | Should -Match 'disabled'
+        }
+    }
+
+    It 'Reports a skipped edit under WhatIf and changes nothing' {
+        InModuleScope $script:moduleName {
+            $result = Invoke-Shp @script:editInvokeParameters -WhatIf
+
+            [System.IO.File]::ReadAllText($script:editPath) | Should -BeExactly 'before'
+            $result.FilesWritten | Should -BeNullOrEmpty
+            $result.Content | Should -Be 'done'
+            ($result.ToolCalls[0].ResultPreview | ConvertFrom-Json).skipped | Should -Match 'approve.*edit_file'
+        }
+    }
+
+    It 'Refuses a missing newString instead of treating it as a deletion' {
+        InModuleScope $script:moduleName {
+            $script:editArguments.Remove('newString')
+
+            $result = Invoke-Shp @script:editInvokeParameters
+
+            [System.IO.File]::ReadAllText($script:editPath) | Should -BeExactly 'before'
+            ($result.ToolCalls[0].ResultPreview | ConvertFrom-Json).error | Should -Match 'newString'
+        }
+    }
+
+    It 'Accepts an explicitly empty newString as a deletion' {
+        InModuleScope $script:moduleName {
+            $script:editArguments.newString = ''
+
+            $result = Invoke-Shp @script:editInvokeParameters
+
+            [System.IO.File]::ReadAllText($script:editPath) | Should -BeExactly ''
+            ($result.ToolCalls[0].ResultPreview | ConvertFrom-Json).replacements | Should -Be 1
         }
     }
 }

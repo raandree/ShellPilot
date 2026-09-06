@@ -36,6 +36,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Add `edit_file` for targeted changes to existing files.** Replace one
+  exact, case-sensitive `oldString` with `newString`, refusing zero matches or
+  multiple matches with recovery guidance. Preserve the BOM, encoding and
+  unchanged line endings for UTF-8 and BOM-marked UTF-16/UTF-32; refuse
+  malformed or unsupported text instead of converting it. The tool follows
+  existing `Write()` policy rules and denial events, is disabled by
+  `-DisableFileAccess`, and reports the intended edit without writing under
+  `-WhatIf`. See [README.md](README.md#agent-tools-on-by-default).
+
 - **`glob_files` and `grep_files` let the model search without a shell.**
   `glob_files` finds files by name pattern under a directory; `grep_files`
   searches their contents and returns only the path, line number and matching
