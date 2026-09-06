@@ -336,6 +336,10 @@ $script:ShpMcpDefaultConnectTimeoutSec = 10
 $script:ShpMcpDefaultRequestTimeoutSec = 30
 $script:ShpMcpDefaultStopTimeoutSec = 5
 
+# Ceiling on what edit_file will read and write back, including the BOM. A model
+# argument can never raise it; a larger file belongs to another tool.
+$script:ShpEditFileMaxBytes = 8MB
+
 # Every tool name Invoke-Shp can offer on its own. Registration checks a
 # namespaced MCP name against this list so an attached server can never shadow
 # a built-in - a collision that silently redirected read_file would be the worst

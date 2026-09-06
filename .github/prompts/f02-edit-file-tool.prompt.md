@@ -5,6 +5,13 @@ description: 'Tranche 1 / F2 - add an edit_file tool that replaces an exact stri
 
 # F2 - `edit_file`
 
+> [!NOTE]
+> Implemented. The `Write`-only policy mapping below is **superseded** by
+> [decision 003](../../.memory-bank/decisions/003-edit-file-authorization.md):
+> `edit_file` requires both a `Read` and a `Write` rule, because its match
+> counts disclose file content. The rest of this prompt still describes the
+> shipped design.
+
 Add a built-in `edit_file` tool that replaces an exact old string with a new
 one, and refuses when the old string matches zero times or more than once.
 

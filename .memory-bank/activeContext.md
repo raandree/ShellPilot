@@ -5,10 +5,13 @@ Current working focus for ShellPilot. Overwrite this file as the focus shifts.
 ## Focus
 
 Tranche 1 / F2 security review remediation is complete on `ai/edit-file-tool`.
-The follow-up to `3446e32` requires Read and Write Tool rules, bounds edits to
-8 MiB, and stages protected atomic replacements with conflict detection.
-The user's fix request supersedes the original Write-only requirement. F1 is
-already on `main`; F6, F7/F8, F17, F22 and F23 remain ready to run. No push is
+A self-review of the first remediation found four further defects, fixed in a
+second round: the Unix regular-file guard silently refused everything on
+PowerShell 7.0, the commit message would have bumped the module to 1.0.0, the
+device test passed for the wrong reason, and the authorization reversal had no
+decision record. The Read+Write rule is now
+[decision 003](decisions/003-edit-file-authorization.md). F1 is already on
+`main`; F6, F7/F8, F17, F22 and F23 remain ready to run. No push is
 authorized; the user's public-test trailing-blank-line edit stays uncommitted.
 
 Three scoping constraints decide what is admissible at all, and they are stated
@@ -119,25 +122,32 @@ messages; Read must also pass before any content guess reaches the helper.
 This intentionally changes Write-only policies. Public help, model guidance,
 README migration instructions, and the unreleased changelog describe it.
 
-Only regular, seekable files are accepted. Input and output each have an
-8 MiB ceiling including the BOM. Same-path ShellPilot edits use a named mutex;
-staging is flushed and a bounded SHA-256 recheck precedes atomic replacement.
-Windows temporary files are secured before any content is copied, not only
-after replacement. Fault injection covers staging and replacement failures,
-same-length/same-time conflicts, lock contention, and temporary-file cleanup.
+Only regular, seekable files are accepted. The type guard is three separate
+checks with distinct messages, so each one is assertable: not a file, a device,
+and a non-regular Unix mode. `UnixMode` is why the module floor moved from
+PowerShell 7.0 to 7.1 - on 7.0 the property is absent, and the original single
+combined check therefore refused every edit on Linux and macOS. Input and
+output each have an 8 MiB ceiling including the BOM, hoisted to
+`$script:ShpEditFileMaxBytes` beside the other module bounds. Same-path
+ShellPilot edits use a named mutex; staging is flushed and a bounded SHA-256
+recheck precedes atomic replacement. Windows temporary files are secured before
+any content is copied, not only after replacement.
 
-Evidence: Pester 5.7.1 policy cases passed 13/13; helper cases passed 40 with
-one Unix-only skip. New refusal, conflict, failure and temporary-security
-regressions failed before their fixes. The fresh build and exact detached
+Evidence: Pester 5.7.1 policy cases passed 13/13; helper cases passed 41 with
+two Unix-only skips. Each new refusal, conflict, failure and temporary-security
+regression failed before its fix. The fresh build and exact detached
 `./build.ps1 -AutoRestore -Tasks test` passed on PowerShell 7.6.5/Pester 6.1.0:
-1,759 passed, zero failed, one Unix-only skip, 88.70% coverage, nine test tasks,
-zero errors or warnings. Linux execution was unavailable locally. Existing
-Markdown lint findings outside the edited sections were left unchanged.
+1,760 passed, zero failed, two Unix-only skips, 88.67% coverage, nine test
+tasks, zero errors or warnings. Linux execution was unavailable locally.
+Existing Markdown lint findings outside the edited sections were left
+unchanged.
 
 Self-review is complete. Recommend `review: on` before merging the changed
 Tool policy and persistence contract. Other programs must coordinate their
 renames: the final content check and replacement are not a filesystem
-compare-and-swap guarantee. No process isolation was added.
+compare-and-swap guarantee. Serialization is per logon session. No process
+isolation was added. Two tests are Unix-only and skip on Windows, so the
+named-pipe refusal and Unix mode preservation are proven by CI, not here.
 
 ## F1 complete
 

@@ -150,10 +150,11 @@ schema and zero-match error explain that CRLF matching requires literal CRLF.
 #### File-edit threat model
 
 Model arguments and file content are untrusted. The tool adds no outbound
-channel or code evaluation. Match counts still disclose content, so the
-2026-09-06 review remediation requires both `Read()` and `Write()` Tool rules
-for the target, even for a no-op replacement. This supersedes F2's original
-Write-only contract. Write is checked first to retain existing denial messages.
+channel or code evaluation. Match counts still disclose content, so
+[decision 003](decisions/003-edit-file-authorization.md) requires both `Read()`
+and `Write()` Tool rules for the target, even for a no-op replacement. This
+supersedes F2's original Write-only contract. Write is checked first to retain
+existing denial messages.
 
 | Threat | Control |
 | --- | --- |
@@ -1096,6 +1097,7 @@ implemented pattern stays in its numbered spec.
 | :--- | :--- | :--- |
 | [001](decisions/001-first-tranche-scope.md) | 2026-09-03 | First tranche of candidate features: F1, F2, F6, F7, F8, F17, F22, F23; F14 probe next; open decision 14 taken up |
 | [002](decisions/002-module-state-on-disk.md) | 2026-09-05 | Module state on disk: split by sensitivity - default location for non-content, opt-in caller-named path for content, redacted on write |
+| [003](decisions/003-edit-file-authorization.md) | 2026-09-06 | edit_file requires both Read and Write rules, because its match counts disclose file content; supersedes F2's Write-only mapping |
 
 ## Patterns to introduce (pending)
 

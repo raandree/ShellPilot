@@ -26,9 +26,12 @@ Describe 'Invoke-EditFileTool' {
         $result = InModuleScope $script:moduleName -Parameters $parameters {
             Invoke-EditFileTool -Path $FilePath -OldString $OldString -NewString $NewString | ConvertFrom-Json
         }
+        $expectedPath = InModuleScope $script:moduleName -Parameters @{ FilePath = $filePath } {
+            Resolve-ShpRealPath -Path $FilePath
+        }
 
         $result.error | Should -BeNullOrEmpty
-        $result.path | Should -BeExactly $filePath
+        $result.path | Should -BeExactly $expectedPath
         $result.replacements | Should -Be 1
         $result.bytes | Should -Be ([System.IO.FileInfo]::new($filePath).Length)
         [System.IO.File]::ReadAllText($filePath) | Should -BeExactly $Expected
@@ -137,24 +140,57 @@ Describe 'Invoke-EditFileTool' {
         (Get-FileHash -LiteralPath $filePath).Hash | Should -BeExactly $originalHash
     }
 
-    It 'Refuses a filesystem device before opening it' {
+    It 'Refuses a path that does not resolve to a file' {
+        $filePath = Join-Path $TestDrive 'not-a-file.txt'
+        [System.IO.File]::WriteAllText($filePath, 'old')
+
+        $result = InModuleScope $script:moduleName -Parameters @{ FilePath = $filePath } {
+            Mock Get-Item { [pscustomobject]@{ FullName = $FilePath } }
+            Invoke-EditFileTool -Path $FilePath -OldString 'old' -NewString 'new' | ConvertFrom-Json
+        }
+
+        $result.error | Should -Match 'existing file'
+        [System.IO.File]::ReadAllText($filePath) | Should -BeExactly 'old'
+    }
+
+    It 'Refuses a device rather than opening it' {
         $filePath = Join-Path $TestDrive 'device-target.txt'
         [System.IO.File]::WriteAllText($filePath, 'old')
 
         $result = InModuleScope $script:moduleName -Parameters @{ FilePath = $filePath } {
-            Mock Get-Item {
-                [pscustomobject]@{
-                    FullName = $FilePath
-                    PSProvider = @{ Name = 'FileSystem' }
-                    PSIsContainer = $false
-                    Attributes = [System.IO.FileAttributes]::Device
-                }
-            }
+            $deviceItem = [System.IO.FileInfo]::new($FilePath) |
+                Add-Member -NotePropertyName Attributes -NotePropertyValue ([System.IO.FileAttributes]::Device) -Force -PassThru
+            $deviceItem | Should -BeOfType [System.IO.FileInfo]
+            Mock Get-Item { $deviceItem }
             Invoke-EditFileTool -Path $FilePath -OldString 'old' -NewString 'new' | ConvertFrom-Json
         }
 
-        $result.error | Should -Match 'regular file'
+        $result.error | Should -Match 'device'
         [System.IO.File]::ReadAllText($filePath) | Should -BeExactly 'old'
+    }
+
+    It 'Refuses a named pipe instead of blocking on it' -Skip:$IsWindows {
+        $fifoPath = Join-Path $TestDrive 'pipe-target'
+        & mkfifo $fifoPath
+        Test-Path -LiteralPath $fifoPath | Should -BeTrue
+
+        $worker = [powershell]::Create()
+        $null = $worker.AddScript({
+            param($ModuleName, $FilePath)
+            Import-Module -Name $ModuleName -Force -ErrorAction Stop
+            & (Get-Module -Name $ModuleName) {
+                Invoke-EditFileTool -Path $args[0] -OldString 'old' -NewString 'new'
+            } $FilePath
+        }.ToString()).AddArgument($script:moduleName).AddArgument($fifoPath)
+        $workerRun = $worker.BeginInvoke()
+        try {
+            $workerRun.AsyncWaitHandle.WaitOne(15000) |
+                Should -BeTrue -Because 'the type check must run before the file is opened'
+            ($worker.EndInvoke($workerRun) | ConvertFrom-Json).error | Should -Match 'regular file'
+        } finally {
+            if (-not $workerRun.IsCompleted) { $worker.Stop() }
+            $worker.Dispose()
+        }
     }
 
     It 'Preserves the original and cleans temporary files after a <Phase> failure' -ForEach @(
@@ -317,7 +353,7 @@ Describe 'Invoke-EditFileTool' {
         @(Get-ChildItem -LiteralPath $TestDrive -Force -Filter '.shp-edit-*') | Should -BeNullOrEmpty
     }
 
-    It 'Preserves Unix file modes' -Skip:$IsWindows {
+    It 'Preserves Unix file modes' -Skip:($IsWindows -or -not ('System.IO.UnixFileMode' -as [type])) {
         $filePath = Join-Path $TestDrive 'restricted-unix.txt'
         [System.IO.File]::WriteAllText($filePath, 'old')
         $mode = [System.IO.UnixFileMode]::UserRead -bor [System.IO.UnixFileMode]::UserWrite
@@ -408,9 +444,12 @@ Describe 'Invoke-EditFileTool' {
                 Pop-Location
             }
         }
+        $expectedPath = InModuleScope $script:moduleName -Parameters @{ FilePath = $filePath } {
+            Resolve-ShpRealPath -Path $FilePath
+        }
 
         $result.error | Should -BeNullOrEmpty
-        $result.path | Should -BeExactly $filePath
+        $result.path | Should -BeExactly $expectedPath
         [System.IO.File]::ReadAllText($filePath) | Should -BeExactly 'new'
     }
 }

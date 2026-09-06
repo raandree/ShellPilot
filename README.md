@@ -161,11 +161,13 @@ content, then atomically replaces the target. Windows security descriptors
 protect the temporary file as well as the result; Unix file modes are retained.
 Failures before replacement leave the target unchanged and clean up staging.
 
-ShellPilot edits to the same resolved path are serialized. Detected content or
-path changes cause an error and require a fresh read before retrying. Other
-programs must coordinate their own renames: the final check and replacement
-are not a filesystem compare-and-swap guarantee. An unsupported replacement
-fails rather than falling back to truncating the original file.
+ShellPilot edits to the same resolved path are serialized within a logon
+session; separate sessions and other programs are not coordinated. Detected
+content or path changes cause an error and require a fresh read before
+retrying. Other programs must coordinate their own renames: the final check
+and replacement are not a filesystem compare-and-swap guarantee. An
+unsupported replacement fails rather than falling back to truncating the
+original file.
 
 ### User-defined tools
 

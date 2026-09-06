@@ -5,8 +5,10 @@ Update this file when the stack or a dependency changes.
 
 ## Language and runtime
 
-- PowerShell 7.0 or later. The proof of concept uses null-coalescing,
+- PowerShell 7.1 or later. The proof of concept uses null-coalescing,
   ternary, and utf8NoBOM, which are not available on Windows PowerShell 5.1.
+  The floor is 7.1 rather than 7.0 because the file tools identify a regular
+  file on Linux and macOS through `UnixMode`, added in 7.1.
 - Pure PowerShell; no compiled binaries.
 - Windows PowerShell 5.1 support is an open decision (see activeContext).
 

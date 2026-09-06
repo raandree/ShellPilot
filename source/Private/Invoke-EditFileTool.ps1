@@ -18,8 +18,9 @@ function Invoke-EditFileTool {
         policy and ShouldProcess before calling this helper.
 
         Only regular, seekable files are supported. Input and output are each
-        limited to 8 MiB including the BOM. The bound cannot be raised by model
-        arguments. Oversized files and replacements are refused before writing.
+        limited to $script:ShpEditFileMaxBytes including the BOM. The bound
+        cannot be raised by model arguments. Oversized files and replacements
+        are refused before writing.
 
         Serializes edits to the same resolved path with a named mutex. Writes
         and flushes a same-directory temporary copy, verifies the target's
@@ -30,7 +31,8 @@ function Invoke-EditFileTool {
         are not a filesystem compare-and-swap operation.
 
     .PARAMETER Path
-        Literal file path, absolute or relative to the PowerShell location.
+        Literal file path, absolute or relative to the PowerShell location. The
+        returned path is the resolved one, so a link reports its target.
 
     .PARAMETER OldString
         Nonempty text to replace. Supply the exact case and line endings from
@@ -76,16 +78,24 @@ function Invoke-EditFileTool {
             throw 'oldString must not be empty. Supply exact text from the file that occurs once.'
         }
 
-        $maxBytes = 8MB
+        $maxBytes = $script:ShpEditFileMaxBytes
+        $maxDisplay = '{0:N0} MiB' -f ($maxBytes / 1MB)
+        # Cheap pre-filter in characters; the authoritative byte check runs after encoding.
         if ($OldString.Length -gt $maxBytes -or $NewString.Length -gt $maxBytes) {
-            throw 'edit_file is limited to 8 MiB. Supply a smaller replacement or edit a smaller file with another tool.'
+            throw ('edit_file is limited to {0}. Supply a smaller replacement or edit a smaller file with another tool.' -f $maxDisplay)
         }
 
         $resolvedPath = Resolve-ShpRealPath -Path $Path
         $item = Get-Item -LiteralPath $resolvedPath -Force -ErrorAction Stop
-        if ($item -isnot [System.IO.FileInfo] -or $item.Attributes -band [System.IO.FileAttributes]::Device -or
-            (-not $IsWindows -and $item.UnixMode -notlike '-*')) {
-            throw 'Path must identify an existing regular file. Devices, pipes and other special files cannot be edited.'
+        if ($item -isnot [System.IO.FileInfo]) {
+            throw 'Path must identify an existing file. Use list_directory to locate the file to edit.'
+        }
+        if ($item.Attributes.HasFlag([System.IO.FileAttributes]::Device)) {
+            throw 'Path must identify a regular file, not a device. Choose a regular file to edit.'
+        }
+        # UnixMode carries the file-type character, and is why the module floor is PowerShell 7.1.
+        if (-not $IsWindows -and -not ([string]$item.UnixMode).StartsWith('-')) {
+            throw 'Path must identify a regular file, not a directory, socket or pipe. Choose a regular file to edit.'
         }
 
         $hasher = [System.Security.Cryptography.SHA256]::Create()
@@ -108,7 +118,7 @@ function Invoke-EditFileTool {
             throw 'Path must identify a seekable regular file. Devices and pipes cannot be edited.'
         }
         if ($readStream.Length -gt $maxBytes) {
-            throw 'The file exceeds the 8 MiB edit_file limit. Edit a smaller file with another tool; no bytes were written.'
+            throw ('The file exceeds the {0} edit_file limit. Edit a smaller file with another tool; no bytes were written.' -f $maxDisplay)
         }
         $fileBytes = [byte[]]::new($readStream.Length)
         $readOffset = 0
@@ -170,11 +180,11 @@ function Invoke-EditFileTool {
         }
 
         if ([long]$text.Length - $OldString.Length + $NewString.Length -gt $maxBytes) {
-            throw 'The edited file would exceed the 8 MiB edit_file limit. Supply a smaller replacement; no bytes were written.'
+            throw ('The edited file would exceed the {0} edit_file limit. Supply a smaller replacement; no bytes were written.' -f $maxDisplay)
         }
         $updatedText = $text.Remove($matchIndex, $OldString.Length).Insert($matchIndex, $NewString)
         if ([long]$encoding.GetByteCount($updatedText) + $preambleLength -gt $maxBytes) {
-            throw 'The edited file would exceed the 8 MiB edit_file limit. Supply a smaller replacement; no bytes were written.'
+            throw ('The edited file would exceed the {0} edit_file limit. Supply a smaller replacement; no bytes were written.' -f $maxDisplay)
         }
         $contentBytes = $encoding.GetBytes($updatedText)
         $updatedBytes = [byte[]]::new($preambleLength + $contentBytes.Length)
@@ -206,8 +216,9 @@ function Invoke-EditFileTool {
             throw 'The file path changed during the edit. Read the current file and retry; no edit was committed.'
         }
         $currentItem = Get-Item -LiteralPath $currentPath -Force -ErrorAction Stop
-        if ($currentItem -isnot [System.IO.FileInfo] -or $currentItem.Attributes -band [System.IO.FileAttributes]::Device -or
-            (-not $IsWindows -and $currentItem.UnixMode -notlike '-*')) {
+        if ($currentItem -isnot [System.IO.FileInfo] -or
+            $currentItem.Attributes.HasFlag([System.IO.FileAttributes]::Device) -or
+            (-not $IsWindows -and -not ([string]$currentItem.UnixMode).StartsWith('-'))) {
             throw 'The file type changed during the edit. Read the current file and retry; no edit was committed.'
         }
         $currentStream = [System.IO.File]::Open($currentPath, 'Open', 'Read', $fileShare)

@@ -16,7 +16,7 @@ Chronological record of shipped changes and remaining work. Latest first.
   state (011) is implemented but the Copilot proxy does not support it, so it
   falls back to client-side history.
 - The exact detached Sampler gate is currently healthy on PowerShell 7.6.5:
-  1,759 tests passed, one Unix-only skip, and 88.70% coverage on 2026-09-06.
+  1,760 tests passed, two Unix-only skips, and 88.67% coverage on 2026-09-06.
   A prior .NET 10 native access violation on 7.6.1 remains historical only.
 
 ## What is left
@@ -43,6 +43,20 @@ Chronological record of shipped changes and remaining work. Latest first.
   `Deserialized.*` copy and break the "same result object" contract.
 
 ## Log
+
+- 2026-09-06 - Fix four defects a self-review found in the F2 remediation.
+  `UnixMode` is absent on PowerShell 7.0, so the combined regular-file guard
+  refused every edit on Linux and macOS; the guard is now three checks with
+  distinct messages and the module floor is 7.1. The commit message would have
+  matched GitVersion's `major-version-bump-message` and taken 0.x to 1.0.0, and
+  the changelog called an unreleased tool a breaking change - both reworded.
+  The device test mocked a non-FileInfo object, so it never reached the branch
+  it named; it now shadows a real FileInfo, with a Unix-only named-pipe test
+  beside it. Recorded the Read+Write rule as decision 003 and annotated the F2
+  prompt as superseded. Hoisted the 8 MiB ceiling to
+  `$script:ShpEditFileMaxBytes`. Focused helper suite: 41 passed, two Unix-only
+  skips. Exact detached gate: 1,760 passed, zero failed, 88.67% coverage; nine
+  tasks, zero errors/warnings. No push.
 
 - 2026-09-06 - Fix the F2 security review findings: require Read and Write
   Tool rules, bound input/output to 8 MiB, refuse special files, and stage

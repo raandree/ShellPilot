@@ -9,13 +9,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
-- **Harden `edit_file` against content inference and unsafe writes.** Require
-  Read access as well as Write access before any match result can be returned.
-  Limit input and output to 8 MiB, refuse special files, stage protected
-  temporary files, and flush before atomic replacement. Refuse detected
-  concurrent changes and overlapping ShellPilot edits instead of silently
-  overwriting them. See [README.md](README.md#agent-tools-on-by-default).
-
 - **A disabled tool can no longer be executed.** `-DisableTerminal`,
   `-DisableFileAccess`, `-DisableBrowsing`, `-DisableUserPrompts` and
   `-DisableTodoList` removed a tool from the set offered to the model, but the
@@ -47,10 +40,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   exact, case-sensitive `oldString` with `newString`, refusing zero matches or
   multiple matches with recovery guidance. Preserve the BOM, encoding and
   unchanged line endings for UTF-8 and BOM-marked UTF-16/UTF-32; refuse
-  malformed or unsupported text instead of converting it. The tool follows
-  `Read()` and `Write()` policy rules and existing denial events, is disabled by
-  `-DisableFileAccess`, and reports the intended edit without writing under
-  `-WhatIf`. See [README.md](README.md#agent-tools-on-by-default).
+  malformed or unsupported text instead of converting it. The tool is disabled
+  by `-DisableFileAccess`, and reports the intended edit without writing under
+  `-WhatIf`.
+
+  When a tool policy is set, an edit needs both a `Read()` and a `Write()` rule
+  covering the target, and a deny in either kind refuses it. Match counts
+  disclose file content even when the replacement is identical, so `Write()`
+  alone would turn the tool into a way to confirm guesses about a file the
+  policy never granted read access to. `write_file` and `create_directory` are
+  unchanged and still need only `Write()`.
+
+  Only regular, seekable files are eligible, and input and output are each
+  capped at 8 MiB including the BOM. The edit is staged in the target's own
+  directory, flushed, checked against the file's current bytes, and then put in
+  place atomically, so a failure part-way leaves the original untouched. A file
+  that changed under the edit is refused rather than overwritten.
+  See [README.md](README.md#agent-tools-on-by-default).
 
 - **`glob_files` and `grep_files` let the model search without a shell.**
   `glob_files` finds files by name pattern under a directory; `grep_files`
@@ -186,10 +192,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **BREAKING CHANGE: `edit_file` requires both Read and Write Tool rules.**
-  Add a matching `Read()` rule to any Write-only edit policy. An explicit deny
-  in either kind blocks the edit; no-op replacements do not bypass this check.
-  Policies for `write_file` and `create_directory` are unchanged.
+- **Raise the required PowerShell version from 7.0 to 7.1.** The file tools
+  identify a regular file on Linux and macOS through the `UnixMode` property,
+  which PowerShell adds in 7.1. On 7.0 that property is absent, so the check
+  could not tell a regular file from a socket or a pipe. PowerShell 7.0 left
+  support in December 2022.
 
 - **An alternative backend (`-ApiBase`) no longer carries the Copilot session
   token.** It previously fell back to that token whenever no `ApiKey` was
