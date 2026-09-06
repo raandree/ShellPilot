@@ -24,6 +24,10 @@ its design, and its source hook points.
 - [Overview and feature map](000-overview.md)
 - [Open decisions](001-open-decisions.md)
 - [PSOpenAI feature-gap analysis and roadmap](002-psopenai-feature-gap.md)
+- [Candidate features](029-candidate-features.md)
+
+Those last two are analyses and proposals rather than patterns to build; the
+numbered specs below are the implemented ones.
 
 ## Implemented patterns
 

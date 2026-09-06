@@ -1016,6 +1016,17 @@ stock task locates
   real case. Any lossy accommodation must warn, and must warn differently for
   the step that can actually corrupt the answer.
 
+## Decision index
+
+Accepted decision records under `.memory-bank/decisions/`. Scope and roadmap
+decisions that constrain future work live here; the reasoning behind each
+implemented pattern stays in its numbered spec.
+
+| Record | Date | Decision |
+| :--- | :--- | :--- |
+| [001](decisions/001-first-tranche-scope.md) | 2026-09-03 | First tranche of candidate features: F1, F2, F6, F7, F8, F17, F22, F23; F14 probe next; open decision 14 taken up |
+| [002](decisions/002-module-state-on-disk.md) | 2026-09-05 | Module state on disk: split by sensitivity - default location for non-content, opt-in caller-named path for content, redacted on write |
+
 ## Patterns to introduce (pending)
 
 - Raise code coverage further (currently ~74%; the CodeCoverageThreshold in
