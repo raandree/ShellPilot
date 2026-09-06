@@ -5,7 +5,9 @@ Update this file when the stack or a dependency changes.
 
 ## Language and runtime
 
-- PowerShell 7.2 or later. The proof of concept uses null-coalescing,
+- PowerShell 7.4 or later. Unix edit staging uses .NET 8
+  `FileStreamOptions.UnixCreateMode` to protect the empty file at creation.
+  The proof of concept uses null-coalescing,
   ternary, and utf8NoBOM, which are not available on Windows PowerShell 5.1.
   Tool policy path resolution requires .NET 6 `ResolveLinkTarget()`, absent
   in PowerShell 7.1 / .NET 5. Resolution failures now return null, never the

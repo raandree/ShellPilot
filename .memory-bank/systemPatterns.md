@@ -181,6 +181,12 @@ than hanging the entire test suite.
 Windows `CopyTo` alone inherits the directory's access rules, even when the
 source file is restricted. Secure creation followed by descriptor restoration
 on the empty file avoids a disclosure window and retains inheritance metadata.
+On Unix, pre-create the empty staging file with `FileStreamOptions` and
+`UnixCreateMode` set to the source mode before copying content. The umask may
+restrict it further. Copying into that existing file then preserves source
+metadata without first exposing bytes under default creation permissions.
+This requires the approved PowerShell 7.4 minimum; do not restore a
+copy-first, chmod-later path for older runtimes.
 Always provide a same-directory backup path to replacement. Windows native
 errors 1176/1177 can occur after filesystem mutation; an immediate-throw mock
 does not prove failure atomicity. Retain a displaced original at `recoveryPath`

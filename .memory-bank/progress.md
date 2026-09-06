@@ -44,11 +44,30 @@ Chronological record of shipped changes and remaining work. Latest first.
 
 ## Log
 
+- 2026-09-06 - Creation-time Unix staging fix and PowerShell 7.4 manifest
+  passed the rebuilt full local gate: 1,767 passed, zero failed, three Unix
+  skips, 88.60% coverage; nine tasks, zero errors or warnings, changed-file
+  analyzer clean. Native green matrix is the remaining behavioral gate.
+
+- 2026-09-06 - Native red confirmed at `2932457` in run `34056597601`:
+  Linux and macOS each passed 1,754 tests, failed only the new staging test,
+  and skipped 15. Exact failure: no temporary file existed before copying
+  content. Both pipe regressions, source-mode preservation, and the
+  authorized-target handoff passed on both Unix platforms. Implemented
+  creation-time Unix mode protection and the approved PowerShell 7.4 floor.
+  Focused Windows check passed one test with one Unix skip; final local and
+  hosted green gates pending. Hosted runtimes were 7.6.x, not minimum 7.4.
+  Red matrix completed: Windows 1,767 passed, zero failed, three skipped;
+  packaging passed and deployment skipped.
+
 - 2026-09-06 - Final-review test-first checkpoint passed the rebuilt local
   gate: 1,767 passed, zero failed, three skipped, 88.70% coverage; nine test
   tasks, zero errors or warnings, analyzer clean. The new Unix staging test
   is intentionally unfixed for hosted red evidence; it skips on Windows.
   Do not merge this checkpoint. Preserve the unrelated public-test EOF edit.
+  Committed and pushed as `2932457`; authorized three-OS
+  [run 34056597601](https://github.com/raandree/ShellPilot/actions/runs/34056597601)
+  started at 19:59:59 UTC. Hosted outcome pending.
 
 - 2026-09-06 - User requested final independent review (`review: on`) at
   `552020f`: Fail, one Major, five Minor, one Nit. Reproduced a denied-file

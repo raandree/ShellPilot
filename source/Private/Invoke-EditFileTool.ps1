@@ -207,8 +207,16 @@ function Invoke-EditFileTool {
                 4096, [System.IO.FileOptions]::None, $temporarySecurity)
             $secureStream.Dispose()
             Set-Acl -LiteralPath $temporaryPath -AclObject $temporarySecurity -ErrorAction Stop
+        } else {
+            $temporaryOptions = [System.IO.FileStreamOptions]::new()
+            $temporaryOptions.Mode = [System.IO.FileMode]::CreateNew
+            $temporaryOptions.Access = [System.IO.FileAccess]::Write
+            $temporaryOptions.Share = [System.IO.FileShare]::None
+            $temporaryOptions.UnixCreateMode = [System.IO.File]::GetUnixFileMode($item.FullName)
+            $secureStream = [System.IO.FileStream]::new($temporaryPath, $temporaryOptions)
+            $secureStream.Dispose()
         }
-        $temporaryItem = $item.CopyTo($temporaryPath, $IsWindows)
+        $temporaryItem = $item.CopyTo($temporaryPath, $true)
         $writeStream = [System.IO.File]::Open($temporaryPath, 'Truncate', 'Write', 'None')
         try {
             $writeStream.Write($updatedBytes, 0, $updatedBytes.Length)

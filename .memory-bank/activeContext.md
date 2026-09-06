@@ -26,16 +26,35 @@ passed, zero failed, two skipped, 88.70% coverage, analyzer clean.
 
 Review also exposed .NET 6 Unix CopyFile applying permissions after data copy.
 The user explicitly approved raising the minimum to PowerShell 7.4 and applying
-Unix staging permissions at creation. A new native Unix staging regression is
-ready for hosted red validation; it currently skips on Windows. Runtime and
-staging production changes follow that evidence. Do not merge or claim final
-review approval while this remediation is pending.
+Unix staging permissions at creation. Native red evidence is now confirmed
+on Linux and macOS: the new regression alone failed because no empty staging
+file existed before CopyTo. Both named-pipe tests, mode preservation, and the
+authorized-target handoff passed on both Unix platforms. The helper now
+pre-creates Unix staging with FileStreamOptions.UnixCreateMode and copies into
+that existing file. The manifest and README now require PowerShell 7.4.
+Do not merge or claim final review approval while final validation is pending.
 
 The exact test-first checkpoint passed the rebuilt local full gate on
 2026-09-06: 1,767 passed, zero failed, three skipped, 88.70% coverage; nine
 test tasks, zero errors or warnings, and changed-file analyzer clean.
 The additional skip is the native Unix staging regression. Next is the
 authorized hosted red run before implementing creation-time Unix protection.
+Checkpoint `2932457` is pushed. Hosted red verification started at
+2026-09-06 19:59:59 UTC:
+[run 34056597601](https://github.com/raandree/ShellPilot/actions/runs/34056597601).
+Each Unix leg reported 1,754 passed, one expected failure, and 15 skipped.
+The completed Windows leg passed 1,767 with zero failures and three skips.
+Packaging passed; deployment skipped. The red run is complete.
+
+Post-fix focused Windows validation: one passed, zero failed, one Unix skip;
+AST and manifest validation passed. Full rebuilt local gate passed on
+2026-09-06: 1,767 passed, zero failed, three Unix skips, 88.60% coverage;
+nine tasks, zero errors or warnings, changed-file analyzer clean. Evidence:
+`%TEMP%/shp-staging-green-full-7cfd7703.log`, completion marker
+`%TEMP%/detached-fb6c65ec21d6481a8713e45d5515b5e4.exit`.
+Next: commit/push and dispatch the hosted green matrix.
+Hosted Unix red used PowerShell 7.6.4 (macOS) and 7.6.5 (Linux); exact 7.4
+runtime execution is not proven by those runs.
 
 The user confirmed a normal push of this branch to origin and workflow_dispatch
 of CI on that ref in this session. No force-push, merge, or PR is authorized.
@@ -160,8 +179,8 @@ README migration instructions, and the unreleased changelog describe it.
 
 Only regular, seekable files are accepted. The type guard is three separate
 checks with distinct messages, so each one is assertable: not a file, a device,
-and a non-regular Unix file type. The module floor is now 7.2 because the resolver
-requires the .NET 6 link API; 7.1 was not sufficient. Input and
+and a non-regular Unix file type. The module floor is now 7.4 for creation-time
+Unix staging protection; the resolver also needs the .NET 6 link API. Input and
 output each have an 8 MiB ceiling including the BOM, hoisted to
 `$script:ShpEditFileMaxBytes` beside the other module bounds. Same-path
 ShellPilot edits use a named mutex; staging is flushed and a bounded SHA-256

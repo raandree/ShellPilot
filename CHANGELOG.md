@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **Protect Unix `edit_file` staging from creation.** Apply the source file
+  mode when creating the empty temporary file, before any content is copied,
+  so a private source is not temporarily exposed through default permissions.
+
 - **Keep `edit_file` on the target approved by the tool policy.** Repointing
   the original directory alias after authorization no longer redirects the
   edit to a different file. Confirmation names the authorized target. Refuse
@@ -209,10 +213,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **Raise the required PowerShell version from 7.0 to 7.2.** Tool policy path
-  resolution requires the .NET 6 `ResolveLinkTarget()` API. PowerShell 7.1
-  uses .NET 5 and cannot enforce that boundary with the current implementation.
-  The Unix regular-file guard also requires the `UnixMode` property.
+- **Raise the required PowerShell version from 7.0 to 7.4.** Upgrade the host
+  before importing this version. Unix staging uses `FileStreamOptions` with
+  `UnixCreateMode` to protect content from creation, available in PowerShell
+  7.4's .NET 8 runtime. Tool policy path resolution also requires
+  `ResolveLinkTarget()`. Unix regular-file checks use `UnixStat.ItemType`,
+  not the display-oriented `UnixMode` string.
 
 - **An alternative backend (`-ApiBase`) no longer carries the Copilot session
   token.** It previously fell back to that token whenever no `ApiKey` was

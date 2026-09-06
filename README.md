@@ -36,7 +36,7 @@ structured objects carrying token usage and estimated cost.
 
 ## Requirements
 
-- PowerShell 7.2 or later (Windows, macOS, or Linux).
+- PowerShell 7.4 or later (Windows, macOS, or Linux).
 - A GitHub account with GitHub Copilot access.
 
 ## Install
@@ -158,7 +158,9 @@ fit in 8 MiB, including the BOM; larger files and replacements are refused.
 The destination directory must allow temporary-file creation and replacement.
 The tool stages and flushes the edit in that directory, checks for changed
 content, then atomically replaces the target. Windows security descriptors
-protect the temporary file as well as the result; Unix file modes are retained.
+protect the temporary file as well as the result. Unix staging files are
+created with permissions no broader than the source before content is copied;
+the result retains the source file mode.
 Failures before replacement leave the target unchanged. Replacement requests
 a same-directory backup of the original. If a native failure moves the
 original away, the error reports `recoveryPath` and retains the backup for

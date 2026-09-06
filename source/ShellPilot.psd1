@@ -33,7 +33,7 @@ Copyright = '(c) raandree. All rights reserved.'
 Description = 'GitHub Copilot in your PowerShell terminal: device-flow auth, model listing, chat and agentic tool-calling with usage and cost.'
 
 # Minimum version of the PowerShell engine required by this module
-PowerShellVersion = '7.2'
+PowerShellVersion = '7.4'
 
 # Name of the PowerShell host required by this module
 # PowerShellHostName = ''
