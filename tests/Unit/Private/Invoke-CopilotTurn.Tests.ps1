@@ -9,6 +9,43 @@ AfterAll {
     Get-Module -Name $script:moduleName -All | Remove-Module -Force -ErrorAction SilentlyContinue
 }
 Describe 'Invoke-CopilotTurn' {
+    It 'uses an explicitly owned sender once and preserves unknown Usage' {
+        InModuleScope $script:moduleName {
+            $script:ownedCalls = 0
+            Mock Invoke-ShpHttpRequest { throw 'Unexpected native HTTP.' }
+            $sender = {
+                param($Request)
+                $script:ownedCalls++
+                ($Request.Body | ConvertFrom-Json).max_tokens | Should -Be 32
+                [pscustomobject]@{
+                    Content = '{"model":"claude-haiku-4.5","choices":[{"message":{"content":"OK"},"finish_reason":"stop"}]}'
+                    Headers = @{}
+                }
+            }
+            $turn = Invoke-CopilotTurn -Mode chat -Model claude-haiku-4.5 -ApiBase https://api.example -Headers @{} -Conversation @(@{ role = 'user'; content = 'OK' }) -MaxOutputTokens 32 -RequestSender $sender
+            $turn.Content | Should -BeExactly 'OK'
+            $turn.PromptTokens | Should -BeNullOrEmpty
+            $turn.CompletionTokens | Should -BeNullOrEmpty
+            $script:ownedCalls | Should -Be 1
+            Should -Invoke Invoke-ShpHttpRequest -Times 0 -Exactly
+        }
+    }
+
+    It 'does not retry an owned sender or silently switch to native streaming' {
+        InModuleScope $script:moduleName {
+            $script:ownedCalls = 0
+            Mock Invoke-ShpHttpRequest { throw 'Unexpected native HTTP.' }
+            Mock Invoke-ShpStreamRequest { throw 'Unexpected native stream.' }
+            $sender = { $script:ownedCalls++; throw 'sender-fixture-failure' }
+            { Invoke-CopilotTurn -Mode chat -Model m -ApiBase https://api.example -Headers @{} -Conversation @(@{ role = 'user'; content = 'OK' }) -MaxOutputTokens 32 -RequestSender $sender } | Should -Throw
+            $script:ownedCalls | Should -Be 1
+            { Invoke-CopilotTurn -Mode chat -Model m -ApiBase https://api.example -Headers @{} -Conversation @(@{ role = 'user'; content = 'OK' }) -MaxOutputTokens 32 -RequestSender $sender -Stream } | Should -Throw
+            $script:ownedCalls | Should -Be 1
+            Should -Invoke Invoke-ShpStreamRequest -Times 0 -Exactly
+            Should -Invoke Invoke-ShpHttpRequest -Times 0 -Exactly
+        }
+    }
+
     It 'Normalizes a chat-completions response' {
         InModuleScope $script:moduleName {
             Mock Invoke-ShpHttpRequest {

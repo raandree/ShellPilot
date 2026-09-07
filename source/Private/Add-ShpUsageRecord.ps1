@@ -53,6 +53,10 @@ function Add-ShpUsageRecord {
         The failure message. Supplying it marks the record unsuccessful; omitting
         it marks the record successful.
 
+    .PARAMETER RequestBudget
+        Optional trusted admission state. Unreported reserved requests make
+        aggregate Usage unknown; known partial Usage remains separately labeled.
+
     .EXAMPLE
         Add-ShpUsageRecord -RequestedModel $Model -ServerModel $turn.ModelName -Prompt $Prompt -RoundTrip $roundTrips.ToArray() -FinishReason $turn.FinishReason -DurationMs 1200
 
@@ -87,10 +91,16 @@ function Add-ShpUsageRecord {
 
         [int]$DurationMs,
 
-        [string]$ErrorMessage
+        [string]$ErrorMessage,
+
+        [hashtable]$RequestBudget
     )
 
     $trips = @($RoundTrip)
+    $unknownUsage = $RequestBudget -and $RequestBudget.UnknownUsageRequestCount -gt 0
+    if ($unknownUsage) {
+        $trips = @($trips | Where-Object { $_.PSObject.Properties['UsageKnown'] -and $_.UsageKnown })
+    }
     $promptTokens = 0; $completionTokens = 0; $cachedTokens = 0
     foreach ($trip in $trips) {
         $promptTokens += [int]$trip.PromptTokens
@@ -129,6 +139,27 @@ function Add-ShpUsageRecord {
         ToolCalls        = $ToolCallCount
         FinishReason     = $FinishReason
         DurationMs       = $DurationMs
+    }
+
+    if ($RequestBudget) {
+        $record | Add-Member -NotePropertyName UsageKnown -NotePropertyValue (-not $unknownUsage)
+        $record | Add-Member -NotePropertyName RequestAdmission -NotePropertyValue ([pscustomobject]@{
+            BudgetMode = $RequestBudget.BudgetMode
+            RequestCount = $RequestBudget.RequestCount
+            UnknownUsageRequestCount = $RequestBudget.UnknownUsageRequestCount
+            ReservedTokens = $RequestBudget.ReservedTokens
+            ReservedCostUSD = $RequestBudget.ReservedCostUSD
+        })
+        if ($unknownUsage) {
+            $record | Add-Member -NotePropertyName KnownUsage -NotePropertyValue ([pscustomobject]@{
+                PromptTokens = $promptTokens
+                CompletionTokens = $completionTokens
+                CostUSD = $costUSD
+            })
+            foreach ($name in 'PromptTokens', 'CompletionTokens', 'TotalTokens', 'CachedTokens', 'ContextTokens', 'CostUSD', 'Credits') {
+                $record.$name = $null
+            }
+        }
     }
 
     $null = $script:ShpUsageLog.Add($record)

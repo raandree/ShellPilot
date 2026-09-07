@@ -52,6 +52,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Add explicit estimated budgets for trusted owned requests.** Opt into
+  `RequestBudgetMode provider-estimate` for non-refundable reservations and
+  upward reconciliation; default verified counters keep their meaning.
+  Add the bounded Claude child provider/counting path, pre-generation host
+  admission, and secret-free reported/partial Usage. No automatic retries,
+  Model substitution, or invoice guarantee is implied. See
+  [the transport contract](specs/030-host-request-transport.md).
+
+- **Add conditional admission limits to owned `Invoke-Shp` transport.**
+  `RequestLimits` and a trusted `RequestTokenCounter` reserve input, maximum
+  output, and Engine-priced cost before dispatch. Unknown or failed Usage
+  retains its reservation and stays explicitly unknown in results, events,
+  and summaries. No verified Copilot counter or complete child runtime is
+  supplied; ordinary calls are unchanged. See
+  [the contract and limitations](specs/030-host-request-transport.md).
+
+- **Add optional host transport groundwork to `Invoke-Shp`.** Use
+  `NoAutomaticRetry` to disable transport and API-shape resends, or
+  `RequestTransport` for a credentialless Tool-calling loop with a trusted
+  caller-owned transport. Ordinary calls are unchanged. Hard request admission,
+  process isolation, and a trusted transport process are not supplied by these
+  options. See [the contract and limitations](specs/030-host-request-transport.md).
+
 - **Add `edit_file` for targeted changes to existing files.** Replace one
   exact, case-sensitive `oldString` with `newString`, refusing zero matches or
   multiple matches with recovery guidance. Preserve the BOM, encoding and

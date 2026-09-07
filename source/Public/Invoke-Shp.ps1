@@ -517,6 +517,49 @@ function Invoke-Shp {
         streamed requests. Falls back to the session context and then the
         built-in default.
 
+    .PARAMETER NoAutomaticRetry
+        Disable every automatic resend, including HTTP retries, network-outage
+        tolerance, Session-token recovery, API-shape fallback, and degraded
+        reasoning or server-side state requests. Authentication also uses zero
+        retries. The first failure is returned to the caller.
+
+    .PARAMETER RequestTransport
+        Caller-owned synchronous transport for a credentialless Tool-calling
+        loop. Receives one detached, versioned request containing Model,
+        messages, Tool schemas and generation options, never credentials,
+        endpoints or headers. Returns one normalized Invoke-CopilotTurn result.
+        Requires DisableStreaming and MaxOutputTokens, implies
+        NoAutomaticRetry, and cannot combine with AsJob, ApiBase, TokenPath or
+        UseServerSideState. The host must authenticate, admit and account for
+        requests through a supported Engine transport implementation. This
+        callback is a trusted host capability, not a Model-callable Tool or
+        a filesystem or network containment mechanism.
+
+    .PARAMETER RequestLimits
+        Opt-in owned-transport admission limits: MaxInputTokens per request,
+        MaxTotalTokens for cumulative input plus maximum output, and MaxCostUSD
+        using frozen Engine pricing. Limits are copied at invocation startup.
+        Every request reserves its full capacity before RequestTransport runs;
+        reservations are retained even when transport fails or Usage is unknown.
+        Requires RequestTransport and a verified RequestTokenCounter. The
+        Engine currently ships no provider-specific complete-request counter.
+
+    .PARAMETER RequestTokenCounter
+        Trusted complete-request counter used only with RequestLimits. Receives
+        a detached request including RequestDigest and returns RequestId,
+        RequestDigest, Model, Mode, InputTokens, Scope ('complete-request'),
+        Kind ('exact' or 'upper-bound'), and a bounded Source identifier.
+        The host must verify its provider-specific framing and counting contract;
+        a declaration or deterministic fixture alone is not that evidence.
+
+    .PARAMETER RequestBudgetMode
+        Admission uses verified counts by default. Explicit provider-estimate
+        mode requires RequestLimits and a counter returning Kind estimated.
+        Token and Engine-priced cost budgets then govern estimates, not a
+        guaranteed provider charge. Reported consumption can only increase a
+        reservation. An overrun or unknown Usage stops before further Tool or
+        provider dispatch. Strict invocation behavior remains unchanged.
+
     .PARAMETER RetryDelaySec
         Base delay in seconds for the exponential backoff between retries
         (attempt n waits RetryDelaySec * 2^(n-1) seconds, with equal jitter
@@ -900,6 +943,20 @@ function Invoke-Shp {
         [ValidateRange(0, [int]::MaxValue)]
         [int]$MaxRetryCount,
 
+        [switch]$NoAutomaticRetry,
+
+        [ValidateNotNull()]
+        [scriptblock]$RequestTransport,
+
+        [ValidateNotNull()]
+        [hashtable]$RequestLimits,
+
+        [ValidateNotNull()]
+        [scriptblock]$RequestTokenCounter,
+
+        [ValidateSet('verified', 'provider-estimate')]
+        [string]$RequestBudgetMode = 'verified',
+
         [ValidateRange(0, [int]::MaxValue)]
         [int]$RetryDelaySec,
 
@@ -915,6 +972,28 @@ function Invoke-Shp {
         [string]$IntegrationId = $script:DefaultIntegrationId
     )
 
+    $ownedTransport = $PSBoundParameters.ContainsKey('RequestTransport')
+    if ($ownedTransport) {
+        if (-not $DisableStreaming -or -not $PSBoundParameters.ContainsKey('MaxOutputTokens') -or
+            $AsJob -or $UseServerSideState -or $PSBoundParameters.ContainsKey('ApiBase') -or
+            $PSBoundParameters.ContainsKey('TokenPath')) {
+            throw 'RequestTransport requires DisableStreaming and MaxOutputTokens and refuses AsJob, UseServerSideState, ApiBase and TokenPath.'
+        }
+        $NoAutomaticRetry = $true
+    }
+
+    $requestBudget = $null
+    $boundedRequests = $PSBoundParameters.ContainsKey('RequestLimits')
+    if ($boundedRequests -and -not $ownedTransport) {
+        $PSCmdlet.ThrowTerminatingError((New-ShpRequestAdmissionError -Code 'ShpRequestTransportRequired' -Message 'Hard request limits require an owned transport.'))
+    }
+    if ($boundedRequests -and -not $PSBoundParameters.ContainsKey('RequestTokenCounter')) {
+        $PSCmdlet.ThrowTerminatingError((New-ShpRequestAdmissionError -Code 'ShpRequestCountUnavailable' -Message 'A verified complete-request count is unavailable; hard request limits refuse dispatch.'))
+    }
+    if (-not $boundedRequests -and ($PSBoundParameters.ContainsKey('RequestTokenCounter') -or $PSBoundParameters.ContainsKey('RequestBudgetMode'))) {
+        $PSCmdlet.ThrowTerminatingError((New-ShpRequestAdmissionError -Code 'ShpRequestLimitsRequired' -Message 'A request counter requires explicit request limits.'))
+    }
+
     # Resolve the model and the optional model knobs from the session defaults
     # (Select-ShpModel) when not supplied explicitly. An explicit parameter on
     # this call always wins; the built-in model fallback is the last resort.
@@ -926,6 +1005,10 @@ function Invoke-Shp {
     }
     if (-not $PSBoundParameters.ContainsKey('MaxOutputTokens') -and $script:ShpDefaults.MaxOutputTokens) {
         $MaxOutputTokens = [int]$script:ShpDefaults.MaxOutputTokens
+    }
+
+    if ($boundedRequests) {
+        $requestBudget = New-ShpRequestBudget -Limits $RequestLimits -Model $Model -BudgetMode $RequestBudgetMode
     }
 
     # Normalise -FailOn once. An unbound [string[]] is $null and @($null) is a
@@ -956,6 +1039,11 @@ function Invoke-Shp {
     foreach ($name in 'TimeoutSec', 'MaxRetryCount', 'RetryDelaySec', 'NetworkOutageToleranceSec') {
         if ($PSBoundParameters.ContainsKey($name)) { $connectionParams[$name] = $PSBoundParameters[$name] }
     }
+    if ($NoAutomaticRetry) {
+        $connectionParams.MaxRetryCount = 0
+        $connectionParams.RetryDelaySec = 0
+        $connectionParams.NetworkOutageToleranceSec = 0
+    }
     $connection = Resolve-ShpConnectionOption @connectionParams
     $effectiveTimeoutSec      = $connection.TimeoutSec
     $effectiveMaxRetry        = $connection.MaxRetryCount
@@ -967,12 +1055,14 @@ function Invoke-Shp {
     # either - an exchange is already a request under the caller's entitlement.
     $backendParams = @{}
     if ($PSBoundParameters.ContainsKey('ApiBase')) { $backendParams['ApiBase'] = $ApiBase }
-    $backend = Resolve-ShpBackend @backendParams
+    $backend = if ($ownedTransport) {
+        @{ ApiBase = 'owned-transport'; IsAlternative = $true; ApiKey = $null; SafeApiBase = 'owned-transport' }
+    } else { Resolve-ShpBackend @backendParams }
 
     $ciParams = @{ ApiBase = $backend.ApiBase }
     if ($PSBoundParameters.ContainsKey('NonInteractive')) { $ciParams['NonInteractive'] = [bool]$NonInteractive }
     $ciProfile = Resolve-ShpCiProfile @ciParams
-    if ($ciProfile.BackendGateError) { $PSCmdlet.ThrowTerminatingError($ciProfile.BackendGateError) }
+    if (-not $ownedTransport -and $ciProfile.BackendGateError) { $PSCmdlet.ThrowTerminatingError($ciProfile.BackendGateError) }
     $unattended = $ciProfile.NonInteractive
 
     # An unattended run cannot answer a confirmation prompt either. An explicit
@@ -1085,8 +1175,11 @@ function Invoke-Shp {
     # credential, so resolving it only here is not enough.
     $sessionTokenParams = @{ TokenPath = $TokenPath; EditorVersion = $EditorVersion; UserAgent = $UserAgent }
     foreach ($name in $connectionParams.Keys) { $sessionTokenParams[$name] = $connectionParams[$name] }
-    $session = Get-ShpSessionToken @sessionTokenParams
-    Write-Verbose ("Session token valid until {0}" -f [DateTimeOffset]::FromUnixTimeSeconds($session.expires_at).LocalDateTime)
+    $session = $null
+    if (-not $ownedTransport) {
+        $session = Get-ShpSessionToken @sessionTokenParams
+        Write-Verbose ("Session token valid until {0}" -f [DateTimeOffset]::FromUnixTimeSeconds($session.expires_at).LocalDateTime)
+    }
 
     # An alternative backend was already resolved above (explicit -ApiBase, the
     # session context, then $env:SHELLPILOT_API_BASE); otherwise use the Copilot
@@ -1643,7 +1736,7 @@ function Invoke-Shp {
             # Every completed iteration was a billable round-trip, so record what
             # this turn already spent before abandoning it.
             $limitError = "Exceeded MaxToolIterations ($MaxToolIterations)."
-            $null = Add-ShpUsageRecord -RequestedModel $Model -ServerModel $(if ($turn) { $turn.ModelName } else { $null }) -Prompt $Prompt -RoundTrip $roundTrips.ToArray() -ContextTokens $peakPromptTokens -Iterations ($iteration - 1) -ToolCallCount (@($toolCallsExecuted).Count) -DurationMs ([int]$sw.Elapsed.TotalMilliseconds) -ErrorMessage $limitError
+            $null = Add-ShpUsageRecord -RequestedModel $Model -ServerModel $(if ($turn) { $turn.ModelName } else { $null }) -Prompt $Prompt -RoundTrip $roundTrips.ToArray() -ContextTokens $peakPromptTokens -Iterations ($iteration - 1) -ToolCallCount (@($toolCallsExecuted).Count) -DurationMs ([int]$sw.Elapsed.TotalMilliseconds) -ErrorMessage $limitError -RequestBudget $requestBudget
             & $emit 'error' @{ iteration = $iteration; reason = 'ToolIterationLimit'; message = $limitError; errorId = $(if ($failOnCondition -contains 'ToolIterationLimit') { 'ShpToolIterationLimit' } else { $null }) }
             # This condition already terminated the call, so -FailOn does not
             # change WHETHER it fails - only that the error carries a branchable
@@ -1773,7 +1866,70 @@ function Invoke-Shp {
                 }
                 $reasoningChunks.Clear()
             }
-            $turn = Invoke-CopilotTurn -Mode $mode -Model $Model -ApiBase $apiBase -Headers $apiHeaders -Conversation $conv -Tools $tls -RequestReasoningSummary:($mode -eq 'responses' -and $requestReasoning) -ReasoningEffort $ReasoningEffort -MaxOutputTokens $MaxOutputTokens -Stream:($streamingEnabled -and $mode -eq 'chat') -EchoReasoning:($ShowThinking -and $streamingEnabled -and $mode -eq 'chat') -OnReasoningChunk $onReasoningChunk -OnRetry $onRequestRetry -Store:($serverSideActive -and $mode -eq 'responses') -PreviousResponseId $previousResponseId @structuredParams @samplingParams @connectionParams
+            if ($ownedTransport) {
+                $requestData = @{
+                    SchemaVersion = 1
+                    RequestId = [guid]::NewGuid().ToString('N')
+                    Iteration = $iteration
+                    Model = $Model
+                    Mode = $mode
+                    Conversation = $conv
+                    Tools = $tls
+                    MaxOutputTokens = $MaxOutputTokens
+                    ReasoningEffort = $ReasoningEffort
+                    RequestReasoningSummary = ($mode -eq 'responses' -and $requestReasoning)
+                    Structured = $structuredParams
+                    Sampling = $samplingParams
+                }
+                if ($requestBudget) {
+                    $requestJson = ConvertTo-ShpStableJson -InputObject $requestData -Depth 32
+                    $hashAlgorithm = [System.Security.Cryptography.SHA256]::Create()
+                    try {
+                        $requestHash = $hashAlgorithm.ComputeHash([Text.Encoding]::UTF8.GetBytes($requestJson))
+                        $requestData.RequestDigest = [BitConverter]::ToString($requestHash).Replace('-', '').ToLowerInvariant()
+                    } finally {
+                        $hashAlgorithm.Dispose()
+                    }
+                }
+                $requestCopy = ConvertTo-ShpStableJson -InputObject $requestData -Depth 32 | ConvertFrom-Json
+                if ($requestBudget) {
+                    $requestReservation = Add-ShpRequestReservation -Budget $requestBudget -Request $requestCopy -Counter $RequestTokenCounter
+                }
+                try {
+                    $transportResults = @(& $RequestTransport $requestCopy)
+                    if ($transportResults.Count -ne 1) { throw 'RequestTransport must return exactly one normalized result.' }
+                } catch {
+                    if ($requestBudget) {
+                        throw (New-ShpRequestAdmissionError -Code 'ShpRequestTransportFailed' -Message 'The bounded request transport failed; its full reservation is retained and Usage is unknown.' -Budget $requestBudget)
+                    }
+                    throw
+                }
+                $turn = $transportResults[0]
+                if ($requestBudget) {
+                    try {
+                        $completion = Complete-ShpRequestReservation -Budget $requestBudget -Reservation $requestReservation -Response $turn
+                    } catch {
+                        $turn = $null
+                        throw
+                    }
+                    $requestUsageKnown = $completion.UsageKnown
+                    if ($completion.FailureCode) {
+                        if ($requestUsageKnown) {
+                            $null = $roundTrips.Add([pscustomobject]@{
+                                PromptTokens = [int]$turn.PromptTokens
+                                CompletionTokens = [int]$turn.CompletionTokens
+                                CachedTokens = [int]$turn.CachedTokens
+                                CacheWriteTokens = [int]$turn.CacheWriteTokens
+                                UsageKnown = $true
+                            })
+                            $peakPromptTokens = [Math]::Max($peakPromptTokens, [int]$turn.PromptTokens)
+                        }
+                        throw (New-ShpRequestAdmissionError -Code $completion.FailureCode -Message 'The estimated provider budget overran or Usage is unknown; continuation is refused.' -Budget $requestBudget)
+                    }
+                }
+            } else {
+                $turn = Invoke-CopilotTurn -Mode $mode -Model $Model -ApiBase $apiBase -Headers $apiHeaders -Conversation $conv -Tools $tls -RequestReasoningSummary:($mode -eq 'responses' -and $requestReasoning) -ReasoningEffort $ReasoningEffort -MaxOutputTokens $MaxOutputTokens -Stream:($streamingEnabled -and $mode -eq 'chat') -EchoReasoning:($ShowThinking -and $streamingEnabled -and $mode -eq 'chat') -OnReasoningChunk $onReasoningChunk -OnRetry $onRequestRetry -Store:($serverSideActive -and $mode -eq 'responses') -PreviousResponseId $previousResponseId @structuredParams @samplingParams @connectionParams
+            }
         } catch {
             $errText = $_.ErrorDetails.Message
             if ([string]::IsNullOrWhiteSpace($errText)) { $errText = $_.Exception.Message }
@@ -1785,7 +1941,7 @@ function Invoke-Shp {
             # on the service's prose, and only when the bearer is a Session
             # token: a 401 from an alternative backend is a wrong API key and
             # must fail loudly rather than trigger a Copilot token exchange.
-            if (-not $usingAltBackend -and $_.TargetObject -and $_.TargetObject.StatusCode -eq 401) {
+            if (-not $NoAutomaticRetry -and -not $usingAltBackend -and $_.TargetObject -and $_.TargetObject.StatusCode -eq 401) {
                 if ($sessionTokenForced) {
                     # A token this call exchanged seconds ago is not expired, so
                     # the OAuth token behind it is the problem.
@@ -1819,7 +1975,7 @@ function Invoke-Shp {
             # parameter (the Copilot proxy is stateless). Fall back to ordinary
             # client-side history: drop store/previous_response_id, switch to
             # chat, and retry the same turn.
-            if ($serverSideActive -and $errText -and $errText -match 'store') {
+            if (-not $NoAutomaticRetry -and $serverSideActive -and $errText -and $errText -match 'store') {
                 Write-Warning 'The backend does not support server-side conversation state (store); falling back to client-side history.'
                 & $emit 'retry' @{ iteration = $iteration; reason = 'ServerSideStateUnsupported'; detail = 'The backend rejected the store parameter; the turn continues with client-side history on the chat shape.' }
                 $serverSideActive = $false; $previousResponseId = $null; $mode = 'chat'; $iteration--; continue
@@ -1827,7 +1983,7 @@ function Invoke-Shp {
             # The model does not support /responses at all - fall back to chat
             # (this also covers -ShowThinking forcing responses on a chat-only
             # model such as claude-opus-4.8).
-            if ($mode -eq 'responses' -and -not $apiShapeSwitched -and $errText -and ($errText -match 'unsupported_api_for_model' -or $errText -match 'does not support Responses')) {
+            if (-not $NoAutomaticRetry -and $mode -eq 'responses' -and -not $apiShapeSwitched -and $errText -and ($errText -match 'unsupported_api_for_model' -or $errText -match 'does not support Responses')) {
                 Write-Verbose "Model '$Model' does not support /responses - switching to /chat/completions."
                 if ($ShowThinking) { Write-Host '(model has no /responses API; reasoning summary unavailable, continuing on /chat)' -ForegroundColor DarkGray }
                 & $emit 'retry' @{ iteration = $iteration; reason = 'ApiShapeSwitch'; detail = ("Model '{0}' does not support /responses; the turn continues on /chat/completions." -f $Model) }
@@ -1835,13 +1991,13 @@ function Invoke-Shp {
             }
             # The model accepts /responses but rejected the reasoning-summary
             # request specifically - retry the same turn without it.
-            if ($mode -eq 'responses' -and $requestReasoning -and $errText -and ($errText -match 'reasoning' -or $errText -match 'summary')) {
+            if (-not $NoAutomaticRetry -and $mode -eq 'responses' -and $requestReasoning -and $errText -and ($errText -match 'reasoning' -or $errText -match 'summary')) {
                 Write-Verbose "Model '$Model' rejected the reasoning summary - retrying without it."
                 if ($ShowThinking) { Write-Host '(model does not support a reasoning summary; continuing without it)' -ForegroundColor DarkGray }
                 & $emit 'retry' @{ iteration = $iteration; reason = 'ReasoningSummaryRejected'; detail = ("Model '{0}' rejected the reasoning summary; the iteration is retried without it." -f $Model) }
                 $requestReasoning = $false; $iteration--; continue
             }
-            if ($mode -eq 'chat' -and $iteration -eq 1 -and -not $apiShapeSwitched -and $errText -and ($errText -match 'unsupported_api_for_model' -or $errText -match 'invalid_request_body')) {
+            if (-not $NoAutomaticRetry -and $mode -eq 'chat' -and $iteration -eq 1 -and -not $apiShapeSwitched -and $errText -and ($errText -match 'unsupported_api_for_model' -or $errText -match 'invalid_request_body')) {
                 Write-Verbose "Model '$Model' rejected on /chat/completions - switching to /responses."
                 & $emit 'retry' @{ iteration = $iteration; reason = 'ApiShapeSwitch'; detail = ("Model '{0}' was rejected on /chat/completions; the turn continues on /responses." -f $Model) }
                 $apiShapeSwitched = $true; $mode='responses'; $iteration--; continue
@@ -1849,7 +2005,7 @@ function Invoke-Shp {
             # No fallback applied, so this turn is over. Record it before
             # rethrowing: a Turn is a loop of billable round-trips, and the ones
             # completed before this failure were charged for.
-            $null = Add-ShpUsageRecord -RequestedModel $Model -ServerModel $(if ($turn) { $turn.ModelName } else { $null }) -Prompt $Prompt -RoundTrip $roundTrips.ToArray() -ContextTokens $peakPromptTokens -Iterations ($iteration - 1) -ToolCallCount (@($toolCallsExecuted).Count) -DurationMs ([int]$sw.Elapsed.TotalMilliseconds) -ErrorMessage $errText
+            $null = Add-ShpUsageRecord -RequestedModel $Model -ServerModel $(if ($turn) { $turn.ModelName } else { $null }) -Prompt $Prompt -RoundTrip $roundTrips.ToArray() -ContextTokens $peakPromptTokens -Iterations ($iteration - 1) -ToolCallCount (@($toolCallsExecuted).Count) -DurationMs ([int]$sw.Elapsed.TotalMilliseconds) -ErrorMessage $errText -RequestBudget $requestBudget
             & $emit 'error' @{ iteration = $iteration; reason = 'RequestFailed'; message = $errText; statusCode = $(if ($_.TargetObject) { $_.TargetObject.StatusCode } else { $null }); errorCode = $(if ($_.TargetObject) { $_.TargetObject.ErrorCode } else { $null }) }
             throw
         }
@@ -1869,14 +2025,18 @@ function Invoke-Shp {
         $totalCompletion += $turn.CompletionTokens
         $totalCached += $turn.CachedTokens
         $totalCacheWrite += $turn.CacheWriteTokens
-        $null = $roundTrips.Add([pscustomobject]@{
+        $roundTrip = [pscustomobject]@{
             PromptTokens     = [int]$turn.PromptTokens
             CompletionTokens = [int]$turn.CompletionTokens
             CachedTokens     = [int]$turn.CachedTokens
             CacheWriteTokens = [int]$turn.CacheWriteTokens
-        })
+        }
+        if ($requestBudget) {
+            $roundTrip | Add-Member -NotePropertyName UsageKnown -NotePropertyValue $requestUsageKnown
+        }
+        $null = $roundTrips.Add($roundTrip)
 
-        & $emit 'usage' @{
+        $usageEventData = @{
             iteration        = $iteration
             model            = $turn.ModelName
             apiMode          = $turn.Mode
@@ -1887,6 +2047,15 @@ function Invoke-Shp {
             cacheWriteTokens = [int]$turn.CacheWriteTokens
             contextTokens    = $peakPromptTokens
         }
+        if ($requestBudget) {
+            $usageEventData.usageKnown = $requestUsageKnown
+            if (-not $requestUsageKnown) {
+                foreach ($name in 'promptTokens', 'completionTokens', 'cachedTokens', 'cacheWriteTokens', 'contextTokens') {
+                    $usageEventData[$name] = $null
+                }
+            }
+        }
+        & $emit 'usage' $usageEventData
 
         # The server-reported model wins over the requested one; both are tried
         # because some models return an empty name.
@@ -2360,11 +2529,36 @@ function Invoke-Shp {
         Headers=$rawHeaders; Raw=$turn.Raw
     }
 
+    if ($requestBudget) {
+        $result | Add-Member -NotePropertyName RequestAdmission -NotePropertyValue ([pscustomobject]@{
+            BudgetMode = $requestBudget.BudgetMode
+            RequestCount = $requestBudget.RequestCount
+            UnknownUsageRequestCount = $requestBudget.UnknownUsageRequestCount
+            ReservedTokens = $requestBudget.ReservedTokens
+            ReservedCostUSD = $requestBudget.ReservedCostUSD
+            CountSources = @($requestBudget.CountSources)
+        })
+    }
+
     # Record this call in the per-session usage log (every call, including
     # stateless -History calls) so the session's token and credit spend can be
     # analysed afterwards via Get-ShpUsage. A failed turn is recorded too, at
     # the throws above, through this same builder.
-    $null = Add-ShpUsageRecord -RequestedModel $Model -ServerModel $turn.ModelName -Prompt $Prompt -RoundTrip $roundTrips.ToArray() -ContextTokens $peakPromptTokens -Iterations $iteration -ToolCallCount (@($toolCallsExecuted).Count) -FinishReason $turn.FinishReason -DurationMs ([int]$sw.Elapsed.TotalMilliseconds)
+    $usageRecord = Add-ShpUsageRecord -RequestedModel $Model -ServerModel $turn.ModelName -Prompt $Prompt -RoundTrip $roundTrips.ToArray() -ContextTokens $peakPromptTokens -Iterations $iteration -ToolCallCount (@($toolCallsExecuted).Count) -FinishReason $turn.FinishReason -DurationMs ([int]$sw.Elapsed.TotalMilliseconds) -RequestBudget $requestBudget
+    if ($requestBudget -and $requestBudget.UnknownUsageRequestCount -gt 0) {
+        foreach ($name in 'PromptTokens', 'CompletionTokens', 'TotalTokens', 'ContextTokens') {
+            $result.Usage.$name = $null
+        }
+        $result.CostUSD = $null
+        $result.Credits = $null
+        $result.CostBreakdown = $null
+        $result | Add-Member -NotePropertyName KnownUsage -NotePropertyValue $usageRecord.KnownUsage
+        $costUSD = $null
+        $credits = $null
+        $totalPrompt = $null
+        $totalCompletion = $null
+        $peakPromptTokens = $null
+    }
 
     # The answer, redacted. Redaction never touches the result handed back to
     # the caller, but the stream is a file a CI system collects and keeps, so a

@@ -16,6 +16,10 @@ function Get-ShpUsage {
         current PowerShell session and is not persisted to disk; reset it with
         Clear-ShpUsage.
 
+        Bounded requests whose Usage is unknown retain null aggregate tokens
+        and cost. Their summaries include UnknownUsageCalls and KnownUsage,
+        preserving reported partial values without describing them as totals.
+
         A call that FAILED is recorded too, with Success false and the failure
         message on Error, carrying whatever spend its completed round-trips had
         already incurred. That matters twice: a run's success rate would
@@ -124,9 +128,36 @@ function Get-ShpUsage {
             }).Count
     }
 
+    $preserveUnknownUsage = {
+        param($Aggregate, $Entries)
+        $unknown = @($Entries | Where-Object {
+            $_.PSObject.Properties['UsageKnown'] -and -not $_.UsageKnown
+        })
+        if ($unknown.Count -gt 0) {
+            $known = [pscustomobject]@{
+                PromptTokens = [long]$Aggregate.PromptTokens
+                CompletionTokens = [long]$Aggregate.CompletionTokens
+                CostUSD = [decimal]$Aggregate.CostUSD
+            }
+            foreach ($entry in $unknown) {
+                if ($entry.PSObject.Properties['KnownUsage']) {
+                    $known.PromptTokens += [long]$entry.KnownUsage.PromptTokens
+                    $known.CompletionTokens += [long]$entry.KnownUsage.CompletionTokens
+                    $known.CostUSD += [decimal]$entry.KnownUsage.CostUSD
+                }
+            }
+            $Aggregate | Add-Member -NotePropertyName UnknownUsageCalls -NotePropertyValue $unknown.Count
+            $Aggregate | Add-Member -NotePropertyName KnownUsage -NotePropertyValue $known
+            foreach ($name in 'PromptTokens', 'CompletionTokens', 'TotalTokens', 'ContextTokens', 'CostUSD', 'Credits') {
+                $Aggregate.$name = $null
+            }
+        }
+        $Aggregate
+    }
+
     $byModel = foreach ($group in ($records | Group-Object -Property Model)) {
         $groupSucceeded = & $succeededOf $group.Group
-        [pscustomobject]@{
+        $aggregate = [pscustomobject]@{
             PSTypeName       = 'ShellPilot.UsageByModel'
             Model            = $group.Name
             Calls            = $group.Count
@@ -140,6 +171,7 @@ function Get-ShpUsage {
             Credits          = [Math]::Round([double](($group.Group | Measure-Object -Property Credits -Sum).Sum), 4)
             DurationMs       = [int]([double](($group.Group | Measure-Object -Property DurationMs -Sum).Sum))
         }
+        & $preserveUnknownUsage $aggregate $group.Group
     }
 
     $succeeded = & $succeededOf $records
@@ -148,7 +180,7 @@ function Get-ShpUsage {
     $firstCall = if ($stamped.Count -gt 0) { ($stamped | Measure-Object -Property Timestamp -Minimum).Minimum } else { $null }
     $lastCall = if ($stamped.Count -gt 0) { ($stamped | Measure-Object -Property Timestamp -Maximum).Maximum } else { $null }
 
-    [pscustomobject]@{
+    $summaryResult = [pscustomobject]@{
         PSTypeName       = 'ShellPilot.UsageSummary'
         Calls            = $records.Count
         Succeeded        = $succeeded
@@ -166,4 +198,5 @@ function Get-ShpUsage {
         ElapsedMs        = $(if ($firstCall -and $lastCall) { [int]($lastCall - $firstCall).TotalMilliseconds } else { 0 })
         ByModel          = @($byModel)
     }
+    & $preserveUnknownUsage $summaryResult $records
 }

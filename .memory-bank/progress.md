@@ -16,8 +16,11 @@ Chronological record of shipped changes and remaining work. Latest first.
   state (011) is implemented but the Copilot proxy does not support it, so it
   falls back to client-side history.
 - The exact detached Sampler gate is currently healthy on PowerShell 7.6.5:
-  1,767 tests passed, three Unix-only skips, and 88.60% coverage on 2026-09-06.
-  A prior .NET 10 native access violation on 7.6.1 remains historical only.
+  merged-candidate validation is pending. The `edit_file` branch previously
+  passed 1,767 tests with three Unix-only skips and 88.60% coverage; the child
+  transport branch passed 1,915 tests without skips and 89.2% coverage. Neither
+  result proves the combined bytes. A prior .NET 10 native access violation on
+  PowerShell 7.6.1 remains historical only.
 
 ## What is left
 
@@ -43,6 +46,34 @@ Chronological record of shipped changes and remaining work. Latest first.
   `Deserialized.*` copy and break the "same result object" contract.
 
 ## Log
+
+- 2026-09-07 - Merge `ai/child-provider-boundary` into local `main` at the
+  operator's request. Production source auto-merged; active context and progress
+  required additive resolution with both `edit_file` and child-transport
+  evidence retained. Combined full validation is pending; no push or package
+  publication.
+
+- 2026-09-07 - Complete explicit `provider-estimate` owned-request budgets,
+  non-refundable upward reconciliation, complete supported counting, bounded
+  HTTP, fresh Host Server admission, and secret-free reported/partial Usage.
+  Strict defaults remain unchanged. Feature-branch full Sampler: 1,915 passed,
+  zero failures/skips, 89.2% coverage, 16 tasks without errors/warnings. Joint
+  independent review cleared after Host-side repair and final gates.
+  Authenticated built child: 1,601 input/87 output tokens, USD 0.002036,
+  unchanged Project and verified cleanup. No publication or invoice guarantee.
+
+- 2026-09-06 - Add conditional owned-request admission with frozen limits and
+  Engine pricing, complete-request identity binding, retained reservations, and
+  explicit failed/unknown Usage. Full Sampler: 1,810 passed, no failures/skips,
+  89.12% coverage. Independent review had zero Blockers/Majors; its Minor test
+  gap was closed. This groundwork did not itself supply a verified provider
+  count or complete child profile.
+
+- 2026-09-06 - Add optional `NoAutomaticRetry` and credentialless
+  `RequestTransport` groundwork. Four focused tests went red then green; the
+  full feature-branch gate passed 1,749 tests without failures/skips and 88.79%
+  coverage. Complete request admission and trusted provider ownership followed
+  in the later commits above.
 
 - 2026-09-06 - Final edit_file remediation verified on all three platforms
   at `d32ede339e9e42edc39833a652ce27e0ae097a0e`:
