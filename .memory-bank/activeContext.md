@@ -57,8 +57,13 @@ line in the main Invoke-Shp unit fixture and exclude it from F9 commits.
 - Package workflow passed 22 tasks without errors/warnings. Isolated import
   confirms 35 actual exports; the packaged manifest matches the built manifest
   and generated help includes both new switch parameters.
-- Independent review and local commits remain pending; no second feature or
-  remote operation is in scope.
+- Feature commit: `a64db5d` (`feat(tools): add opt-in deferred schema loading`),
+  with the requested AI co-author trailer. The complete diff was self-reviewed.
+- One independent security review approved `a64db5d`: zero Blockers, Majors,
+  Minors, or Nits. No remediation was required and no code changed after review.
+  Review artifacts are under `%TEMP%/shp-f9-review-20260907/`.
+- F9 is complete locally. No other tranche-two feature or remote operation was
+  performed. Linux/macOS gates and the live provider comparison were not run.
 
 Latest focused logs under TEMP:
 
@@ -86,6 +91,11 @@ prompt-injection defense. MCP descriptions remain untrusted and Tool policy
 does not authorize MCP calls. Search can add a round-trip and does not promise
 lower total Turn cost. No push, publication, PR, remote mutation, or other
 tranche-two feature is authorized.
+
+No data migration is required. Omit the switch to retain eager behavior; rename
+any User-tool registration that collides with the newly reserved search_tools
+name. Source rollback uses the local feature commit; no persisted loaded state
+exists to migrate or remove.
 
 ## Retained context
 

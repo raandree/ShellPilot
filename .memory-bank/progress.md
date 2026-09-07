@@ -28,7 +28,7 @@ Copilot content exclusions, and enterprise MCP allowlists are not provided.
   explicitly blocked, without blocking the other work.
 - Authorize and run the new six-job hosted current/7.4 OS matrix before a push
   or stable release. Decide and explicitly authorize stable `0.4.0` publication.
-- Finish F9's independent review; other tranche-two work is not authorized.
+- F9 is complete locally; no other tranche-two implementation is authorized.
 - MCP follow-ups, hooks, session resume, and subagents remain separate scope.
   Decision 002 permits state split by sensitivity; it is not proof that every
   proposed persistence feature has been implemented.
@@ -40,7 +40,9 @@ Copilot content exclusions, and enterprise MCP allowlists are not provided.
   90.56% coverage, nine clean tasks each. Initial synthetic Tools: 61 to 1;
   Chat bytes 134,630 to 820, Responses 128,286 to 748. Live provider comparison
   is blocked by no accessible MCP attachment. Package: 22 clean tasks, 35
-  actual exports, matching archive/built manifests. Independent review pending.
+  actual exports, matching archive/built manifests. One independent review
+  approved feature commit `a64db5d` with zero findings; no remediation required.
+  No remote writes; preserve the pre-existing Invoke-Shp fixture whitespace edit.
 - 2026-09-07 - Fast-forward local `main` from `6318225` to validated
   release-readiness tip `0cebbcd`. Post-merge exact gate: 2,037 passed, zero
   failed, three existing Unix skips, 89.55% coverage, nine clean tasks. All

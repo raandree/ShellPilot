@@ -177,3 +177,11 @@ F9 package SHA-256:
 ```text
 77AF876A5ECCBBD028F373B30E7A84DE45D92E97DD722931CF99BE3056B91F41
 ```
+
+One independent F9 security review approved `a64db5d` with zero findings;
+the complete diff was also self-reviewed. No remediation or post-review code
+change was needed. Review artifacts are under `%TEMP%/shp-f9-review-20260907/`.
+The live provider comparison is blocked by no accessible real MCP attachment;
+Linux/macOS gates were not run. Roll back by omitting DeferredToolLoading or
+reverting the feature commit. No data migration is needed; search_tools is a
+newly reserved User-tool name. No remote writes or publication were performed.
