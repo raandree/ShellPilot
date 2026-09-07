@@ -8,6 +8,7 @@
 # OutputDirectory: ../output/Sampler
 BuiltModuleSubdirectory: module
 CopyPaths:
+  - ../LICENSE
   - en-US
   - data
   - ShellPilot.Format.ps1xml
@@ -109,11 +110,11 @@ Pester:
   # only run tests in certain folders, or run specific test files, or can be use to
   # specify the order tests are run.
   Script:
-    - tests/QA/module.tests.ps1
+    - tests/QA
     - tests/Unit
   ExcludeTag:
   Tag:
-  CodeCoverageThreshold: 20 # Baseline floor; raise as Invoke-Shp and Initialize-Shp gain test coverage
+  CodeCoverageThreshold: 85
   #CodeCoverageOutputFile: JaCoCo_$OsShortName.xml
   #CodeCoverageOutputFileEncoding: ascii
   # Use this if code coverage should be merged from several pipeline test jobs.

@@ -53,6 +53,9 @@ See [technical context](techContext.md) for services, authentication, and gates.
   `SHELLPILOT_API_BASE`, `SHELLPILOT_API_KEY`, and
   `SHELLPILOT_ALLOW_COPILOT_BACKEND_IN_CI`. Do not bypass the production gate
   merely to make a fixture pass.
+- To test a present-but-empty environment variable across runtimes, supply it
+  through a child `ProcessStartInfo.Environment` and assert presence first.
+  Assigning `''` through the 7.4 environment provider removes the variable.
 - Release facts come from current source and service evidence. A local license,
   fix, or package does not change already-published artifacts. Never infer
   entitlement or external-service outcomes from a passing mock.

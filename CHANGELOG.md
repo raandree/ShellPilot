@@ -53,7 +53,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Add the maintainer-selected [MIT license](LICENSE) and document stable and
-  prerelease [Gallery installation](README.md#install).
+  prerelease [Gallery installation](README.md#install). Bundle the same license
+  text in built modules and packages.
 
 - **Add explicit estimated budgets for trusted owned requests.** Opt into
   `RequestBudgetMode provider-estimate` for non-refundable reservations and
@@ -364,6 +365,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   so a host renders it identically.
 
 ### Fixed
+
+- Synchronize the [source manifest](source/ShellPilot.psd1) with all 35 public
+  commands and retain a source-level regression against missing exports.
 
 - **A failed batch item no longer reports zero cost.** `Invoke-ShpBatchItem`
   built its result from the `ErrorRecord` alone, so a call that threw

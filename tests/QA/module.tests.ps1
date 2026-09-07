@@ -80,6 +80,14 @@ Describe 'General module control' -Tags 'FunctionalQuality' {
         $rootDataFiles[0].Name | Should -BeExactly "$($script:moduleName).psd1"
     }
 
+    It 'Should include the repository license in the built module' {
+        $builtLicensePath = Join-Path -Path $script:builtModuleBase -ChildPath 'LICENSE'
+        Test-Path -LiteralPath $builtLicensePath -PathType Leaf | Should -BeTrue
+        $repositoryLicensePath = Join-Path -Path $projectPath -ChildPath 'LICENSE'
+        Get-Content -LiteralPath $builtLicensePath -Raw |
+            Should -BeExactly (Get-Content -LiteralPath $repositoryLicensePath -Raw)
+    }
+
     It 'Should import without errors' {
         { Import-Module -Name $script:moduleName -Force -ErrorAction Stop } | Should -Not -Throw
 

@@ -37,6 +37,18 @@ Copilot content exclusions, and enterprise MCP allowlists are not provided.
 
 ## Recent milestones
 
+- 2026-09-07 - Stage 2 source-export regression failed on eleven missing
+  declarations, then passed with all 35 synchronized. Discover the whole QA
+  directory, configure six current/7.4 OS combinations, and raise the coverage
+  floor to 85%. Current-runtime full gate: 1,938 passed, zero failed, three
+  skipped, 89.04% coverage. A missing packaged license was also reproduced;
+  copying the selected MIT text into the built module passes its regression.
+  PowerShell 7.4.19 / .NET 8.0.30 package: 22 clean tasks and exact MIT text.
+  Full gate under `CI=true`: 1,939 passed, zero failed, three skips, 89.04%,
+  nine clean tasks. A 7.4 fixture assigned `''`, removing the variable instead
+  of testing empty rejection; a native-child fixture now proves presence and
+  rejection on both runtimes without changing production credential behavior.
+  New hosted jobs are configured but not run; local package version is `0.0.1`.
 - 2026-09-07 - Begin release readiness at verified `6318225`, clean worktree,
   and matching `main` / `origin/main`. GitHub run 34105577285 passed package,
   Windows, macOS, Ubuntu, and deploy. GitHub and Gallery APIs confirm preview

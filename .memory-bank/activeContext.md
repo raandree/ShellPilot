@@ -36,7 +36,20 @@ Markdown files pass lint; seven changed documents render; repository diagnostics
 are clear. Memory Bank health passes without errors or warnings. Historical
 records are retained in same-directory archives with compact current summaries.
 
-Stage 2 is next: source exports, minimum-runtime CI, and the coverage floor.
+Stage 2 is complete. The source-export and packaged-license regressions went
+red to green; all QA files are discovered. CI is configured for current/7.4
+on three OSes, with separate artifacts and an 85% coverage floor. Hosted runs
+of this branch are unavailable under the no-remote-write constraint.
+
+Portable PowerShell 7.4.19 / .NET 8.0.30 passed packaging (22 clean tasks) and
+the exact full gate under `CI=true`: 1,939 passed, zero failed, three skips,
+89.04% coverage, nine clean tasks. The empty-variable fixture now starts a
+child with a genuinely present empty variable; assigning `''` in 7.4 removed
+it. The resolver was unchanged. Both runtime-focused fixtures pass; changed
+tests are analyzer-clean. The nupkg contains the exact MIT text and 35 exports.
+Local package version is Sampler's `0.0.1` fallback, not a release artifact.
+
+Stage 3 is next: run only the exact bounded F14 credential probe.
 
 ## Next steps
 

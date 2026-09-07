@@ -94,7 +94,7 @@ jobs:
           retention-days: 7
 
   test:
-    name: Test ${{ needs.build.outputs.fullSemVer }} (${{ matrix.os }})
+    name: Test ${{ needs.build.outputs.fullSemVer }} (${{ matrix.os }}, pwsh ${{ matrix.powershell }})
     needs: build
     runs-on: ${{ matrix.os }}
     strategy:
@@ -104,6 +104,9 @@ jobs:
           - ubuntu-latest
           - windows-latest
           - macos-latest
+        powershell:
+          - '7.4'
+          - current
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -116,15 +119,38 @@ jobs:
           name: ${{ env.buildArtifactName }}
           path: output/
 
+      - name: Install .NET 8 for minimum PowerShell
+        if: matrix.powershell == '7.4'
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Install minimum PowerShell
+        if: matrix.powershell == '7.4'
+        shell: pwsh
+        run: |
+          $installPath = Join-Path $env:RUNNER_TEMP 'powershell-minimum'
+          dotnet tool install PowerShell --version '7.4.*' --tool-path $installPath
+          if ($LASTEXITCODE -ne 0) { throw 'PowerShell 7.4 installation failed.' }
+          $installPath | Out-File -LiteralPath $env:GITHUB_PATH -Append -Encoding utf8
+
       - name: Run Tests
         shell: pwsh
-        run: ./build.ps1 -Tasks test
+        env:
+          TEST_POWERSHELL: ${{ matrix.powershell }}
+        run: |
+          if ($env:TEST_POWERSHELL -eq '7.4' -and
+              ($PSVersionTable.PSVersion.Major -ne 7 -or $PSVersionTable.PSVersion.Minor -ne 4)) {
+              throw "Expected PowerShell 7.4, got $($PSVersionTable.PSVersion)."
+          }
+          $PSVersionTable.PSVersion.ToString()
+          ./build.ps1 -AutoRestore -Tasks test
 
       - name: Publish Test Results
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: CodeCoverage-${{ matrix.os }}
+          name: CodeCoverage-${{ matrix.os }}-${{ matrix.powershell }}
           path: output/testResults/
           if-no-files-found: warn
 

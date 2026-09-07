@@ -110,7 +110,8 @@ Describe 'Resolve-ShpOAuthToken' {
 
             InModuleScope $script:moduleName -Parameters @{ TokenPath = $missing } {
                 param($TokenPath)
-                { Resolve-ShpOAuthToken -TokenPath $TokenPath } | Should -Throw '*Token file not found*'
+                $missingTokenPath = $TokenPath
+                { Resolve-ShpOAuthToken -TokenPath $missingTokenPath } | Should -Throw '*Token file not found*'
             }
         }
 
@@ -155,19 +156,43 @@ Describe 'Resolve-ShpOAuthToken' {
         # Falling through to the token file would let a pipeline whose secret
         # failed to expand authenticate as whoever last signed in on the runner.
         It 'Throws when the environment variable is set but empty' {
-            $env:SHELLPILOT_GITHUB_TOKEN = ''
             $defaultFile = Join-Path $TestDrive 'not-a-fallback.token'
             Set-Content -LiteralPath $defaultFile -Value 'ghu_should_not_be_used' -NoNewline
 
-            InModuleScope $script:moduleName -Parameters @{ DefaultPath = $defaultFile } {
-                param($DefaultPath)
-                $saved = $script:DefaultTokenPath
-                try {
-                    $script:DefaultTokenPath = $DefaultPath
-                    { Resolve-ShpOAuthToken } | Should -Throw '*SHELLPILOT_GITHUB_TOKEN*'
-                } finally {
-                    $script:DefaultTokenPath = $saved
+            $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+            $startInfo.FileName = (Get-Process -Id $PID).Path
+            $startInfo.UseShellExecute = $false
+            $startInfo.RedirectStandardOutput = $true
+            $startInfo.RedirectStandardError = $true
+            $startInfo.Environment['SHELLPILOT_GITHUB_TOKEN'] = ''
+            foreach ($argument in @(
+                '-NoProfile', '-NonInteractive', '-File'
+                (Join-Path $PSScriptRoot 'Fixtures/Resolve-EmptyEnvironmentToken.ps1')
+                '-ModulePath', (Join-Path (Get-Module $script:moduleName).ModuleBase 'ShellPilot.psd1')
+                '-DefaultTokenPath', $defaultFile
+            )) {
+                $startInfo.ArgumentList.Add($argument)
+            }
+            $process = [System.Diagnostics.Process]::new()
+            $process.StartInfo = $startInfo
+            try {
+                $null = $process.Start()
+                $outputTask = $process.StandardOutput.ReadToEndAsync()
+                $errorTask = $process.StandardError.ReadToEndAsync()
+                if (-not $process.WaitForExit(15000)) {
+                    $process.Kill($true)
+                    throw 'Empty-environment token probe exceeded 15 seconds.'
                 }
+                $errorTask.GetAwaiter().GetResult() | Should -BeNullOrEmpty
+                $process.ExitCode | Should -Be 0
+                $probe = $outputTask.GetAwaiter().GetResult() | ConvertFrom-Json
+                $probe.HasVariable | Should -BeTrue
+                $probe.IsEmpty | Should -BeTrue
+                $probe.Rejected | Should -BeTrue
+                $probe.Message | Should -BeLike '*SHELLPILOT_GITHUB_TOKEN*set but empty*'
+            }
+            finally {
+                $process.Dispose()
             }
         }
 
