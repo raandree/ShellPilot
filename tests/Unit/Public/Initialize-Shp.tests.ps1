@@ -8,7 +8,7 @@ BeforeAll {
     # so clear the profile here and restore it afterwards, or this file would
     # test its host instead of the module.
     $script:savedCiEnv = @{}
-    foreach ($name in 'CI', 'SHELLPILOT_ALLOW_COPILOT_BACKEND_IN_CI') {
+    foreach ($name in 'CI', 'SHELLPILOT_ALLOW_COPILOT_BACKEND_IN_CI', 'SHELLPILOT_GITHUB_HOST') {
         $script:savedCiEnv[$name] = [System.Environment]::GetEnvironmentVariable($name)
         Remove-Item -LiteralPath "Env:$name" -ErrorAction SilentlyContinue
     }
@@ -86,6 +86,34 @@ Describe 'Initialize-Shp' {
     }
 
     Context 'Token protection' {
+        It 'Uses the enterprise host for both device-code requests' {
+            $tokenFile = Join-Path $TestDrive 'enterprise.token'
+            InModuleScope $script:moduleName -Parameters @{ TokenFile = $tokenFile } {
+                param($TokenFile)
+                Mock Invoke-RestMethod {
+                    [pscustomobject]@{
+                        device_code = 'd'; user_code = 'u'; verification_uri = 'https://tenant.ghe.com/login/device'
+                        interval = 5; expires_in = 300; access_token = 'ghu_enterprise_fixture'
+                    }
+                }
+                Mock Start-Sleep { }
+                Mock Start-Process { }
+                Mock Set-Clipboard { }
+                Mock Write-Host { }
+                $null = Initialize-Shp -GitHubHost 'https://tenant.ghe.com' -TokenPath $TokenFile -Force
+                Should -Invoke Invoke-RestMethod -Times 1 -Exactly -ParameterFilter { $Uri -eq 'https://tenant.ghe.com/login/device/code' }
+                Should -Invoke Invoke-RestMethod -Times 1 -Exactly -ParameterFilter { $Uri -eq 'https://tenant.ghe.com/login/oauth/access_token' }
+            }
+        }
+
+        It 'Rejects invalid host configuration before any device request' {
+            InModuleScope $script:moduleName {
+                Mock Invoke-RestMethod { throw 'Unexpected authentication request.' }
+                { Initialize-Shp -GitHubHost 'http://tenant.ghe.com' -Force } | Should -Throw '*GitHubHost*'
+                Should -Invoke Invoke-RestMethod -Times 0 -Exactly
+            }
+        }
+
         It 'Upgrades a legacy clear-text token file in place, without re-authenticating' {
             $tokenFile = Join-Path $TestDrive 'legacy.token'
             Set-Content -LiteralPath $tokenFile -Value 'ghu_legacy_value' -NoNewline

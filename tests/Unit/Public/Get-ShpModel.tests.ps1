@@ -3,12 +3,33 @@ BeforeAll {
 
     Remove-Module -Name $script:moduleName -Force -ErrorAction SilentlyContinue
     Import-Module -Name $script:moduleName -Force -ErrorAction Stop
+    $script:savedGitHubHost = [Environment]::GetEnvironmentVariable('SHELLPILOT_GITHUB_HOST')
+    Remove-Item -LiteralPath 'Env:SHELLPILOT_GITHUB_HOST' -ErrorAction SilentlyContinue
 }
 
 AfterAll {
+    if ($null -eq $script:savedGitHubHost) {
+        Remove-Item -LiteralPath 'Env:SHELLPILOT_GITHUB_HOST' -ErrorAction SilentlyContinue
+    } else {
+        $env:SHELLPILOT_GITHUB_HOST = $script:savedGitHubHost
+    }
     Get-Module -Name $script:moduleName -All | Remove-Module -Force -ErrorAction SilentlyContinue
 }
 Describe 'Get-ShpModel' {
+    It 'Uses the returned enterprise endpoint and refuses an absent endpoint instead of guessing' {
+        InModuleScope $script:moduleName {
+            Mock Get-ShpSessionToken { @{ token = 'fixture'; endpoints = @{ api = 'https://returned.service.example' } } }
+            Mock Invoke-WebRequest { @{ Content = '{"data":[{"id":"fixture-model"}]}' } }
+            $result = @(Get-ShpModel -GitHubHost 'https://tenant.ghe.com' -Endpoint All)
+            $result.Endpoint | Should -Be @('https://returned.service.example')
+            Should -Invoke Get-ShpSessionToken -Times 1 -Exactly -ParameterFilter { $GitHubHost -eq 'https://tenant.ghe.com' }
+            Mock Get-ShpSessionToken { @{ token = 'fixture'; endpoints = @{} } }
+            { Get-ShpModel -GitHubHost 'https://tenant.ghe.com' -Endpoint Default } |
+                Should -Throw '*enterprise*endpoint*'
+            Should -Invoke Invoke-WebRequest -Times 1 -Exactly
+        }
+    }
+
     It 'Should be exported by the module' {
         Get-Command -Name 'Get-ShpModel' -Module $script:moduleName | Should -Not -BeNullOrEmpty
     }

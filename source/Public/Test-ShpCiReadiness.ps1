@@ -41,6 +41,11 @@ function Test-ShpCiReadiness {
         Report the profile as it would be for a call that stated this
         explicitly, rather than letting $env:CI decide it.
 
+    .PARAMETER GitHubHost
+        Test an explicit GitHub authentication origin instead of Session context
+        or SHELLPILOT_GITHUB_HOST. Reports the resolved origin and its source
+        without sending a request. Invalid host configuration makes Ready false.
+
     .EXAMPLE
         Test-ShpCiReadiness
 
@@ -77,6 +82,9 @@ function Test-ShpCiReadiness {
         [ValidateNotNullOrEmpty()]
         [string]$TokenPath,
 
+        [AllowEmptyString()]
+        [string]$GitHubHost,
+
         [switch]$NonInteractive
     )
 
@@ -89,6 +97,14 @@ function Test-ShpCiReadiness {
     $ciProfile = Resolve-ShpCiProfile @ciParams
 
     $issue = [System.Collections.Generic.List[string]]::new()
+    $resolvedGitHubHost = $null
+    try {
+        $hostParameters = @{}
+        if ($PSBoundParameters.ContainsKey('GitHubHost')) { $hostParameters.GitHubHost = $GitHubHost }
+        $resolvedGitHubHost = Resolve-ShpGitHubHost @hostParameters
+    } catch {
+        $issue.Add($_.Exception.Message)
+    }
 
     # The resolver throws when no credential is available anywhere, and its
     # message already names every remedy - so the throw IS the finding here,
@@ -127,11 +143,13 @@ function Test-ShpCiReadiness {
         ApiBase                   = $backend.SafeApiBase
         BackendSource             = $backend.Source
         ApiKeySource              = $backend.ApiKeySource
+        GitHubHost                = $resolvedGitHubHost.Host
+        GitHubHostSource          = $resolvedGitHubHost.Source
         NonInteractive            = $ciProfile.NonInteractive
         NonInteractiveSource      = $ciProfile.NonInteractiveSource
         CanPrompt                 = $canPrompt
         CopilotBackendAllowedInCI = $ciProfile.CopilotBackendAllowedInCI
-        Ready                     = ($tokenSource -ne 'None') -and $ciProfile.CopilotBackendAllowedInCI
+        Ready                     = ($null -ne $resolvedGitHubHost) -and ($tokenSource -ne 'None') -and $ciProfile.CopilotBackendAllowedInCI
         Issue                     = $issue.ToArray()
     }
 }

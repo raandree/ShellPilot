@@ -69,7 +69,7 @@ function Start-ShpJob {
     # so handing over the live ones would let a later Set-ShpContext in the
     # caller's session change what a job already in flight is doing.
     $context = @{}
-    foreach ($key in @('TimeoutSec', 'MaxRetryCount', 'RetryDelaySec', 'NetworkOutageToleranceSec', 'MaxContextWindowTokens', 'ApiBase', 'ApiKey', 'GitHubToken')) {
+    foreach ($key in @('TimeoutSec', 'MaxRetryCount', 'RetryDelaySec', 'NetworkOutageToleranceSec', 'MaxContextWindowTokens', 'ApiBase', 'ApiKey', 'GitHubToken', 'GitHubHost')) {
         if ($null -ne $script:ShpContext[$key]) { $context[$key] = $script:ShpContext[$key] }
     }
 

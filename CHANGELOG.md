@@ -56,6 +56,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Add explicit `-GitHubHost`, Session context, and `SHELLPILOT_GITHUB_HOST`
+  routing for GitHub Enterprise Cloud on GHE.com, with validated HTTPS origins,
+  host-specific Session-token caching, and readiness reporting. Preserve
+  GitHub.com defaults and the bounded child transport allowlist. See
+  [enterprise host configuration](README.md#enterprise-cloud-host).
+
 - Add the per-call `Invoke-Shp -Mode Plan` read-only preset, intersecting caller
   filters and the unchanged session Tool policy. Withhold mutation, terminal,
   User, MCP, and interactive-question tools. See

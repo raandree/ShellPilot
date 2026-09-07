@@ -96,6 +96,25 @@ Full gate: 2,001 passed, zero failed, three skips, 89.37% coverage, nine clean
 tasks. Independent review remains pending. Next slice: F17 explicit Enterprise
 Cloud host routing, with no changes to the bounded child transport allowlist.
 
+F17: shared strict HTTPS origin resolver and precedence tests pass. Sign-in,
+host-keyed Session-token cache, model endpoint precedence, and readiness/context
+are wired; normal turns freeze the host into the existing exchange parameter
+splat, and batch/job/embedding paths retain it. Bounded child transport refuses
+enterprise routing before credentials; its allowlist is unchanged. Host
+fixtures restore absence explicitly to avoid empty-variable leakage on .NET 10.
+No enterprise credential is available, so live entitlement is unverified.
+Final full gate: 2,029 passed, zero failed, three skips, 89.50% coverage,
+nine clean tasks. Source and resolver tests are analyzer-clean. Upstream client
+evidence supports service-returned Copilot endpoints, not a synthesized
+enterprise fallback; missing enterprise model endpoints now fail closed with
+a red-green regression. Independent finished-branch review is next.
+
+F17 threat model: host configuration selects where an OAuth token is sent.
+Treat it as trusted caller configuration, not model content. Validate origin
+before credentials, disallow non-GitHub origins and enterprise redirects, and
+partition caches by host. Token envelopes are not tenant-bound; callers must
+select a matching credential and separate token paths for separate accounts.
+
 Threat model: untrusted model command text can try to read parent credentials
 or alter variables that redirect trusted programs. Minimal inheritance removes
 the ambient-secret path; literal assignment refusal narrows executable setup.

@@ -38,5 +38,11 @@ function Clear-ShpContext {
         $script:ShpContext.ApiBase       = $null
         $script:ShpContext.ApiKey        = $null
         $script:ShpContext.GitHubToken   = $null
+        if ($null -ne $script:ShpContext.GitHubHost) {
+            $script:ShpModelLimitCache = $null
+            $script:ModelNameCache = $null
+            $script:ShpUnknownLimitModelWarned.Clear()
+        }
+        $script:ShpContext.GitHubHost = $null
     }
 }

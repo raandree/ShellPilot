@@ -607,6 +607,13 @@ function Invoke-Shp {
         request this call makes, including the session-token exchange that
         precedes it.
 
+    .PARAMETER GitHubHost
+        HTTPS GitHub.com or Enterprise Cloud GHE.com authentication origin.
+        Explicit value wins over Session context, SHELLPILOT_GITHUB_HOST, and
+        the GitHub.com default. The resolved host is fixed for this call and
+        used on every Session-token exchange. RequestTransport refuses this
+        native credential option; the CI backend gate remains unchanged.
+
     .PARAMETER TokenPath
         Path to an OAuth token file to authenticate with. Omit it to resolve the
         token by the module's precedence: the session context
@@ -1008,6 +1015,9 @@ function Invoke-Shp {
         [AllowEmptyString()]
         [string]$TokenPath,
 
+        [AllowEmptyString()]
+        [string]$GitHubHost,
+
         [string]$EditorVersion = $script:DefaultEditorVersion,
         [string]$PluginVersion = $script:DefaultPluginVersion,
         [string]$UserAgent     = $script:DefaultUserAgent,
@@ -1031,8 +1041,8 @@ function Invoke-Shp {
     if ($ownedTransport) {
         if (-not $DisableStreaming -or -not $PSBoundParameters.ContainsKey('MaxOutputTokens') -or
             $AsJob -or $UseServerSideState -or $PSBoundParameters.ContainsKey('ApiBase') -or
-            $PSBoundParameters.ContainsKey('TokenPath')) {
-            throw 'RequestTransport requires DisableStreaming and MaxOutputTokens and refuses AsJob, UseServerSideState, ApiBase and TokenPath.'
+            $PSBoundParameters.ContainsKey('TokenPath') -or $PSBoundParameters.ContainsKey('GitHubHost')) {
+            throw 'RequestTransport requires DisableStreaming and MaxOutputTokens and refuses AsJob, UseServerSideState, ApiBase, TokenPath and GitHubHost.'
         }
         $NoAutomaticRetry = $true
     }
@@ -1229,6 +1239,11 @@ function Invoke-Shp {
     # terms the turn started on - a Turn is a loop that can outlive its own
     # credential, so resolving it only here is not enough.
     $sessionTokenParams = @{ TokenPath = $TokenPath; EditorVersion = $EditorVersion; UserAgent = $UserAgent }
+    if (-not $ownedTransport) {
+        $hostParameters = @{}
+        if ($PSBoundParameters.ContainsKey('GitHubHost')) { $hostParameters.GitHubHost = $GitHubHost }
+        $sessionTokenParams.GitHubHost = (Resolve-ShpGitHubHost @hostParameters).Host
+    }
     foreach ($name in $connectionParams.Keys) { $sessionTokenParams[$name] = $connectionParams[$name] }
     $session = $null
     if (-not $ownedTransport) {

@@ -280,6 +280,11 @@ function Invoke-ShpBatch {
         Wall-clock budget, in seconds, for riding out a connection-level network
         outage on any one request.
 
+    .PARAMETER GitHubHost
+        HTTPS GitHub.com or Enterprise Cloud GHE.com authentication origin for
+        every item. Explicit value wins over the replayed Session context and
+        SHELLPILOT_GITHUB_HOST. Does not bypass the Copilot backend gate in CI.
+
     .PARAMETER TokenPath
         Path to an OAuth token file to authenticate with, read by every worker.
         Omit it to resolve the token by the module's precedence: the session
@@ -470,7 +475,10 @@ function Invoke-ShpBatch {
         [int]$NetworkOutageToleranceSec,
 
         [ValidateNotNullOrEmpty()]
-        [string]$TokenPath
+        [string]$TokenPath,
+
+        [AllowEmptyString()]
+        [string]$GitHubHost
     )
 
     begin {
@@ -544,7 +552,7 @@ function Invoke-ShpBatch {
                 'DisableFileAccess', 'DisableTerminal', 'DisableUserTools', 'DisableTodoList',
                 'DisableRedaction', 'CommandEnvironmentVariable', 'Tool', 'ExcludeTool',
                 'MaxToolIterations', 'MaxContextWindowTokens', 'MaxBudgetUSD', 'FailOn',
-                'ApiBase', 'TimeoutSec', 'MaxRetryCount', 'RetryDelaySec', 'NetworkOutageToleranceSec', 'TokenPath')) {
+                'ApiBase', 'TimeoutSec', 'MaxRetryCount', 'RetryDelaySec', 'NetworkOutageToleranceSec', 'TokenPath', 'GitHubHost')) {
             if ($PSBoundParameters.ContainsKey($name)) { $invokeParams[$name] = $PSBoundParameters[$name] }
         }
 
@@ -562,7 +570,7 @@ function Invoke-ShpBatch {
         # A worker inherits neither the session context nor the registered tools,
         # so both travel on the work item and are replayed once per runspace.
         $context = @{}
-        foreach ($key in @('TimeoutSec', 'MaxRetryCount', 'RetryDelaySec', 'NetworkOutageToleranceSec', 'MaxContextWindowTokens', 'ApiBase', 'ApiKey', 'GitHubToken')) {
+        foreach ($key in @('TimeoutSec', 'MaxRetryCount', 'RetryDelaySec', 'NetworkOutageToleranceSec', 'MaxContextWindowTokens', 'ApiBase', 'ApiKey', 'GitHubToken', 'GitHubHost')) {
             if ($null -ne $script:ShpContext[$key]) { $context[$key] = $script:ShpContext[$key] }
         }
         # The cached model limits travel too, or every worker would resolve the

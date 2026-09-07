@@ -225,6 +225,20 @@ Describe 'Invoke-ShpBatch' {
             }
         }
 
+        It 'Forwards the GitHub host to each worker and retains its session context' {
+            Set-ShpContext -GitHubHost 'https://session.ghe.com'
+            try {
+                $null = Invoke-ShpBatch -Prompt 'a', 'b' -GitHubHost 'https://explicit.ghe.com'
+                InModuleScope $script:moduleName {
+                    foreach ($item in $script:capturedWorkItem) {
+                        $item.InvokeParams.GitHubHost | Should -Be 'https://explicit.ghe.com'
+                        $item.Context.GitHubHost | Should -Be 'https://session.ghe.com'
+                    }
+                }
+            }
+            finally { Clear-ShpContext }
+        }
+
         It 'Replays named secret environment policy without copying secret values' {
             $savedValue = [Environment]::GetEnvironmentVariable('SHP_BATCH_SECRET')
             try {

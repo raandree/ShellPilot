@@ -45,5 +45,6 @@ function Get-ShpContext {
         ApiBase                   = $script:ShpContext.ApiBase
         ApiKey                    = if ($script:ShpContext.ApiKey) { '***' } else { $null }
         GitHubToken               = if ($script:ShpContext.GitHubToken) { '***' } else { $null }
+        GitHubHost                = $script:ShpContext.GitHubHost
     }
 }

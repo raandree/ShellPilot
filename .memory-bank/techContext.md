@@ -44,6 +44,17 @@ ShellPilot talks to the same HTTP services as the Copilot Chat extension.
 - Default: api.githubcopilot.com
 - Session: the per-account endpoint returned inside the session token.
 
+`Resolve-ShpGitHubHost` owns explicit `GitHubHost` > Session context >
+`SHELLPILOT_GITHUB_HOST` > GitHub.com precedence. Only HTTPS GitHub.com or one
+enterprise label under GHE.com is accepted. Empty configured sources, userinfo,
+custom ports, paths, queries, and fragments are refused. Enterprise sign-in
+uses that origin; exchange uses `api.<enterprise>.ghe.com`, with host-specific
+Session-token cache identity. Service-returned endpoints are required for
+enterprise model listing; an absent endpoint is refused without a guessed or
+GitHub.com fallback. The upstream client confirms service-endpoint precedence.
+Enterprise authentication/model redirects are refused. The bounded child
+transport remains GitHub.com-only; no enterprise entitlement is live-verified.
+
 ## Authentication
 
 - GitHub OAuth device-code flow using the public VS Code Copilot Chat

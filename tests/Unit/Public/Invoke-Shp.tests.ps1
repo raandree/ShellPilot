@@ -1599,6 +1599,13 @@ Describe 'Invoke-Shp' {
             }
         }
 
+        It 'Keeps the explicit GitHub host on initial and per-iteration token exchanges' {
+            InModuleScope $script:moduleName {
+                $null = Invoke-Shp -Prompt 'inspect' -GitHubHost 'https://tenant.ghe.com' -DisableUserPrompts
+                Should -Invoke Get-ShpSessionToken -Times 3 -Exactly -ParameterFilter { $GitHubHost -eq 'https://tenant.ghe.com' }
+            }
+        }
+
         # A disabled tool is not merely unadvertised. The model can still name it
         # from its own priors or from a replayed history, and until this held the
         # dispatch switch ran the built-in anyway - so -DisableTerminal bounded

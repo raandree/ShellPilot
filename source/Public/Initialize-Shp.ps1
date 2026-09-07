@@ -26,6 +26,12 @@ function Initialize-Shp {
     .PARAMETER ClientId
         OAuth client_id. Default: the public VS Code Copilot Chat client.
 
+    .PARAMETER GitHubHost
+        HTTPS GitHub.com or Enterprise Cloud GHE.com sign-in origin. Overrides
+        Session context and SHELLPILOT_GITHUB_HOST; defaults to https://github.com.
+        Use the same host for later API calls. No credential format or entitlement
+        is inferred from this setting; use a token belonging to the selected host.
+
     .PARAMETER Scope
         OAuth scope requested during the device flow. Default: read:user.
 
@@ -80,11 +86,17 @@ function Initialize-Shp {
     [OutputType([System.IO.FileInfo])]
     param(
         [string]$TokenPath = $script:DefaultTokenPath,
+        [AllowEmptyString()]
+        [string]$GitHubHost,
         [string]$ClientId  = $script:DefaultClientId,
         [string]$Scope     = 'read:user',
         [switch]$Force,
         [switch]$NonInteractive
     )
+
+    $hostParameters = @{}
+    if ($PSBoundParameters.ContainsKey('GitHubHost')) { $hostParameters.GitHubHost = $GitHubHost }
+    $resolvedGitHubHost = Resolve-ShpGitHubHost @hostParameters
 
     # This function exists only to enable Copilot-backend calls, so it is gated
     # on the same terms as one. There is no -ApiBase to name here: an
@@ -135,10 +147,11 @@ function Initialize-Shp {
     Write-Host 'Requesting device code from GitHub...' -ForegroundColor Cyan
     $deviceParams = @{
         Method  = 'Post'
-        Uri     = 'https://github.com/login/device/code'
+        Uri     = $resolvedGitHubHost.Host + '/login/device/code'
         Headers = @{ Accept = 'application/json' }
         Body    = @{ client_id = $ClientId; scope = $Scope }
     }
+    if ($resolvedGitHubHost.IsEnterprise) { $deviceParams.MaximumRedirection = 0 }
     $device = Invoke-RestMethod @deviceParams
 
     Write-Host ''
@@ -168,7 +181,7 @@ function Initialize-Shp {
         try {
             $pollParams = @{
                 Method  = 'Post'
-                Uri     = 'https://github.com/login/oauth/access_token'
+                Uri     = $resolvedGitHubHost.Host + '/login/oauth/access_token'
                 Headers = @{ Accept = 'application/json' }
                 Body    = @{
                     client_id   = $ClientId
@@ -176,6 +189,7 @@ function Initialize-Shp {
                     grant_type  = 'urn:ietf:params:oauth:grant-type:device_code'
                 }
             }
+            if ($resolvedGitHubHost.IsEnterprise) { $pollParams.MaximumRedirection = 0 }
             $resp = Invoke-RestMethod @pollParams
         } catch {
             Write-Warning $_.Exception.Message

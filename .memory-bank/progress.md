@@ -37,6 +37,14 @@ Copilot content exclusions, and enterprise MCP allowlists are not provided.
 
 ## Recent milestones
 
+- 2026-09-07 - Stage 4 / F17 complete: strict shared GitHubHost precedence,
+  HTTPS GitHub.com/GHE.com origins, host-specific Session-token caching,
+  sign-in/model/readiness and turn/batch/job/embedding forwarding. Enterprise
+  model endpoints must come from the service; a guessed fallback was removed
+  after upstream verification and a red-green refusal test. Bounded child
+  transport keeps its GitHub.com allowlist. Full gate: 2,029 passed, zero
+  failed, three skips, 89.50% coverage, nine clean tasks. No live enterprise
+  credential is available. Independent branch review remains pending.
 - 2026-09-07 - Stage 4 / F22 complete: per-call Plan intersects read-only
   visibility with caller filters and unchanged session Tool policy. Mutation,
   terminal, User/MCP, and ask_user tools are withheld; todo remains in memory.

@@ -31,6 +31,13 @@ function Get-ShpModel {
     .PARAMETER EditorVersion
         Editor-Version header value sent with the request.
 
+    .PARAMETER GitHubHost
+        HTTPS GitHub.com or Enterprise Cloud GHE.com authentication origin.
+        Explicit value wins over Session context and SHELLPILOT_GITHUB_HOST.
+        For an enterprise host every endpoint selection uses the service-returned
+        per-account API endpoint. An absent endpoint is refused, never guessed
+        or replaced with the GitHub.com fallback map.
+
     .PARAMETER PluginVersion
         Editor-Plugin-Version header value sent with the request.
 
@@ -91,6 +98,9 @@ function Get-ShpModel {
         [AllowEmptyString()]
         [string]$TokenPath,
 
+        [AllowEmptyString()]
+        [string]$GitHubHost,
+
         [string]$EditorVersion = $script:DefaultEditorVersion,
         [string]$PluginVersion = $script:DefaultPluginVersion,
         [string]$UserAgent     = $script:DefaultUserAgent,
@@ -109,13 +119,17 @@ function Get-ShpModel {
         [int]$NetworkOutageToleranceSec
     )
 
+    $hostParameters = @{}
+    if ($PSBoundParameters.ContainsKey('GitHubHost')) { $hostParameters.GitHubHost = $GitHubHost }
+    $resolvedGitHubHost = Resolve-ShpGitHubHost @hostParameters
+
     $connectionParams = @{}
     foreach ($name in 'TimeoutSec', 'MaxRetryCount', 'RetryDelaySec', 'NetworkOutageToleranceSec') {
         if ($PSBoundParameters.ContainsKey($name)) { $connectionParams[$name] = $PSBoundParameters[$name] }
     }
     $connection = Resolve-ShpConnectionOption @connectionParams
 
-    $session = Get-ShpSessionToken -TokenPath $TokenPath -EditorVersion $EditorVersion -UserAgent $UserAgent @connectionParams
+    $session = Get-ShpSessionToken -TokenPath $TokenPath -EditorVersion $EditorVersion -UserAgent $UserAgent -GitHubHost $resolvedGitHubHost.Host @connectionParams
 
     $headers = @{
         Authorization            = "Bearer $($session.token)"
@@ -125,15 +139,19 @@ function Get-ShpModel {
         'User-Agent'             = $UserAgent
     }
 
-    $targets = switch ($Endpoint) {
+    $targets = if ($resolvedGitHubHost.IsEnterprise) {
+        if (-not $session.endpoints.api) { throw 'The enterprise Session token did not return a Copilot API endpoint; refusing a fallback to another host.' }
+        ,$session.endpoints.api
+    } else { switch ($Endpoint) {
         'All'     { @($session.endpoints.api) + $script:EndpointMap.Values }
         'Session' { ,$session.endpoints.api }
         default   { ,$script:EndpointMap[$Endpoint] }
-    }
+    } }
 
     foreach ($base in ($targets | Where-Object { $_ } | Select-Object -Unique)) {
         try {
             $modelRequest = @{ Uri = "$base/models"; SkipHeaderValidation = $true; Headers = $headers; ErrorAction = 'Stop'; TimeoutSec = $connection.TimeoutSec }
+            if ($resolvedGitHubHost.IsEnterprise) { $modelRequest.MaximumRedirection = 0 }
             $r = Invoke-ShpWithRetry -ArgumentList $modelRequest -ScriptBlock { param($p) Invoke-WebRequest @p } -MaxRetryCount $connection.MaxRetryCount -RetryDelaySec $connection.RetryDelaySec -NetworkOutageToleranceSec $connection.NetworkOutageToleranceSec
             $j = $r.Content | ConvertFrom-Json
             $items = if ($j.data) { $j.data } elseif ($j.models) { $j.models } else { @() }

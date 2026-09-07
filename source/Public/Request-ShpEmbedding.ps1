@@ -18,6 +18,11 @@ function Request-ShpEmbedding {
     .PARAMETER Model
         The embedding model id to use. Defaults to text-embedding-3-small.
 
+    .PARAMETER GitHubHost
+        HTTPS GitHub.com or Enterprise Cloud GHE.com authentication origin.
+        Explicit value wins over Session context and SHELLPILOT_GITHUB_HOST.
+        The service-returned API endpoint is preserved for the embedding request.
+
     .PARAMETER TokenPath
         Path to an OAuth token file to authenticate with. Omit it to resolve the
         token by the module's precedence: the session context
@@ -85,6 +90,9 @@ function Request-ShpEmbedding {
         [AllowEmptyString()]
         [string]$TokenPath,
 
+        [AllowEmptyString()]
+        [string]$GitHubHost,
+
         [string]$EditorVersion = $script:DefaultEditorVersion,
         [string]$PluginVersion = $script:DefaultPluginVersion,
         [string]$UserAgent     = $script:DefaultUserAgent,
@@ -118,7 +126,10 @@ function Request-ShpEmbedding {
         }
         $connection = Resolve-ShpConnectionOption @connectionParams
 
-        $session = Get-ShpSessionToken -TokenPath $TokenPath -EditorVersion $EditorVersion -UserAgent $UserAgent @connectionParams
+        $hostParameters = @{}
+        if ($PSBoundParameters.ContainsKey('GitHubHost')) { $hostParameters.GitHubHost = $GitHubHost }
+        $resolvedGitHubHost = Resolve-ShpGitHubHost @hostParameters
+        $session = Get-ShpSessionToken -TokenPath $TokenPath -EditorVersion $EditorVersion -UserAgent $UserAgent -GitHubHost $resolvedGitHubHost.Host @connectionParams
         $apiBase = if ($script:ShpContext.ApiBase) { $script:ShpContext.ApiBase } else { $session.endpoints.api }
         $bearer  = if ($script:ShpContext.ApiBase -and $script:ShpContext.ApiKey) { $script:ShpContext.ApiKey } else { $session.token }
 

@@ -93,6 +93,44 @@ environment variable, then the cached token file. A `SHELLPILOT_GITHUB_TOKEN`
 that is set but empty is rejected rather than skipped - see
 [specs/023-non-interactive-token.md](specs/023-non-interactive-token.md).
 
+### Enterprise Cloud host
+
+For a managed account on GHE.com, select the enterprise origin explicitly:
+
+```powershell
+Set-ShpContext -GitHubHost 'https://octocorp.ghe.com'
+$enterpriseTokenPath = Join-Path $HOME '.shellpilot-octocorp-token'
+Initialize-Shp -TokenPath $enterpriseTokenPath
+Get-ShpModel -TokenPath $enterpriseTokenPath
+```
+
+Resolution is explicit `-GitHubHost`, Session context, `SHELLPILOT_GITHUB_HOST`,
+then `https://github.com`. A set-but-empty source is refused, not skipped. Use
+the same host and matching credential on later calls. Host overrides are
+supported by sign-in, model listing, prompts, batches, embeddings, and readiness;
+jobs replay the Session context. `Test-ShpCiReadiness` reports `GitHubHost` and
+`GitHubHostSource` without a network request.
+
+Only HTTPS GitHub.com and a single enterprise subdomain of GHE.com are accepted.
+Userinfo, custom ports, paths, query strings, and fragments are refused without
+echoing their contents. This is Enterprise Cloud routing, not GitHub Enterprise
+Server support. See [GitHub's GHE.com sign-in guidance][ghe-signin].
+
+Device-code requests use the selected origin; Session-token exchange uses
+`https://api.<enterprise>.ghe.com`. Session-token cache entries are host-specific.
+For GHE.com, model selection uses the per-account endpoint returned by the
+service and refuses the request if that endpoint is absent. It never guesses
+an enterprise endpoint or falls back to GitHub.com. Default GitHub.com routes are
+unchanged. Enterprise authentication and model requests refuse HTTP redirects.
+
+Host selection does not bind an existing token file to a tenant or prove its
+entitlement. Use separate caller-named token files when switching accounts;
+the token envelope format is unchanged. The CI backend gate remains active.
+The bounded child provider retains its existing GitHub.com allowlist and
+refuses enterprise authentication; `RequestTransport` remains credentialless.
+
+[ghe-signin]: https://docs.github.com/en/enterprise-cloud@latest/copilot/how-tos/configure-personal-settings/authenticate-to-ghecom
+
 ## Quick start
 
 ```powershell

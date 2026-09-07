@@ -36,6 +36,12 @@ function Get-ShpSessionToken {
     .PARAMETER EditorVersion
         Editor-Version header value sent with the request.
 
+    .PARAMETER GitHubHost
+        Explicit HTTPS GitHub.com or Enterprise Cloud GHE.com authentication
+        origin. Overrides Session context and SHELLPILOT_GITHUB_HOST. The host
+        partitions Session-token cache entries. Bounded RequestSender callers
+        retain their GitHub.com-only transport contract and refuse an override.
+
     .PARAMETER UserAgent
         User-Agent header value sent with the request.
 
@@ -100,6 +106,9 @@ function Get-ShpSessionToken {
         [AllowEmptyString()]
         [string]$TokenPath,
 
+        [AllowEmptyString()]
+        [string]$GitHubHost,
+
         [string]$EditorVersion = $script:DefaultEditorVersion,
         [string]$UserAgent     = $script:DefaultUserAgent,
 
@@ -118,13 +127,19 @@ function Get-ShpSessionToken {
         [switch]$Force,
         [scriptblock]$RequestSender
     )
+    $hostParameters = @{}
+    if ($PSBoundParameters.ContainsKey('GitHubHost')) { $hostParameters.GitHubHost = $GitHubHost }
+    $resolvedGitHubHost = Resolve-ShpGitHubHost @hostParameters
+    if ($RequestSender -and $resolvedGitHubHost.IsEnterprise) {
+        throw 'The bounded RequestSender supports only the default GitHub host.'
+    }
     $ghToken = (Resolve-ShpOAuthToken -TokenPath $TokenPath).Token
 
     # Cache key: a SHA-256 hash of the OAuth token plus the Editor-Version. Both
     # influence the issued session token, and hashing keeps the raw OAuth secret
     # out of the cache keys. A re-auth writes a different OAuth token, so the key
     # changes automatically (and Initialize-Shp also clears the cache outright).
-    $keyBytes = [System.Text.Encoding]::UTF8.GetBytes(('{0}|{1}' -f $ghToken, $EditorVersion))
+    $keyBytes = [System.Text.Encoding]::UTF8.GetBytes(('{0}|{1}|{2}' -f $ghToken, $EditorVersion, $resolvedGitHubHost.Host))
     $sha256 = [System.Security.Cryptography.SHA256]::Create()
     try {
         $cacheKey = [System.BitConverter]::ToString($sha256.ComputeHash($keyBytes))
@@ -152,7 +167,7 @@ function Get-ShpSessionToken {
         'Editor-Version' = $EditorVersion
         'User-Agent'     = $UserAgent
     }
-    $tokenUri = 'https://api.github.com/copilot_internal/v2/token'
+    $tokenUri = $resolvedGitHubHost.ApiBase + '/copilot_internal/v2/token'
     $connectionParams = @{}
     foreach ($name in 'TimeoutSec', 'MaxRetryCount', 'RetryDelaySec', 'NetworkOutageToleranceSec') {
         if ($PSBoundParameters.ContainsKey($name)) { $connectionParams[$name] = $PSBoundParameters[$name] }
@@ -160,6 +175,7 @@ function Get-ShpSessionToken {
     $connection = Resolve-ShpConnectionOption @connectionParams
     try {
         $restRequest = @{ Uri = $tokenUri; Headers = $tokenHeaders; TimeoutSec = $connection.TimeoutSec }
+        if ($resolvedGitHubHost.IsEnterprise) { $restRequest.MaximumRedirection = 0 }
         $session = if ($RequestSender) {
             $boundedResponse = & $RequestSender $restRequest
             $boundedResponse.Content | ConvertFrom-Json

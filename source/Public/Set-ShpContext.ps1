@@ -80,6 +80,12 @@ function Set-ShpContext {
         it wins over $env:SHELLPILOT_GITHUB_TOKEN and the default token file.
         Masked as *** by Get-ShpContext and by -PassThru.
 
+    .PARAMETER GitHubHost
+        HTTPS GitHub.com or Enterprise Cloud GHE.com authentication origin for
+        subsequent API calls. Overrides SHELLPILOT_GITHUB_HOST, but not an
+        explicit per-call host. Invalid or empty origins are refused before
+        changing context. Changing hosts clears host-dependent model caches.
+
     .PARAMETER PassThru
         Return the updated context object after setting it.
 
@@ -137,9 +143,13 @@ function Set-ShpContext {
         [ValidatePattern('\S', ErrorMessage = 'The GitHub token must not be empty or whitespace.')]
         [string]$GitHubToken,
 
+        [AllowEmptyString()]
+        [string]$GitHubHost,
+
         [switch]$PassThru
     )
 
+    $resolvedGitHubHost = if ($PSBoundParameters.ContainsKey('GitHubHost')) { Resolve-ShpGitHubHost -GitHubHost $GitHubHost }
     if (-not $PSCmdlet.ShouldProcess('ShellPilot session context', 'Set')) { return }
 
     if ($PSBoundParameters.ContainsKey('TimeoutSec'))    { $script:ShpContext.TimeoutSec    = $TimeoutSec }
@@ -150,6 +160,14 @@ function Set-ShpContext {
     if ($PSBoundParameters.ContainsKey('ApiBase'))       { $script:ShpContext.ApiBase       = $ApiBase }
     if ($PSBoundParameters.ContainsKey('ApiKey'))        { $script:ShpContext.ApiKey        = $ApiKey }
     if ($PSBoundParameters.ContainsKey('GitHubToken'))   { $script:ShpContext.GitHubToken   = $GitHubToken }
+    if ($PSBoundParameters.ContainsKey('GitHubHost')) {
+        if ($script:ShpContext.GitHubHost -ne $resolvedGitHubHost.Host) {
+            $script:ShpModelLimitCache = $null
+            $script:ModelNameCache = $null
+            $script:ShpUnknownLimitModelWarned.Clear()
+        }
+        $script:ShpContext.GitHubHost = $resolvedGitHubHost.Host
+    }
 
     if ($PassThru) {
         [pscustomobject]@{
@@ -161,6 +179,7 @@ function Set-ShpContext {
             ApiBase                   = $script:ShpContext.ApiBase
             ApiKey                    = if ($script:ShpContext.ApiKey) { '***' } else { $null }
             GitHubToken               = if ($script:ShpContext.GitHubToken) { '***' } else { $null }
+            GitHubHost                = $script:ShpContext.GitHubHost
         }
     }
 }

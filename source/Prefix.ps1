@@ -109,6 +109,7 @@ $script:ShpContext = @{
     ApiBase                   = $null
     ApiKey                    = $null
     GitHubToken               = $null
+    GitHubHost                = $null
 }
 
 # Built-in fallbacks for the HTTP retry behaviour, used when neither an explicit

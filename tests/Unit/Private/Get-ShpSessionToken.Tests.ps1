@@ -3,6 +3,8 @@ BeforeAll {
 
     Remove-Module -Name $script:moduleName -Force -ErrorAction SilentlyContinue
     Import-Module -Name $script:moduleName -Force -ErrorAction Stop
+    $script:savedGitHubHost = [Environment]::GetEnvironmentVariable('SHELLPILOT_GITHUB_HOST')
+    Remove-Item -LiteralPath 'Env:SHELLPILOT_GITHUB_HOST' -ErrorAction SilentlyContinue
 
     # The token seam reads a process-wide environment variable, so a value
     # already set on the machine would decide these tests instead of the test.
@@ -11,6 +13,11 @@ BeforeAll {
 }
 
 AfterAll {
+    if ($null -eq $script:savedGitHubHost) {
+        Remove-Item -LiteralPath 'Env:SHELLPILOT_GITHUB_HOST' -ErrorAction SilentlyContinue
+    } else {
+        $env:SHELLPILOT_GITHUB_HOST = $script:savedGitHubHost
+    }
     if ($null -ne $script:savedEnvToken) {
         $env:SHELLPILOT_GITHUB_TOKEN = $script:savedEnvToken
     } else {
@@ -65,6 +72,34 @@ Describe 'Get-ShpSessionToken' {
 
     Context 'Connection options' {
         AfterEach { InModuleScope $script:moduleName { Clear-ShpContext; $script:ShpSessionTokenCache = @{} } }
+
+        It 'Partitions cached Session tokens by the resolved GitHub host' {
+            InModuleScope $script:moduleName {
+                Mock Resolve-ShpOAuthToken { @{ Token = 'fixture-oauth'; Source = 'SessionContext' } }
+                Mock Invoke-ShpWithRetry {
+                    [pscustomobject]@{
+                        token = 'fixture-session'
+                        expires_at = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() + 3600
+                        endpoints = @{ api = 'https://returned.service.example' }
+                    }
+                }
+                $null = Get-ShpSessionToken -GitHubHost 'https://one.ghe.com'
+                $null = Get-ShpSessionToken -GitHubHost 'https://two.ghe.com'
+                $null = Get-ShpSessionToken -GitHubHost 'https://one.ghe.com'
+                Should -Invoke Invoke-ShpWithRetry -Times 2 -Exactly
+                Should -Invoke Invoke-ShpWithRetry -Times 1 -Exactly -ParameterFilter { $ArgumentList[0].Uri -eq 'https://api.one.ghe.com/copilot_internal/v2/token' }
+                Should -Invoke Invoke-ShpWithRetry -Times 1 -Exactly -ParameterFilter { $ArgumentList[0].Uri -eq 'https://api.two.ghe.com/copilot_internal/v2/token' }
+            }
+        }
+
+        It 'Rejects enterprise routing for the bounded RequestSender before reading credentials' {
+            InModuleScope $script:moduleName {
+                Mock Resolve-ShpOAuthToken { throw 'Credential lookup must not happen.' }
+                { Get-ShpSessionToken -GitHubHost 'https://tenant.ghe.com' -RequestSender { throw 'Sender must not run.' } } |
+                    Should -Throw '*bounded*GitHub*'
+                Should -Invoke Resolve-ShpOAuthToken -Times 0 -Exactly
+            }
+        }
 
         It 'Applies the session context to the token exchange' {
             $tokenFile = Join-Path $TestDrive 'ctx.token'
