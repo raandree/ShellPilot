@@ -86,6 +86,11 @@ transport remains GitHub.com-only; no enterprise entitlement is live-verified.
   Pester 5, GitVersion, PSScriptAnalyzer), bootstrapped by build.ps1 into
   output/RequiredModules. Sampler is pinned to 0.120.0; ModuleBuilder pulls in
   Configuration and Metadata.
+- GitHub Actions tests current and native PowerShell 7.4.19 on Windows, Linux,
+  and macOS. Minimum-runtime jobs select an official archive by runner OS and
+  architecture, verify its SHA-256, and check the native parent/child runtime.
+  Do not use the .NET-tool package for these jobs: fixtures relaunch ProcessPath,
+  which can be `dotnet` rather than `pwsh` under that package.
 
 ## Constraints and risks
 

@@ -408,6 +408,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Restore minimum-runtime CI child-process tests with checksum-verified native
+  PowerShell 7.4.19 archives, and keep packaged-license checks exact across
+  Windows and Linux by checking out the root license with LF line endings.
+  See [CI run 34147749896](https://github.com/raandree/ShellPilot/actions/runs/34147749896).
+
 - Keep explicit enterprise model lookups from replacing shared session limits,
   and ignore cached model limits tagged for a different GitHub host.
 

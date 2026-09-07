@@ -70,6 +70,11 @@ See [technical context](techContext.md) for services, authentication, and gates.
 - To test a present-but-empty environment variable across runtimes, supply it
   through a child `ProcessStartInfo.Environment` and assert presence first.
   Assigning `''` through the 7.4 environment provider removes the variable.
+- CI child-process fixtures require a native `pwsh` host. Use an OS/architecture
+  release archive, verify its SHA-256, and check the parent/child runtime.
+  A .NET-tool installation can expose `dotnet` as ProcessPath instead.
+- Pin the root license to LF so Linux build artifacts and Windows checkouts
+  retain exact content equality; do not loosen the packaged-license assertion.
 - Release facts come from current source and service evidence. A local license,
   fix, or package does not change already-published artifacts. Never infer
   entitlement or external-service outcomes from a passing mock.

@@ -11,10 +11,10 @@ source: repository, retained test log, and release APIs
 
 ShellPilot is a Sampler-built PowerShell module with 35 public commands,
 Pester and QA gates, and GitHub Actions packaging and cross-platform tests.
-The current preview requires PowerShell 7.4 or later. F9 work is on
-`ai/deferred-tool-loading` from verified local `main` at `640769b`.
+The current preview requires PowerShell 7.4 or later. CI repair work is on
+`ai/fix-ci-matrix` from `619e99f`; F9 was already merged into `main`.
 Prior release evidence remains in [release readiness](deployment-notes.md);
-this feature work does not publish or change a remote.
+this repair does not publish or change a remote.
 
 Patterns 002-028 and 030-031 are implemented, including MCP stdio, Tool policy,
 egress redaction, the CI profile, the Event stream, the Job model, and host
@@ -26,8 +26,8 @@ Copilot content exclusions, and enterprise MCP allowlists are not provided.
 
 - Measure F14 with an already configured in-memory token; no token means
   explicitly blocked, without blocking the other work.
-- Authorize and run the new six-job hosted current/7.4 OS matrix before a push
-  or stable release. Decide and explicitly authorize stable `0.4.0` publication.
+- Push the validated CI repair when authorized and confirm all six hosted
+  jobs pass. Stable `0.4.0` publication still needs explicit approval.
 - F9 is complete locally; no other tranche-two implementation is authorized.
 - MCP follow-ups, hooks, session resume, and subagents remain separate scope.
   Decision 002 permits state split by sensitivity; it is not proof that every
@@ -35,6 +35,12 @@ Copilot content exclusions, and enterprise MCP allowlists are not provided.
 
 ## Recent milestones
 
+- 2026-09-07 - Repair CI run 34147749896 with native, checksum-verified
+  PowerShell 7.4.19 archives and LF license checkouts. Retain exact assertions.
+  Clean clones reuse the original CI artifact: Windows 7.6.5 and 7.4.19 each
+  pass 2,120 tests, zero failures, three existing skips, 90.56% coverage, and
+  nine clean tasks. Runtime guard and license probes go red to green.
+  Native archive mappings pass; hosted Linux/macOS rerun awaits an allowed push.
 - 2026-09-07 - Implement separately authorized F9 opt-in User/MCP schema loading.
   Full current/7.4 gates: 2,120 passed, zero failed, three existing Unix skips,
   90.56% coverage, nine clean tasks each. Initial synthetic Tools: 61 to 1;
@@ -143,9 +149,6 @@ Copilot content exclusions, and enterprise MCP allowlists are not provided.
   7.4 execution was not proven by the hosted 7.6.x runtimes.
 - 2026-09-06 - F1 and the offered-set dispatch guard consolidated on `main`.
   `glob_files` and `grep_files` allow policy-scoped search without `Shell()`.
-- 2026-09-05 - Decision 002 accepted the two-tier disk-state rule: non-content
-  may use a default location; content requires a caller-named path and redaction
-  on write. Snapshot caching was closed, not scheduled.
 
 ## History
 

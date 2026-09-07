@@ -119,19 +119,42 @@ jobs:
           name: ${{ env.buildArtifactName }}
           path: output/
 
-      - name: Install .NET 8 for minimum PowerShell
-        if: matrix.powershell == '7.4'
-        uses: actions/setup-dotnet@v5
-        with:
-          dotnet-version: '8.0.x'
-
       - name: Install minimum PowerShell
         if: matrix.powershell == '7.4'
         shell: pwsh
         run: |
+          $version = '7.4.19'
+          $architecture = $env:RUNNER_ARCH.ToLowerInvariant()
+          if ($architecture -notin @('x64', 'arm64')) {
+            throw "Unsupported runner architecture: $architecture"
+          }
+          $archiveName = switch ($env:RUNNER_OS) {
+            'Windows' { "PowerShell-$version-win-$architecture.zip" }
+            'Linux' { "powershell-$version-linux-$architecture.tar.gz" }
+            'macOS' { "powershell-$version-osx-$architecture.tar.gz" }
+            default { throw "Unsupported runner OS: $env:RUNNER_OS" }
+          }
+          $release = Invoke-RestMethod -Uri "https://api.github.com/repos/PowerShell/PowerShell/releases/tags/v$version" -ErrorAction Stop
+          $asset = @($release.assets | Where-Object name -CEQ $archiveName)
+          if ($asset.Count -ne 1 -or $asset[0].digest -cnotmatch '^sha256:[a-f0-9]{64}$') {
+            throw "No verified release asset found for $archiveName."
+          }
+          $archivePath = Join-Path $env:RUNNER_TEMP $archiveName
+          Invoke-WebRequest -Uri "https://github.com/PowerShell/PowerShell/releases/download/v$version/$archiveName" -OutFile $archivePath -ErrorAction Stop
+          $actualDigest = 'sha256:' + (Get-FileHash -LiteralPath $archivePath -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($actualDigest -cne $asset[0].digest) {
+            throw "Checksum mismatch for $archiveName."
+          }
           $installPath = Join-Path $env:RUNNER_TEMP 'powershell-minimum'
-          dotnet tool install PowerShell --version '7.4.*' --tool-path $installPath
-          if ($LASTEXITCODE -ne 0) { throw 'PowerShell 7.4 installation failed.' }
+          New-Item -Path $installPath -ItemType Directory -Force | Out-Null
+          if ($env:RUNNER_OS -eq 'Windows') {
+            Expand-Archive -LiteralPath $archivePath -DestinationPath $installPath -Force
+          } else {
+            tar -xzf $archivePath -C $installPath
+            if ($LASTEXITCODE -ne 0) { throw 'PowerShell archive extraction failed.' }
+            chmod +x (Join-Path $installPath 'pwsh')
+            if ($LASTEXITCODE -ne 0) { throw 'PowerShell executable permissions could not be set.' }
+          }
           $installPath | Out-File -LiteralPath $env:GITHUB_PATH -Append -Encoding utf8
 
       - name: Run Tests
@@ -144,6 +167,17 @@ jobs:
               throw "Expected PowerShell 7.4, got $($PSVersionTable.PSVersion)."
           }
           $PSVersionTable.PSVersion.ToString()
+          if ($env:TEST_POWERSHELL -eq '7.4') {
+            $runtimeExecutable = [Environment]::ProcessPath
+            if ([IO.Path]::GetFileNameWithoutExtension($runtimeExecutable) -ne 'pwsh') {
+              throw "Expected a native PowerShell executable, got $runtimeExecutable."
+            }
+            $childVersion = & $runtimeExecutable -NoProfile -NonInteractive -Command '$PSVersionTable.PSVersion.ToString()'
+            if ($LASTEXITCODE -ne 0 -or $childVersion -ne $PSVersionTable.PSVersion.ToString()) {
+              throw 'The child PowerShell runtime does not match the test runtime.'
+            }
+            Write-Output "Validated native PowerShell parent/child version: $childVersion"
+          }
           ./build.ps1 -AutoRestore -Tasks test
 
       - name: Publish Test Results
