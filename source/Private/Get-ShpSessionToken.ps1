@@ -43,6 +43,10 @@ function Get-ShpSessionToken {
         Bypass the session-token cache and exchange a fresh token even when a
         still-valid one is cached. The refreshed response replaces the cache.
 
+    .PARAMETER RequestSender
+        Trusted bounded initialization sender. Bypasses shared cache and retry
+        handling; never stores its returned Session token in shared state.
+
     .PARAMETER TimeoutSec
         Per-request HTTP timeout in seconds for the token exchange. Falls back to
         the session context (Set-ShpContext) and then to the built-in default of
@@ -111,7 +115,8 @@ function Get-ShpSessionToken {
         [ValidateRange(0, [int]::MaxValue)]
         [int]$NetworkOutageToleranceSec,
 
-        [switch]$Force
+        [switch]$Force,
+        [scriptblock]$RequestSender
     )
     $ghToken = (Resolve-ShpOAuthToken -TokenPath $TokenPath).Token
 
@@ -131,7 +136,7 @@ function Get-ShpSessionToken {
     # response carries expires_at (unix seconds); reuse it while more than the
     # safety margin remains so repeated Turns skip the token round-trip. Guard
     # against a null or partial cache entry (missing token/expires_at).
-    if (-not $Force -and $script:ShpSessionTokenCache.ContainsKey($cacheKey)) {
+    if (-not $RequestSender -and -not $Force -and $script:ShpSessionTokenCache.ContainsKey($cacheKey)) {
         $cached = $script:ShpSessionTokenCache[$cacheKey]
         if ($cached -and $cached.token -and $null -ne $cached.expires_at) {
             $remainingSec = [int64]$cached.expires_at - [System.DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
@@ -155,10 +160,16 @@ function Get-ShpSessionToken {
     $connection = Resolve-ShpConnectionOption @connectionParams
     try {
         $restRequest = @{ Uri = $tokenUri; Headers = $tokenHeaders; TimeoutSec = $connection.TimeoutSec }
-        $session = Invoke-ShpWithRetry -ArgumentList $restRequest -ScriptBlock { param($p) Invoke-RestMethod @p } -MaxRetryCount $connection.MaxRetryCount -RetryDelaySec $connection.RetryDelaySec -NetworkOutageToleranceSec $connection.NetworkOutageToleranceSec
+        $session = if ($RequestSender) {
+            $boundedResponse = & $RequestSender $restRequest
+            $boundedResponse.Content | ConvertFrom-Json
+        } else {
+            Invoke-ShpWithRetry -ArgumentList $restRequest -ScriptBlock { param($p) Invoke-RestMethod @p } -MaxRetryCount $connection.MaxRetryCount -RetryDelaySec $connection.RetryDelaySec -NetworkOutageToleranceSec $connection.NetworkOutageToleranceSec
+        }
     } catch {
+        if ($RequestSender) { throw 'Bounded Engine authentication failed.' }
         throw "Session token exchange failed: $($_.Exception.Message)"
     }
-    $script:ShpSessionTokenCache[$cacheKey] = $session
+    if (-not $RequestSender) { $script:ShpSessionTokenCache[$cacheKey] = $session }
     return $session
 }

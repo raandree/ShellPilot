@@ -144,6 +144,7 @@ function Add-ShpUsageRecord {
     if ($RequestBudget) {
         $record | Add-Member -NotePropertyName UsageKnown -NotePropertyValue (-not $unknownUsage)
         $record | Add-Member -NotePropertyName RequestAdmission -NotePropertyValue ([pscustomobject]@{
+            BudgetMode = $RequestBudget.BudgetMode
             RequestCount = $RequestBudget.RequestCount
             UnknownUsageRequestCount = $RequestBudget.UnknownUsageRequestCount
             ReservedTokens = $RequestBudget.ReservedTokens

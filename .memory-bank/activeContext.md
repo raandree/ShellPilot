@@ -4,6 +4,36 @@ Current working focus for ShellPilot. Overwrite this file as the focus shifts.
 
 ## Focus
 
+The operator later approved DeskPilot single-child V3 with explicit
+`provider-estimate` budgets (DeskPilot decision 0010). That approval supersedes
+the earlier V2-only close-out only for the new opt-in profile. Current V3
+work is complete on `ai/child-provider-boundary`; local close-out is recorded
+in Git, with no push or publication. Strict/default behavior is retained.
+Implemented: explicit estimated mode, shared non-refundable reconciliation,
+complete supported Chat-to-Messages counting, bounded no-retry HTTP, per-run
+trusted provider context, pre-generation Host Server re-admission, and a
+secret-free Usage projection. Final full Sampler: 1,915 passed, zero failures,
+skips or unrun, 89.2% coverage, 16 tasks without errors/warnings, completed
+2026-09-07 01:05:31 UTC. Log under TEMP:
+`v3-full-engine-final-b20dc432c10a47f1a34805d1e5d9d1e7.log`.
+
+DeskPilot's final full gate passed 2,454 tests with five existing browser skips.
+Joint independent review's Host-side credential-key Major/Minor were repaired
+and independently rechecked; its final full/live approval conditions are met.
+No Engine findings remain. Source-bound reports and ledger are under
+`TEMP/deskpilot-v3-review-20260907`.
+
+The final authenticated built Host Server proof passed at 02:00:15 UTC: two
+initialization/count/generation attempts each, 1,601 input plus 87 output tokens,
+USD 0.002036, and 1,857 reserved tokens/USD 0.00328125. Private File read,
+unchanged Project, and independent cleanup passed. Evidence is under
+`TEMP/deskpilot-v3-live-0f4a8933488f469eb7baa3e5103c8283`. Local built-profile
+readiness is proven, but child execution remains disabled. This is not a
+published Engine; clean-install distribution needs separate authorization.
+Preserve the original Engine worktree and its unrelated edits.
+
+The following admission-only close-out is historical context:
+
 Conditional host request admission is implemented on `ai/child-provider-boundary` in
 the separate `D:/Git/ShellPilot-child-isolation` worktree, based on `3446e32`.
 The DeskPilot operator approved tracked Engine changes on 2026-09-06, including

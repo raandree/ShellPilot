@@ -3,8 +3,10 @@ function Add-ShpRequestReservation {
     .SYNOPSIS
         Reserves a complete counted request before provider dispatch.
     .DESCRIPTION
-        A trusted counter must bind an exact count or verified upper bound to
-        this request. Estimates and incomplete or stale results fail closed.
+        A trusted counter must bind a count to this request. Verified mode
+        accepts only exact counts or upper bounds. Explicit provider-estimate
+        mode accepts estimates without claiming guaranteed consumption limits.
+        Incomplete or stale results fail closed in either mode.
         Reservations are never released during the invocation, including when
         transport fails or Usage is unknown. This does not verify a counter's
         provider-specific implementation or create process containment.
@@ -50,12 +52,13 @@ function Add-ShpRequestReservation {
             if (-not $count -or $count.$field -isnot [string]) { $scalarMetadata = $false }
         }
         $integer = $count -and ($count.InputTokens -is [int] -or $count.InputTokens -is [long])
+        $allowedKinds = if ($Budget.BudgetMode -eq 'provider-estimate') { @('estimated') } else { @('exact', 'upper-bound') }
         if (-not $scalarMetadata -or -not $integer -or $count.InputTokens -lt 0 -or $count.InputTokens -gt [int]::MaxValue -or
             $count.RequestId -cne $Request.RequestId -or $count.RequestDigest -cne $Request.RequestDigest -or
             $count.Model -cne $Request.Model -or $count.Mode -cne $Request.Mode -or
-            $count.Scope -cne 'complete-request' -or $count.Kind -cnotin @('exact', 'upper-bound') -or
+            $count.Scope -cne 'complete-request' -or $count.Kind -cnotin $allowedKinds -or
             $count.Source -cnotmatch '^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,127}$') {
-            $PSCmdlet.ThrowTerminatingError((New-ShpRequestAdmissionError -Code 'ShpRequestCountUnavailable' -Message 'A verified complete-request count bound to this request is unavailable.' -Budget $Budget))
+            $PSCmdlet.ThrowTerminatingError((New-ShpRequestAdmissionError -Code 'ShpRequestCountUnavailable' -Message 'A complete-request count matching the authorized budget mode and request is unavailable.' -Budget $Budget))
         }
 
         $inputTokens = [long]$count.InputTokens
@@ -105,6 +108,7 @@ function Add-ShpRequestReservation {
         [pscustomobject]@{
             RequestId = $Request.RequestId
             Model = $Request.Model
+            Mode = $Request.Mode
             InputTokens = $inputTokens
             OutputTokens = [long]$Request.MaxOutputTokens
             ReservedCostUSD = $reservedCost

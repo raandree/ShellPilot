@@ -92,6 +92,22 @@ not establish process containment or a provider-specific complete-request
 count. No verified Copilot counter ships with the mechanism; fixture counts and
 callback declarations are not evidence of hard provider limits.
 
+### Explicit estimates retain hard local admission
+
+`RequestBudgetMode provider-estimate` is separate from the default verified
+contract. Hosted counts remain estimated; reserve input plus maximum output
+against a frozen Price table and reconcile upward without refunds. Unknown
+Usage retains reservations and ends continuation. The trusted child provider
+owns credentials, approved routes, byte/attempt limits, and fresh host admission
+after counting; the credentialless Tool-calling loop owns none of that policy.
+
+Supported Chat API Tool results can carry `name`. Require it to match the
+preceding call id and preserve its meaning in the Messages counting shape.
+Parse provider Usage structurally before numeric casts; duplicate keys,
+strings, fractions, and booleans must not become valid token totals. Missing
+pricing refuses before authentication. None of these controls guarantees a
+provider invoice cap or supplies containment without the host runtime.
+
 ### Dual API abstraction
 
 Invoke-CopilotTurn hides the difference between the chat/completions and

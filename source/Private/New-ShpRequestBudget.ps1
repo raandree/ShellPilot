@@ -9,6 +9,8 @@ function New-ShpRequestBudget {
         Maximum input tokens per request, cumulative tokens, and Engine-priced USD.
     .PARAMETER Model
         Exact model identity whose Engine price-table entry is frozen.
+    .PARAMETER BudgetMode
+        Verified counts by default, or explicitly authorized provider estimates.
     .EXAMPLE
         New-ShpRequestBudget -Limits @{ MaxInputTokens = 16384; MaxTotalTokens = 32768; MaxCostUSD = 0.25 } -Model 'gpt-4.1'
 
@@ -23,7 +25,9 @@ function New-ShpRequestBudget {
         [Parameter(Mandatory)]
         [hashtable]$Limits,
         [Parameter(Mandatory)]
-        [string]$Model
+        [string]$Model,
+        [ValidateSet('verified', 'provider-estimate')]
+        [string]$BudgetMode = 'verified'
     )
 
     $valid = $Limits.Count -eq 3
@@ -50,6 +54,7 @@ function New-ShpRequestBudget {
     } else { $null }
     @{
         Model = $Model
+        BudgetMode = $BudgetMode
         MaxInputTokens = [long]$Limits.MaxInputTokens
         MaxTotalTokens = [long]$Limits.MaxTotalTokens
         MaxCostUSD = $maximumCost
@@ -59,6 +64,7 @@ function New-ShpRequestBudget {
         ReservedTokens = [long]0
         ReservedCostUSD = [decimal]0
         RequestIds = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+        CompletedIds = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
         CountSources = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
         SyncRoot = [object]::new()
     }

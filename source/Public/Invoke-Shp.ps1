@@ -552,6 +552,14 @@ function Invoke-Shp {
         The host must verify its provider-specific framing and counting contract;
         a declaration or deterministic fixture alone is not that evidence.
 
+    .PARAMETER RequestBudgetMode
+        Admission uses verified counts by default. Explicit provider-estimate
+        mode requires RequestLimits and a counter returning Kind estimated.
+        Token and Engine-priced cost budgets then govern estimates, not a
+        guaranteed provider charge. Reported consumption can only increase a
+        reservation. An overrun or unknown Usage stops before further Tool or
+        provider dispatch. Strict invocation behavior remains unchanged.
+
     .PARAMETER RetryDelaySec
         Base delay in seconds for the exponential backoff between retries
         (attempt n waits RetryDelaySec * 2^(n-1) seconds, with equal jitter
@@ -946,6 +954,9 @@ function Invoke-Shp {
         [ValidateNotNull()]
         [scriptblock]$RequestTokenCounter,
 
+        [ValidateSet('verified', 'provider-estimate')]
+        [string]$RequestBudgetMode = 'verified',
+
         [ValidateRange(0, [int]::MaxValue)]
         [int]$RetryDelaySec,
 
@@ -979,7 +990,7 @@ function Invoke-Shp {
     if ($boundedRequests -and -not $PSBoundParameters.ContainsKey('RequestTokenCounter')) {
         $PSCmdlet.ThrowTerminatingError((New-ShpRequestAdmissionError -Code 'ShpRequestCountUnavailable' -Message 'A verified complete-request count is unavailable; hard request limits refuse dispatch.'))
     }
-    if (-not $boundedRequests -and $PSBoundParameters.ContainsKey('RequestTokenCounter')) {
+    if (-not $boundedRequests -and ($PSBoundParameters.ContainsKey('RequestTokenCounter') -or $PSBoundParameters.ContainsKey('RequestBudgetMode'))) {
         $PSCmdlet.ThrowTerminatingError((New-ShpRequestAdmissionError -Code 'ShpRequestLimitsRequired' -Message 'A request counter requires explicit request limits.'))
     }
 
@@ -997,7 +1008,7 @@ function Invoke-Shp {
     }
 
     if ($boundedRequests) {
-        $requestBudget = New-ShpRequestBudget -Limits $RequestLimits -Model $Model
+        $requestBudget = New-ShpRequestBudget -Limits $RequestLimits -Model $Model -BudgetMode $RequestBudgetMode
     }
 
     # Normalise -FailOn once. An unbound [string[]] is $null and @($null) is a
@@ -1895,27 +1906,26 @@ function Invoke-Shp {
                 }
                 $turn = $transportResults[0]
                 if ($requestBudget) {
-                    $requestUsageKnown = $true
-                    $invalidUsage = $turn.ModelName -isnot [string] -or $turn.Mode -isnot [string] -or
-                        $turn.ModelName -cne $requestReservation.Model -or $turn.Mode -cne $requestCopy.Mode
-                    foreach ($field in 'PromptTokens', 'CompletionTokens', 'CachedTokens', 'CacheWriteTokens') {
-                        $value = $turn.$field
-                        if ($null -eq $value) {
-                            $requestUsageKnown = $false
-                        } elseif (($value -isnot [int] -and $value -isnot [long]) -or $value -lt 0 -or $value -gt [int]::MaxValue) {
-                            $invalidUsage = $true
-                        }
-                    }
-                    if (-not $invalidUsage) {
-                        $invalidUsage = ($null -ne $turn.PromptTokens -and $turn.PromptTokens -gt $requestReservation.InputTokens) -or
-                            ($null -ne $turn.CompletionTokens -and $turn.CompletionTokens -gt $requestReservation.OutputTokens) -or
-                            ($null -ne $turn.PromptTokens -and ([long]$turn.CachedTokens + [long]$turn.CacheWriteTokens) -gt $turn.PromptTokens)
-                    }
-                    if ($invalidUsage) {
+                    try {
+                        $completion = Complete-ShpRequestReservation -Budget $requestBudget -Reservation $requestReservation -Response $turn
+                    } catch {
                         $turn = $null
-                        throw (New-ShpRequestAdmissionError -Code 'ShpRequestUsageInvalid' -Message 'The transport report contradicts its reservation; further execution is refused and Usage is unknown.' -Budget $requestBudget)
+                        throw
                     }
-                    if ($requestUsageKnown) { $requestBudget.UnknownUsageRequestCount-- }
+                    $requestUsageKnown = $completion.UsageKnown
+                    if ($completion.FailureCode) {
+                        if ($requestUsageKnown) {
+                            $null = $roundTrips.Add([pscustomobject]@{
+                                PromptTokens = [int]$turn.PromptTokens
+                                CompletionTokens = [int]$turn.CompletionTokens
+                                CachedTokens = [int]$turn.CachedTokens
+                                CacheWriteTokens = [int]$turn.CacheWriteTokens
+                                UsageKnown = $true
+                            })
+                            $peakPromptTokens = [Math]::Max($peakPromptTokens, [int]$turn.PromptTokens)
+                        }
+                        throw (New-ShpRequestAdmissionError -Code $completion.FailureCode -Message 'The estimated provider budget overran or Usage is unknown; continuation is refused.' -Budget $requestBudget)
+                    }
                 }
             } else {
                 $turn = Invoke-CopilotTurn -Mode $mode -Model $Model -ApiBase $apiBase -Headers $apiHeaders -Conversation $conv -Tools $tls -RequestReasoningSummary:($mode -eq 'responses' -and $requestReasoning) -ReasoningEffort $ReasoningEffort -MaxOutputTokens $MaxOutputTokens -Stream:($streamingEnabled -and $mode -eq 'chat') -EchoReasoning:($ShowThinking -and $streamingEnabled -and $mode -eq 'chat') -OnReasoningChunk $onReasoningChunk -OnRetry $onRequestRetry -Store:($serverSideActive -and $mode -eq 'responses') -PreviousResponseId $previousResponseId @structuredParams @samplingParams @connectionParams
@@ -2516,6 +2526,7 @@ function Invoke-Shp {
 
     if ($requestBudget) {
         $result | Add-Member -NotePropertyName RequestAdmission -NotePropertyValue ([pscustomobject]@{
+            BudgetMode = $requestBudget.BudgetMode
             RequestCount = $requestBudget.RequestCount
             UnknownUsageRequestCount = $requestBudget.UnknownUsageRequestCount
             ReservedTokens = $requestBudget.ReservedTokens

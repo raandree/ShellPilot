@@ -1,10 +1,11 @@
-# Host request transport groundwork
+# Host request transport
 
 This specification describes optional host integration in `Invoke-Shp`.
 It provides conditional request admission, not a verified provider counter,
 process containment, or a complete child lifecycle. The existing default
 invocation path is unchanged. DeskPilot V2 remains blocked on a supported
-complete-request counting contract.
+complete-request counting contract. A distinct explicit estimated mode supports
+the accepted V3 profile without redefining strict counters.
 
 ## Explicit no-retry calls
 
@@ -138,6 +139,52 @@ automatic fallback from a refused child run.
 
 ## Verification and distribution
 
+### Explicit provider-estimate mode
+
+`Invoke-Shp -RequestBudgetMode provider-estimate` requires `RequestLimits` and
+owned transport. Only a counter labeled `estimated` is accepted in that mode.
+The default `verified` mode continues to require `exact` or `upper-bound`.
+Limits/pricing are frozen; input plus requested maximum output is reserved
+before dispatch. Reconciliation increases each charge to the larger of its
+reservation or reported consumption, without refund or early cost rounding.
+An underestimate may continue within all adjusted budgets. An overrun, missing
+Usage, output-cap violation, or malformed identity stops before further Tools.
+
+The trusted per-run provider helpers support only explicit `claude-haiku-4.5`,
+Chat generation, and hosted Messages counting. The converter represents all
+supported system text, messages, Tool schemas, calls, and results. Optional
+named Chat Tool results require exact preceding call-id/name correlation.
+Unsupported shapes fail; no fields are silently dropped and no heuristic
+fallback or seven-token correction is used. The hosted count remains estimated.
+
+`New-ShpChildProviderContext` owns fresh credentials/client state with redirects,
+cookies, default credentials, proxies, retries, and fallback disabled. It allows
+at most one authentication exchange and one Model discovery. Generation/count
+attempts, request/response bytes, output, and remaining duration are separately
+bounded. The fixed approved Copilot routes are validated before sending.
+`Invoke-ShpChildProviderRequest` binds both serialized shapes, reserves before
+generation, and calls trusted `BeforeGeneration` for a fresh Host Server
+decision. Missing pricing fails before authentication with a stable error.
+
+`Get-ShpChildProviderUsage` projects only allow-listed reported/partial Usage,
+reservations, and attempt counts, using frozen Engine pricing. It returns no
+credentials, provider headers, endpoint, prompt, or raw response. The owned
+response parser rejects duplicate JSON keys and non-integer/negative Usage
+before numeric casts; ordinary transport parsing remains unchanged.
+
+These private helpers are consumed only inside DeskPilot's trusted transport
+process, not registered as Tools. The host owns OS containment, per-action
+approval, complete-run cancellation and persistence. Neither provider counting
+nor local cancellation establishes a guaranteed invoice cap.
+
+On 2026-09-07 the complete DeskPilot candidate performed two hosted counts and
+two generations, a confined selected File read, 1,691 reported tokens, and
+USD 0.002051 Engine-priced Usage with verified cleanup. The actual named-result
+shape first failed locally and is retained as a regression. This live evidence
+is distinct from deterministic fixtures and from clean-install distribution.
+
+### Earlier strict-admission evidence
+
 Four new tests failed before the options existed, then passed. They exercise
 actual loop behavior with inert transport fixtures: no API-shape or 401 resend,
 zero retry options reaching authentication, and no credential/native HTTP calls
@@ -159,7 +206,7 @@ coverage finding was closed by two additional parameter-guard tests; the final
 public suite passed 38 tests. Production source was unchanged by that follow-up.
 
 Changes are tracked on local branch `ai/child-provider-boundary`. No package was
-published, no ignored dependency was patched, and no authenticated provider
-proof was run. On 2026-09-06 the DeskPilot operator chose to keep V2 unchanged
-and close out verified groundwork rather than replace its hard limits with
-estimates. This is not clean-install support for DeskPilot child Agents.
+published and no ignored dependency was patched. The earlier 2026-09-06
+strict-admission close-out kept V2 unchanged. The later accepted V3 amendment
+explicitly authorizes estimates only for its separate profile. A local Engine
+build and authenticated proof are not clean-install package availability.

@@ -113,6 +113,11 @@ function Invoke-CopilotTurn {
         outage (a failure that returns no HTTP response). Defaults to the module
         default (30).
 
+    .PARAMETER RequestSender
+        Trusted single-attempt sender for the non-streaming Chat shape. Receives
+        prepared request options and returns bounded Content and Headers.
+        The caller owns HTTP admission, cancellation, limits, and credentials.
+
     .EXAMPLE
         Invoke-CopilotTurn -Mode chat -Model claude-opus-4.7 -ApiBase $api -Headers $h -Conversation $messages
 
@@ -153,8 +158,13 @@ function Invoke-CopilotTurn {
         [int]$TimeoutSec = 0,
         [int]$MaxRetryCount = $script:DefaultMaxRetryCount,
         [int]$RetryDelaySec = $script:DefaultRetryDelaySec,
-        [int]$NetworkOutageToleranceSec = $script:DefaultNetworkOutageToleranceSec
+        [int]$NetworkOutageToleranceSec = $script:DefaultNetworkOutageToleranceSec,
+        [scriptblock]$RequestSender
     )
+
+    if ($RequestSender -and ($Mode -ne 'chat' -or $Stream)) {
+        throw 'An owned sender supports only non-streaming Chat requests.'
+    }
 
     # Sampling knobs share one omit-or-send rule across both shapes: the field
     # only reaches the payload when the caller bound the parameter, so 0 stays
@@ -268,7 +278,54 @@ function Invoke-CopilotTurn {
     # so 429/5xx and network-outage handling are unchanged.
     $reqOptions = @{ Method = 'Post'; Uri = "$ApiBase/chat/completions"; Headers = $Headers; Body = $body }
     if ($TimeoutSec -gt 0) { $reqOptions.TimeoutSec = $TimeoutSec }
-    $response = Invoke-ShpWithRetry -MaxRetryCount $MaxRetryCount -RetryDelaySec $RetryDelaySec -NetworkOutageToleranceSec $NetworkOutageToleranceSec -OnRetry $OnRetry -ArgumentList $reqOptions -ScriptBlock { param($p) Invoke-ShpHttpRequest @p }
+    $response = if ($RequestSender) {
+        & $RequestSender $reqOptions
+    } else {
+        Invoke-ShpWithRetry -MaxRetryCount $MaxRetryCount -RetryDelaySec $RetryDelaySec -NetworkOutageToleranceSec $NetworkOutageToleranceSec -OnRetry $OnRetry -ArgumentList $reqOptions -ScriptBlock { param($p) Invoke-ShpHttpRequest @p }
+    }
+    if ($RequestSender) {
+        $validateKeys = {
+            param([System.Text.Json.JsonElement]$Element)
+            if ($Element.ValueKind -eq [System.Text.Json.JsonValueKind]::Object) {
+                $names = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+                foreach ($property in $Element.EnumerateObject()) {
+                    if (-not $names.Add($property.Name)) { throw 'Duplicate provider field.' }
+                    & $validateKeys $property.Value
+                }
+            } elseif ($Element.ValueKind -eq [System.Text.Json.JsonValueKind]::Array) {
+                foreach ($item in $Element.EnumerateArray()) { & $validateKeys $item }
+            }
+        }
+        $validateUsage = {
+            param([System.Text.Json.JsonElement]$Element, [string[]]$Names)
+            if ($Element.ValueKind -eq [System.Text.Json.JsonValueKind]::Null) { return }
+            if ($Element.ValueKind -ne [System.Text.Json.JsonValueKind]::Object) { throw 'Invalid provider Usage.' }
+            foreach ($name in $Names) {
+                $value = [System.Text.Json.JsonElement]::new()
+                if ($Element.TryGetProperty($name, [ref]$value) -and $value.ValueKind -ne [System.Text.Json.JsonValueKind]::Null) {
+                    $number = 0
+                    if ($value.ValueKind -ne [System.Text.Json.JsonValueKind]::Number -or
+                        -not $value.TryGetInt32([ref]$number) -or $number -lt 0) { throw 'Invalid provider Usage value.' }
+                }
+            }
+        }
+        $document = $null
+        try {
+            $document = [System.Text.Json.JsonDocument]::Parse([string]$response.Content, [System.Text.Json.JsonDocumentOptions]@{ MaxDepth = 24 })
+            & $validateKeys $document.RootElement
+            $usageElement = [System.Text.Json.JsonElement]::new()
+            if ($document.RootElement.TryGetProperty('usage', [ref]$usageElement)) {
+                & $validateUsage $usageElement @('prompt_tokens', 'completion_tokens', 'total_tokens')
+                $detailsElement = [System.Text.Json.JsonElement]::new()
+                if ($usageElement.ValueKind -eq [System.Text.Json.JsonValueKind]::Object -and
+                    $usageElement.TryGetProperty('prompt_tokens_details', [ref]$detailsElement)) {
+                    & $validateUsage $detailsElement @('cached_tokens', 'cache_creation_tokens')
+                }
+            }
+        } catch {
+            $PSCmdlet.ThrowTerminatingError((New-ShpRequestAdmissionError -Code 'ShpRequestUsageInvalid' -Message 'The bounded provider returned malformed or contradictory data; continuation is refused.'))
+        } finally { if ($document) { $document.Dispose() } }
+    }
     $parsed = $response.Content | ConvertFrom-Json
     $msg = $parsed.choices[0].message
     $toolCalls = @()
@@ -303,8 +360,8 @@ function Invoke-CopilotTurn {
         FinishReason=$parsed.choices[0].finish_reason
         ToolCalls=$toolCalls; AssistantMessage=$msg
         Reasoning=$reasoningText
-        PromptTokens=[int]$parsed.usage.prompt_tokens
-        CompletionTokens=[int]$parsed.usage.completion_tokens
+        PromptTokens=$(if ($RequestSender -and $null -eq $parsed.usage.prompt_tokens) { $null } else { [int]$parsed.usage.prompt_tokens })
+        CompletionTokens=$(if ($RequestSender -and $null -eq $parsed.usage.completion_tokens) { $null } else { [int]$parsed.usage.completion_tokens })
         CachedTokens=$cached; CacheWriteTokens=$cacheWrite
         ModelName=$parsed.model; CopilotUsage=$parsed.copilot_usage
         ResponseId=$parsed.id
