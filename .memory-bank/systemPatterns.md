@@ -79,6 +79,20 @@ choke point (Protect-ShpEgressContent).
 
 ## Recurring patterns
 
+### Unit fixtures isolate the CI profile
+
+Unit fixtures that exercise the default Copilot backend through inert mocks
+must not inherit the process's CI profile. In `BeforeAll`, snapshot and clear
+`CI`, `SHELLPILOT_API_BASE`, `SHELLPILOT_API_KEY`, and
+`SHELLPILOT_ALLOW_COPILOT_BACKEND_IN_CI`; restore each original value in
+`AfterAll`. The dedicated CI-profile tests own the backend-gate behavior. Other
+fixtures must test their named behavior rather than the runner that hosts them.
+
+Do not set the entitlement opt-in merely to make such a fixture pass. If a mock
+stops intercepting provider work, that opt-in could permit a real Copilot
+backend request. Clearing the ambient profile keeps the fixture inert, and
+restoration prevents one test file from deciding the next file's environment.
+
 ### A credentialless callback is not a hard-budget contract
 
 `Invoke-Shp -RequestTransport` skips native credential resolution and HTTP and

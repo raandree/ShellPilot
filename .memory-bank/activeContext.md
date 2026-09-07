@@ -4,6 +4,28 @@ Current working focus for ShellPilot. Overwrite this file as the focus shifts.
 
 ## Focus
 
+GitHub Actions [run 34100984186](https://github.com/raandree/ShellPilot/actions/runs/34100984186)
+packaged commit `23e89ec` successfully, but its Windows, macOS, and Ubuntu test
+jobs failed. Three child-provider test fixtures inherited the runner's
+`CI=true` value and reached the production Copilot backend gate before their
+inert provider mocks, so the tests exercised their host instead of the named
+request, context, and transport behavior.
+
+`main` now snapshots and clears `CI`, `SHELLPILOT_API_BASE`,
+`SHELLPILOT_API_KEY`, and `SHELLPILOT_ALLOW_COPILOT_BACKEND_IN_CI` in those
+three files, then restores every original value in `AfterAll`. The production
+gate and every existing assertion remain unchanged. A focused red run failed
+all 20 request tests with `ShpCopilotBackendInCi`; the final focused run passed
+27 of 27 tests under `CI=true` and reported `RestoredCI = true`.
+
+The exact detached `build.ps1 -AutoRestore -Tasks test` workflow then passed
+under `CI=true` on PowerShell 7.6.5: 1,937 passed, zero failed, three existing
+Unix-only skips, 89.04% coverage, and nine tasks with no errors or warnings.
+The user requested a normal push of this validated `main` commit, followed by
+a local rebase of `ai/fix-child-provider-ci-tests` onto the pushed tip.
+
+## Prior baseline
+
 ShellPilot `main` contains the conflict-resolved merge of
 `ai/child-provider-boundary`. The merged full gate passed 1,937 tests with
 zero failures, three existing Unix-only skips, zero unrun cases, and 89.04%

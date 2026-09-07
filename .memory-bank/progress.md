@@ -15,11 +15,11 @@ Chronological record of shipped changes and remaining work. Latest first.
   the backend-dependent ones are live-verified. Server-side
   state (011) is implemented but the Copilot proxy does not support it, so it
   falls back to client-side history.
-- The exact detached Sampler gate is currently healthy on PowerShell 7.6.5:
-  1,937 tests passed, zero failed, three existing Unix-only skips, zero unrun,
-  and 89.04% coverage on 2026-09-07. All 16 tasks completed without errors or
-  warnings. A prior .NET 10 native access violation on PowerShell 7.6.1 remains
-  historical only.
+- The exact detached Sampler test workflow is healthy under `CI=true` on
+  PowerShell 7.6.5: 1,937 tests passed, zero failed, three existing Unix-only
+  skips, zero unrun, and 89.04% coverage on 2026-09-07. All nine tasks
+  completed without errors or warnings. A prior .NET 10 native access
+  violation on PowerShell 7.6.1 remains historical only.
 
 ## What is left
 
@@ -45,6 +45,17 @@ Chronological record of shipped changes and remaining work. Latest first.
   `Deserialized.*` copy and break the "same result object" contract.
 
 ## Log
+
+- 2026-09-07 - Fix GitHub Actions run 34100984186. Packaging passed, but all
+  three OS test jobs failed because three new child-provider fixtures inherited
+  the runner's CI profile and hit the production Copilot backend gate before
+  their inert mocks. Each fixture now saves, clears, and restores the four
+  backend/CI environment variables. Red: 20 request tests failed with
+  `ShpCopilotBackendInCi`; an intermediate full run exposed the remaining three
+  transport cases. Green: 27 focused tests passed under `CI=true`, with the
+  original CI value restored; the exact detached test workflow passed 1,937
+  tests, zero failures, three existing skips, 89.04% coverage, and nine tasks
+  without errors or warnings. Production behavior and assertions are unchanged.
 
 - 2026-09-07 - Merge `ai/child-provider-boundary` into local `main` at the
   operator's request. Production source auto-merged; active context and progress

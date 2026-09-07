@@ -1,6 +1,25 @@
 BeforeAll {
     Remove-Module -Name ShellPilot -Force -ErrorAction SilentlyContinue
     Import-Module -Name ShellPilot -Force -ErrorAction Stop
+
+    # These tests use an inert Copilot backend. Keep the runner's CI profile
+    # from replacing transport behavior with the backend gate.
+    $script:savedCiEnv = @{}
+    foreach ($name in 'CI', 'SHELLPILOT_API_BASE', 'SHELLPILOT_API_KEY', 'SHELLPILOT_ALLOW_COPILOT_BACKEND_IN_CI') {
+        $script:savedCiEnv[$name] = [System.Environment]::GetEnvironmentVariable($name)
+        Remove-Item -LiteralPath "Env:$name" -ErrorAction SilentlyContinue
+    }
+}
+
+AfterAll {
+    foreach ($name in @($script:savedCiEnv.Keys)) {
+        if ($null -ne $script:savedCiEnv[$name]) {
+            Set-Item -LiteralPath "Env:$name" -Value $script:savedCiEnv[$name]
+        } else {
+            Remove-Item -LiteralPath "Env:$name" -ErrorAction SilentlyContinue
+        }
+    }
+    Remove-Module -Name ShellPilot -Force -ErrorAction SilentlyContinue
 }
 
 Describe 'Invoke-Shp isolated host integration' {

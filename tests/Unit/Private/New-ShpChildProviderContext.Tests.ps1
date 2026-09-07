@@ -2,8 +2,25 @@ BeforeAll {
     $script:moduleName = 'ShellPilot'
     Remove-Module -Name $script:moduleName -Force -ErrorAction SilentlyContinue
     Import-Module -Name $script:moduleName -Force -ErrorAction Stop
+
+    # These tests use an inert Copilot backend. Keep the runner's CI profile
+    # from replacing initialization behavior with the backend gate.
+    $script:savedCiEnv = @{}
+    foreach ($name in 'CI', 'SHELLPILOT_API_BASE', 'SHELLPILOT_API_KEY', 'SHELLPILOT_ALLOW_COPILOT_BACKEND_IN_CI') {
+        $script:savedCiEnv[$name] = [System.Environment]::GetEnvironmentVariable($name)
+        Remove-Item -LiteralPath "Env:$name" -ErrorAction SilentlyContinue
+    }
 }
-AfterAll { Get-Module -Name $script:moduleName -All | Remove-Module -Force -ErrorAction SilentlyContinue }
+AfterAll {
+    foreach ($name in @($script:savedCiEnv.Keys)) {
+        if ($null -ne $script:savedCiEnv[$name]) {
+            Set-Item -LiteralPath "Env:$name" -Value $script:savedCiEnv[$name]
+        } else {
+            Remove-Item -LiteralPath "Env:$name" -ErrorAction SilentlyContinue
+        }
+    }
+    Get-Module -Name $script:moduleName -All | Remove-Module -Force -ErrorAction SilentlyContinue
+}
 
 Describe 'New-ShpChildProviderContext' {
     BeforeEach {
