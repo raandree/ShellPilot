@@ -37,6 +37,12 @@ Copilot content exclusions, and enterprise MCP allowlists are not provided.
 
 ## Recent milestones
 
+- 2026-09-07 - Final minimum-runtime gate passed 2,037 tests, zero failed,
+  three existing Unix-only skips, 89.55% coverage, nine clean tasks. Whole-branch
+  analysis found six warnings already present at `6318225`; explicit Pester
+  fixture scopes and local names resolve them without changing assertions.
+  All 34 changed PowerShell files are analyzer-clean; 775 affected fixtures
+  pass on PowerShell 7.4.19 with no skips. Current-runtime/package gate is next.
 - 2026-09-07 - Independent review of `92d8a86`: zero Blockers, one Major,
   one Minor. Reproduced and fixed embedding backend/credential selection and
   cross-host model-limit reuse. Self-review also repaired colon-bound protected

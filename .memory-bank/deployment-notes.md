@@ -35,8 +35,11 @@ the existing supported credential path; no speculative exemption was added.
 
 ## Verification
 
-Final current/minimum-runtime and package checks are in progress. Prior local
-gates, all with zero failures and three Windows-platform skips:
+Final current-runtime and package checks are in progress. The final
+PowerShell 7.4.19 gate passed 2,037 tests with zero failures, three existing
+Unix-only skips, and 89.55% coverage. Subsequent test-only analyzer cleanup
+passed all 775 affected fixtures on 7.4.19 with no skips; all 34 changed
+PowerShell files are analyzer-clean. Prior full gates:
 
 | Boundary | Passed | Coverage |
 | --- | ---: | ---: |

@@ -15,7 +15,7 @@ BeforeDiscovery {
 
     Remove-Module -Name $script:moduleName -Force -ErrorAction SilentlyContinue
 
-    $mut = Get-Module -Name $script:moduleName -ListAvailable |
+    $script:qaBuiltModule = Get-Module -Name $script:moduleName -ListAvailable |
         Select-Object -First 1 |
             Import-Module -Force -ErrorAction Stop -PassThru
 }
@@ -41,7 +41,7 @@ BeforeAll {
             Select-Object -First 1
     ).ModuleBase
 
-    $sourcePath = (
+    $script:qaSourcePath = (
         Get-ChildItem -Path $projectPath\*\*.psd1 |
             Where-Object -FilterScript {
                 ($_.Directory.Name -match 'source|src' -or $_.Directory.Name -eq $_.BaseName) `
@@ -103,7 +103,7 @@ Describe 'General module control' -Tags 'FunctionalQuality' {
 
 BeforeDiscovery {
     # Must use the imported module to build test cases.
-    $allModuleFunctions = & $mut { Get-Command -Module $args[0] -CommandType Function } $script:moduleName
+    $allModuleFunctions = & $script:qaBuiltModule { Get-Command -Module $args[0] -CommandType Function } $script:moduleName
 
     # Build test cases.
     $testCases = @()
@@ -120,7 +120,7 @@ Describe 'Quality for module' -Tags 'TestQuality' {
     BeforeDiscovery {
         if (Get-Command -Name Invoke-ScriptAnalyzer -ErrorAction SilentlyContinue)
         {
-            $scriptAnalyzerRules = Get-ScriptAnalyzerRule
+            $script:qaScriptAnalyzerRules = Get-ScriptAnalyzerRule
         }
         else
         {
@@ -139,8 +139,8 @@ Describe 'Quality for module' -Tags 'TestQuality' {
         Get-ChildItem -Path 'tests\' -Recurse -Include "$Name.Tests.ps1" | Should -Not -BeNullOrEmpty
     }
 
-    It 'Should pass Script Analyzer for <Name>' -ForEach $testCases -Skip:(-not $scriptAnalyzerRules) {
-        $functionFile = Get-ChildItem -Path $sourcePath -Recurse -Include "$Name.ps1"
+    It 'Should pass Script Analyzer for <Name>' -ForEach $testCases -Skip:(-not $script:qaScriptAnalyzerRules) {
+        $functionFile = Get-ChildItem -Path $script:qaSourcePath -Recurse -Include "$Name.ps1"
 
         $pssaResult = (Invoke-ScriptAnalyzer -Path $functionFile.FullName)
         $report = $pssaResult | Format-Table -AutoSize | Out-String -Width 110
@@ -151,7 +151,7 @@ Describe 'Quality for module' -Tags 'TestQuality' {
 
 Describe 'Help for module' -Tags 'helpQuality' {
     It 'Should have .SYNOPSIS for <Name>' -ForEach $testCases {
-        $functionFile = Get-ChildItem -Path $sourcePath -Recurse -Include "$Name.ps1"
+        $functionFile = Get-ChildItem -Path $script:qaSourcePath -Recurse -Include "$Name.ps1"
 
         $scriptFileRawContent = Get-Content -Raw -Path $functionFile.FullName
 
@@ -170,7 +170,7 @@ Describe 'Help for module' -Tags 'helpQuality' {
     }
 
     It 'Should have a .DESCRIPTION with length greater than 40 characters for <Name>' -ForEach $testCases {
-        $functionFile = Get-ChildItem -Path $sourcePath -Recurse -Include "$Name.ps1"
+        $functionFile = Get-ChildItem -Path $script:qaSourcePath -Recurse -Include "$Name.ps1"
 
         $scriptFileRawContent = Get-Content -Raw -Path $functionFile.FullName
 
@@ -189,7 +189,7 @@ Describe 'Help for module' -Tags 'helpQuality' {
     }
 
     It 'Should have at least one (1) example for <Name>' -ForEach $testCases {
-        $functionFile = Get-ChildItem -Path $sourcePath -Recurse -Include "$Name.ps1"
+        $functionFile = Get-ChildItem -Path $script:qaSourcePath -Recurse -Include "$Name.ps1"
 
         $scriptFileRawContent = Get-Content -Raw -Path $functionFile.FullName
 
@@ -211,7 +211,7 @@ Describe 'Help for module' -Tags 'helpQuality' {
     }
 
     It 'Should have described all parameters for <Name>' -ForEach $testCases {
-        $functionFile = Get-ChildItem -Path $sourcePath -Recurse -Include "$Name.ps1"
+        $functionFile = Get-ChildItem -Path $script:qaSourcePath -Recurse -Include "$Name.ps1"
 
         $scriptFileRawContent = Get-Content -Raw -Path $functionFile.FullName
 

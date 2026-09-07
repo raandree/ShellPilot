@@ -137,11 +137,11 @@ Describe 'Invoke-ShpBatch' {
         }
 
         It 'Should preserve a caller-supplied id from an input object' {
-            $input = @(
+            $testInput = @(
                 [pscustomobject]@{ Id = 'q-alpha'; Prompt = 'first' }
                 [pscustomobject]@{ Id = 'q-beta'; Prompt = 'second' }
             )
-            $null = Invoke-ShpBatch -Prompt $input
+            $null = Invoke-ShpBatch -Prompt $testInput
             InModuleScope $script:moduleName {
                 $script:capturedWorkItem.Id | Should -Be @('q-alpha', 'q-beta')
                 $script:capturedWorkItem.Prompt | Should -Be @('first', 'second')

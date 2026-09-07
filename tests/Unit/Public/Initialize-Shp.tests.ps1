@@ -205,12 +205,13 @@ Describe 'Initialize-Shp' {
 
             InModuleScope $script:moduleName -Parameters @{ TokenFile = $tokenFile } {
                 param($TokenFile)
+                $unattendedTokenFile = $TokenFile
                 Mock Invoke-RestMethod { throw 'Initialize-Shp must not start a device-code flow when unattended.' }
                 Mock Start-Process { throw 'Initialize-Shp must not open a browser when unattended.' }
                 Mock Set-Clipboard { throw 'Initialize-Shp must not write to the clipboard when unattended.' }
                 Mock Write-Host { }
 
-                $err = { Initialize-Shp -TokenPath $TokenFile -NonInteractive } | Should -Throw -PassThru
+                $err = { Initialize-Shp -TokenPath $unattendedTokenFile -NonInteractive } | Should -Throw -PassThru
 
                 $err.FullyQualifiedErrorId | Should -Be 'ShpNonInteractiveSignIn,Initialize-Shp'
                 $err.Exception.Message     | Should -BeLike '*SHELLPILOT_GITHUB_TOKEN*'

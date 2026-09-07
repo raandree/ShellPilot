@@ -157,7 +157,8 @@ Describe 'Get-ShpSessionToken' {
 
         InModuleScope $script:moduleName -Parameters @{ TokenPath = $missing } {
             param($TokenPath)
-            { Get-ShpSessionToken -TokenPath $TokenPath } | Should -Throw '*Token file not found*'
+            $missingTokenPath = $TokenPath
+            { Get-ShpSessionToken -TokenPath $missingTokenPath } | Should -Throw '*Token file not found*'
         }
     }
 
