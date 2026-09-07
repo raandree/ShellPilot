@@ -264,6 +264,18 @@ are exactly three outcomes and each decides something different.
 Record the raw response shape, never the token. The probe sends no prompt and
 spends no entitlement beyond a model list.
 
+#### Probe status 2026-09-07
+
+**Blocked: `SHELLPILOT_GITHUB_TOKEN` is not configured in the executing
+environment.** Only presence was checked. No token was requested, displayed,
+logged, or passed through tool arguments. No exchange, model request, or prompt
+was sent, so there is no HTTP status, response shape, endpoint, or entitlement
+result to report. This does not establish whether a fine-grained token works.
+
+Keep credential behavior and the CI profile unchanged. Continue the independent
+tranche-one work. Rerun only the probe above when the required in-memory token
+is already configured; do not substitute a token file or another variable.
+
 ## E. Connectivity
 
 ### F15 - MCP over streamable HTTP, headless grant first

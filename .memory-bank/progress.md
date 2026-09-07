@@ -37,6 +37,10 @@ Copilot content exclusions, and enterprise MCP allowlists are not provided.
 
 ## Recent milestones
 
+- 2026-09-07 - Stage 3 / F14 blocked: `SHELLPILOT_GITHUB_TOKEN` is not
+  configured. Checked presence only; no exchange, model list, prompt, or
+  credential output. No HTTP or entitlement result is available. Record the
+  blocker in spec 029 and continue independent tranche-one work.
 - 2026-09-07 - Stage 2 source-export regression failed on eleven missing
   declarations, then passed with all 35 synchronized. Discover the whole QA
   directory, configure six current/7.4 OS combinations, and raise the coverage

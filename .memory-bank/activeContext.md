@@ -49,7 +49,10 @@ it. The resolver was unchanged. Both runtime-focused fixtures pass; changed
 tests are analyzer-clean. The nupkg contains the exact MIT text and 35 exports.
 Local package version is Sampler's `0.0.1` fallback, not a release artifact.
 
-Stage 3 is next: run only the exact bounded F14 credential probe.
+Stage 2 commit: `7851a40`. Stage 3 is explicitly blocked: no
+`SHELLPILOT_GITHUB_TOKEN` is configured. Only presence was checked; no network
+request or prompt was sent and no service outcome is claimed. Record the
+blocker in F14 and continue Stage 4 with F7/F8. Do not substitute credentials.
 
 ## Next steps
 
