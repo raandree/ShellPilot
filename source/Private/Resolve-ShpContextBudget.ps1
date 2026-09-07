@@ -60,6 +60,11 @@ function Resolve-ShpContextBudget {
         Copilot, so the cached Copilot limits do not apply and the model level
         is skipped.
 
+    .PARAMETER GitHubHost
+        Resolved authentication origin used by the current call. A cached model
+        limit tagged for a different host is ignored. When omitted, the current
+        Session context and environment select the host without network I/O.
+
     .EXAMPLE
         Resolve-ShpContextBudget -Model 'claude-haiku-4.5'
 
@@ -89,7 +94,10 @@ function Resolve-ShpContextBudget {
         [ValidateRange(0, [int]::MaxValue)]
         [int]$RequestedTokens,
 
-        [switch]$AlternativeBackend
+        [switch]$AlternativeBackend,
+
+        [AllowEmptyString()]
+        [string]$GitHubHost
     )
 
     if ($PSBoundParameters.ContainsKey('RequestedTokens')) {
@@ -102,6 +110,14 @@ function Resolve-ShpContextBudget {
 
     $lookedUp = ($null -ne $script:ShpModelLimitCache) -and -not $AlternativeBackend -and -not [string]::IsNullOrWhiteSpace($Model)
     $limits = if ($lookedUp) { $script:ShpModelLimitCache[$Model] } else { $null }
+    if ($limits -and $limits.GitHubHost) {
+        $hostParameters = @{}
+        if ($PSBoundParameters.ContainsKey('GitHubHost')) { $hostParameters.GitHubHost = $GitHubHost }
+        if ($limits.GitHubHost -ne (Resolve-ShpGitHubHost @hostParameters).Host) {
+            $limits = $null
+            $lookedUp = $false
+        }
+    }
     $window = if ($limits) { $limits.ContextWindowTokens } else { $null }
 
     if ($window -gt 0) {

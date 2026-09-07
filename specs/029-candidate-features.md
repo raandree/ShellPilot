@@ -1,14 +1,41 @@
 # Candidate features
 
-Twenty-five features ShellPilot does not have, each written as a proposal
-rather than a wish: what it is, why it matters, what it costs, and what it
-depends on.
+Twenty-five original feature proposals: what each is, why it matters, what it
+costs, and what it depends on. The implementation status below supersedes the
+historical present-tense descriptions in the proposals.
 
 > **Decided 2026-09-03.** Tranche 1 is accepted as the first cut. The
-> [F14](#f14---broaden-the-credential-sources) probe runs next.
+> [F14](#f14---broaden-the-credential-sources) probe was accepted to run next;
+> its 2026-09-07 status is explicitly blocked by the absent in-memory token.
 > [Open decision 14](001-open-decisions.md) - module state on disk - was
 > **accepted 2026-09-05**, which unblocks F20 and moves decision 13 to B.
 > See [Selection](#selection).
+
+## Implementation status 2026-09-07
+
+Tranche one is implemented locally on `ai/release-readiness-tranche-one`.
+F1 and F2 were already in the published preview baseline; the remaining slices
+are local changes awaiting merge and release authorization, not a publication.
+
+| Feature | Local result |
+| --- | --- |
+| F1 / F2 | Search and exact file edits are in the baseline. |
+| F7 / F8 | Minimal terminal environment, explicit pass-through, protected assignment refusal. |
+| F23 | Named environment values redacted literally at shared egress. |
+| F6 | Exact all-class Tool inclusion/exclusion and unchanged denial shape. |
+| F22 | Per-call Plan intersects read-only visibility and existing Tool policy. |
+| F17 | Validated Enterprise Cloud host routing and host-safe cache behavior. |
+| F14 | Blocked: no `SHELLPILOT_GITHUB_TOKEN`; no exchange or prompt sent. |
+
+The independent branch review produced one Major and one Minor; both were
+reproduced and repaired with regression tests. Final release evidence and
+unavailable checks are in the [release notes for maintainers][readiness].
+
+F9 deferred tool loading is the leading tranche-two candidate: the existing
+measurement is 10,166 prompt tokens for 61 MCP tools with two offered. It is
+not implemented or authorized by completing tranche one.
+
+[readiness]: ../.memory-bank/deployment-notes.md
 
 ## Scoping constraints
 

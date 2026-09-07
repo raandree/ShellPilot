@@ -130,24 +130,26 @@ function Request-ShpEmbedding {
         if ($PSBoundParameters.ContainsKey('GitHubHost')) { $hostParameters.GitHubHost = $GitHubHost }
         $resolvedGitHubHost = Resolve-ShpGitHubHost @hostParameters
         $session = Get-ShpSessionToken -TokenPath $TokenPath -EditorVersion $EditorVersion -UserAgent $UserAgent -GitHubHost $resolvedGitHubHost.Host @connectionParams
-        $apiBase = if ($script:ShpContext.ApiBase) { $script:ShpContext.ApiBase } else { $session.endpoints.api }
-        $bearer  = if ($script:ShpContext.ApiBase -and $script:ShpContext.ApiKey) { $script:ShpContext.ApiKey } else { $session.token }
+        $backend = Resolve-ShpBackend
+        $apiBase = if ($backend.IsAlternative) { $backend.ApiBase } else { $session.endpoints.api }
+        $safeApiBase = if ($backend.IsAlternative) { $backend.SafeApiBase } else { $apiBase }
+        $bearer = if ($backend.IsAlternative) { $backend.ApiKey } else { $session.token }
 
         $headers = @{
-            Authorization            = "Bearer $bearer"
             'Editor-Version'         = $EditorVersion
             'Editor-Plugin-Version'  = $PluginVersion
             'Copilot-Integration-Id' = $IntegrationId
             'User-Agent'             = $UserAgent
             'Content-Type'           = 'application/json'
         }
+        if ($bearer) { $headers.Authorization = "Bearer $bearer" }
         $body = @{ model = $Model; input = @($inputs) } | ConvertTo-Json -Depth 6
 
         try {
             $embeddingRequest = @{ Method = 'Post'; Uri = "$apiBase/embeddings"; SkipHeaderValidation = $true; Headers = $headers; Body = $body; ErrorAction = 'Stop'; TimeoutSec = $connection.TimeoutSec }
             $response = Invoke-ShpWithRetry -ArgumentList $embeddingRequest -ScriptBlock { param($p) Invoke-WebRequest @p } -MaxRetryCount $connection.MaxRetryCount -RetryDelaySec $connection.RetryDelaySec -NetworkOutageToleranceSec $connection.NetworkOutageToleranceSec
         } catch {
-            throw "Embedding request to '$apiBase/embeddings' failed: $($_.Exception.Message). The Copilot backend may not expose an embeddings endpoint."
+            throw "Embedding request to '$safeApiBase/embeddings' failed: $($_.Exception.Message). The selected backend may not expose an embeddings endpoint."
         }
 
         $parsed = $response.Content | ConvertFrom-Json

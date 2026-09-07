@@ -37,6 +37,12 @@ Copilot content exclusions, and enterprise MCP allowlists are not provided.
 
 ## Recent milestones
 
+- 2026-09-07 - Independent review of `92d8a86`: zero Blockers, one Major,
+  one Minor. Reproduced and fixed embedding backend/credential selection and
+  cross-host model-limit reuse. Self-review also repaired colon-bound protected
+  environment setter arguments. All retained regression cases went red to
+  green. Full remediation gate: 2,037 passed, zero failed, three skips, 89.55%
+  coverage, nine clean tasks. One review only; no second approval is claimed.
 - 2026-09-07 - Stage 4 / F17 complete: strict shared GitHubHost precedence,
   HTTPS GitHub.com/GHE.com origins, host-specific Session-token caching,
   sign-in/model/readiness and turn/batch/job/embedding forwarding. Enterprise

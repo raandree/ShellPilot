@@ -101,11 +101,12 @@ function Test-ShpToolAccess {
             $commandName = ($commandNode.GetCommandName() -split '\\')[-1]
             $environmentWriter = $commandName -in 'Set-Item', 'New-Item', 'Set-Content', 'Add-Content', 'Clear-Item', 'Remove-Item', 'si', 'ni', 'sc', 'ac', 'cli', 'ri', 'set', 'del', 'erase', 'rd'
             foreach ($element in $commandNode.CommandElements) {
-                if ($element -isnot [System.Management.Automation.Language.StringConstantExpressionAst]) { continue }
-                if ($environmentWriter -and $element.Value -match '^env:(.+)$') {
+                $argumentElement = if ($element -is [System.Management.Automation.Language.CommandParameterAst]) { $element.Argument } else { $element }
+                if ($argumentElement -isnot [System.Management.Automation.Language.StringConstantExpressionAst]) { continue }
+                if ($environmentWriter -and $argumentElement.Value -match '^env:(.+)$') {
                     $assignedNames.Add($Matches[1])
                 }
-                if ($element.StringConstantType -eq 'BareWord' -and $element.Value -match '^([A-Za-z_][A-Za-z0-9_]*)=') {
+                if ($argumentElement.StringConstantType -eq 'BareWord' -and $argumentElement.Value -match '^([A-Za-z_][A-Za-z0-9_]*)=') {
                     $assignedNames.Add($Matches[1])
                 }
             }

@@ -3,13 +3,80 @@ BeforeAll {
 
     Remove-Module -Name $script:moduleName -Force -ErrorAction SilentlyContinue
     Import-Module -Name $script:moduleName -Force -ErrorAction Stop
+    $script:savedBackendEnvironment = @{}
+    foreach ($variableName in 'SHELLPILOT_API_BASE', 'SHELLPILOT_API_KEY', 'SHELLPILOT_GITHUB_HOST') {
+        $script:savedBackendEnvironment[$variableName] = [Environment]::GetEnvironmentVariable($variableName)
+        Remove-Item -LiteralPath "Env:$variableName" -ErrorAction SilentlyContinue
+    }
 }
 
 AfterAll {
+    foreach ($variableName in $script:savedBackendEnvironment.Keys) {
+        if ($null -eq $script:savedBackendEnvironment[$variableName]) {
+            Remove-Item -LiteralPath "Env:$variableName" -ErrorAction SilentlyContinue
+        } else {
+            [Environment]::SetEnvironmentVariable($variableName, $script:savedBackendEnvironment[$variableName])
+        }
+    }
     Get-Module -Name $script:moduleName -All | Remove-Module -Force -ErrorAction SilentlyContinue
 }
 
 Describe 'Request-ShpEmbedding' {
+    Context 'Alternative backend credential boundary' {
+        BeforeEach {
+            Clear-ShpContext
+            Remove-Item -LiteralPath 'Env:SHELLPILOT_API_BASE', 'Env:SHELLPILOT_API_KEY' -ErrorAction SilentlyContinue
+            InModuleScope $script:moduleName {
+                $script:embeddingRequest = $null
+                Mock Get-ShpSessionToken { @{ token = 'copilot-session-fixture'; endpoints = @{ api = 'https://session.example' } } }
+                Mock Invoke-ShpWithRetry {
+                    $script:embeddingRequest = $ArgumentList[0]
+                    @{ Content = '{"data":[{"index":0,"embedding":[1,2]}],"model":"fixture"}' }
+                }
+            }
+        }
+
+        AfterEach {
+            Clear-ShpContext
+            Remove-Item -LiteralPath 'Env:SHELLPILOT_API_BASE', 'Env:SHELLPILOT_API_KEY' -ErrorAction SilentlyContinue
+        }
+
+        It 'Routes environment-selected embeddings with only the alternative credential' {
+            $env:SHELLPILOT_API_BASE = 'https://environment.example/v1'
+            $env:SHELLPILOT_API_KEY = 'alternative-key-fixture'
+            InModuleScope $script:moduleName {
+                $null = Request-ShpEmbedding -Text 'fixture'
+                $script:embeddingRequest.Uri | Should -BeExactly 'https://environment.example/v1/embeddings'
+                $script:embeddingRequest.Headers.Authorization | Should -BeExactly 'Bearer alternative-key-fixture'
+                $script:embeddingRequest.Headers.Authorization | Should -Not -Match 'copilot-session-fixture'
+            }
+        }
+
+        It 'Never sends a Copilot Session token to a keyless <Source> alternative' -ForEach @(
+            @{ Source = 'Environment' }
+            @{ Source = 'SessionContext' }
+        ) {
+            if ($Source -eq 'Environment') { $env:SHELLPILOT_API_BASE = 'https://keyless.example/v1' }
+            else { Set-ShpContext -ApiBase 'https://keyless.example/v1' }
+            InModuleScope $script:moduleName {
+                $null = Request-ShpEmbedding -Text 'fixture'
+                $script:embeddingRequest.Uri | Should -BeExactly 'https://keyless.example/v1/embeddings'
+                $script:embeddingRequest.Headers.ContainsKey('Authorization') | Should -BeFalse
+            }
+        }
+
+        It 'Keeps Session context ahead of environment backend configuration' {
+            $env:SHELLPILOT_API_BASE = 'https://environment.example/v1'
+            $env:SHELLPILOT_API_KEY = 'environment-key-fixture'
+            Set-ShpContext -ApiBase 'https://context.example/v1' -ApiKey 'context-key-fixture'
+            InModuleScope $script:moduleName {
+                $null = Request-ShpEmbedding -Text 'fixture'
+                $script:embeddingRequest.Uri | Should -BeExactly 'https://context.example/v1/embeddings'
+                $script:embeddingRequest.Headers.Authorization | Should -BeExactly 'Bearer context-key-fixture'
+            }
+        }
+    }
+
     It 'Returns one object per input carrying its vector' {
         InModuleScope $script:moduleName {
             Mock Get-ShpSessionToken { [pscustomobject]@{ token = 't'; expires_at = 0; endpoints = [pscustomobject]@{ api = 'https://api.example' } } }

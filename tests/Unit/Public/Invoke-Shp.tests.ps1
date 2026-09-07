@@ -1601,8 +1601,10 @@ Describe 'Invoke-Shp' {
 
         It 'Keeps the explicit GitHub host on initial and per-iteration token exchanges' {
             InModuleScope $script:moduleName {
+                Mock Resolve-ShpContextBudget { @{ MaxTokens = 900000; Source = 'Fallback' } }
                 $null = Invoke-Shp -Prompt 'inspect' -GitHubHost 'https://tenant.ghe.com' -DisableUserPrompts
                 Should -Invoke Get-ShpSessionToken -Times 3 -Exactly -ParameterFilter { $GitHubHost -eq 'https://tenant.ghe.com' }
+                Should -Invoke Resolve-ShpContextBudget -Times 1 -Exactly -ParameterFilter { $GitHubHost -eq 'https://tenant.ghe.com' }
             }
         }
 

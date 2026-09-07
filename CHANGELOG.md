@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- Correct embedding backend precedence and prevent a Copilot Session token
+  from reaching a keyless alternative backend. Environment-selected backends
+  now use the shared resolver. See [embeddings](README.md#embeddings-and-similarity).
+- Apply protected environment-assignment checks to colon-bound PowerShell
+  parameter arguments as well as separate arguments.
+
 - Limit `run_command` to a minimal environment and refuse execution-sensitive
   literal environment assignments before child startup, even without a Tool
   policy. See [command environment](README.md#command-environment).
@@ -394,6 +400,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   so a host renders it identically.
 
 ### Fixed
+
+- Keep explicit enterprise model lookups from replacing shared session limits,
+  and ignore cached model limits tagged for a different GitHub host.
 
 - Synchronize the [source manifest](source/ShellPilot.psd1) with all 35 public
   commands and retain a source-level regression against missing exports.

@@ -37,6 +37,9 @@ function Get-ShpModel {
         For an enterprise host every endpoint selection uses the service-returned
         per-account API endpoint. An absent endpoint is refused, never guessed
         or replaced with the GitHub.com fallback map.
+        An explicit host lookup does not populate the shared session model-limit
+        cache. To warm that cache, set GitHubHost through Set-ShpContext and call
+        Get-ShpModel without a per-call host override.
 
     .PARAMETER PluginVersion
         Editor-Plugin-Version header value sent with the request.
@@ -163,10 +166,13 @@ function Get-ShpModel {
                 # Assigned rather than initialised up front, so a run in which
                 # every endpoint failed leaves the cache $null - "never looked
                 # up" and "looked up and absent" must stay distinguishable.
-                if ($null -eq $script:ShpModelLimitCache) { $script:ShpModelLimitCache = @{} }
-                $script:ShpModelLimitCache[$modelId] = [pscustomobject]@{
-                    ContextWindowTokens = $caps.limits.max_context_window_tokens
-                    MaxOutputTokens     = $caps.limits.max_output_tokens
+                if (-not $PSBoundParameters.ContainsKey('GitHubHost')) {
+                    if ($null -eq $script:ShpModelLimitCache) { $script:ShpModelLimitCache = @{} }
+                    $script:ShpModelLimitCache[$modelId] = [pscustomobject]@{
+                        ContextWindowTokens = $caps.limits.max_context_window_tokens
+                        MaxOutputTokens     = $caps.limits.max_output_tokens
+                        GitHubHost          = $resolvedGitHubHost.Host
+                    }
                 }
                 [pscustomobject]@{
                     PSTypeName              = 'ShellPilot.Model'

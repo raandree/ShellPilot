@@ -115,6 +115,19 @@ before credentials, disallow non-GitHub origins and enterprise redirects, and
 partition caches by host. Token envelopes are not tenant-bound; callers must
 select a matching credential and separate token paths for separate accounts.
 
+Independent security review of `92d8a86` returned Request Changes: zero
+Blockers, one Major (embedding backend/credential selection), one Minor
+(cross-host model-limit cache). Both now have red-green regressions. Embeddings
+use the shared backend resolver and never send the Copilot Session token to an
+alternative backend. Explicit host model lookups leave the shared cache alone;
+cached entries carry a host and budget resolution checks it. Self-review also
+found colon-bound environment setter arguments; two new cases went red to green.
+Focused remediation: 19 embedding/backend, 33 cache/budget, 71 command/policy
+tests pass. Full remediation gate: 2,037 passed, zero failed, three skips,
+89.55% coverage, nine clean tasks. One independent review was performed;
+no second approval is claimed. Report and ledger are under
+`%TEMP%/shp-release-review-20260907/`.
+
 Threat model: untrusted model command text can try to read parent credentials
 or alter variables that redirect trusted programs. Minimal inheritance removes
 the ambient-secret path; literal assignment refusal narrows executable setup.

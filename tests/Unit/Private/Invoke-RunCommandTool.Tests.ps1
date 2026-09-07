@@ -134,6 +134,8 @@ Describe 'Invoke-RunCommandTool' {
         It 'Refuses alternative assignment syntax <Command>' -ForEach @(
             @{ Command = '${env:paTH} = "unused"' }
             @{ Command = 'Set-Item -LiteralPath Env:PATH -Value unused' }
+            @{ Command = 'Set-Item -LiteralPath:Env:PATH -Value unused' }
+            @{ Command = 'Microsoft.PowerShell.Management\Set-Item -Path:Env:GIT_PAGER -Value unused' }
             @{ Command = 'Set-Content env:GIT_PAGER unused' }
             @{ Command = '[Environment]::SetEnvironmentVariable("GIT_PAGER", "unused")' }
             @{ Command = 'env LD_PRELOAD=unused git status' }

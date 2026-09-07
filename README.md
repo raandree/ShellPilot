@@ -118,6 +118,10 @@ Server support. See [GitHub's GHE.com sign-in guidance][ghe-signin].
 
 Device-code requests use the selected origin; Session-token exchange uses
 `https://api.<enterprise>.ghe.com`. Session-token cache entries are host-specific.
+Explicit host model lookups do not overwrite the shared session model-limit
+cache. To warm that cache for an enterprise, set its host through `Set-ShpContext`
+and call `Get-ShpModel` without a per-call host. Cached limits are host-tagged;
+another host's limits are ignored, so explicit budgeting may still be needed.
 For GHE.com, model selection uses the per-account endpoint returned by the
 service and refuses the request if that endpoint is absent. It never guesses
 an enterprise endpoint or falls back to GitHub.com. Default GitHub.com routes are
@@ -466,6 +470,12 @@ Invoke-Shp -Model claude-opus-4.8 -ShowThinking `
 ```
 
 ### Embeddings and similarity
+
+Embeddings use Session context backend settings, then `SHELLPILOT_API_BASE`
+and `SHELLPILOT_API_KEY`, then the Copilot endpoint. An alternative backend
+receives only its own key, or no Authorization header when keyless; it never
+receives the Copilot Session token. Native authentication still requires a
+GitHub OAuth token before that request.
 
 ```powershell
 $q = (Request-ShpEmbedding -Text 'how do I reset a password?').Embedding

@@ -108,6 +108,32 @@ Describe 'Get-ShpModel' {
             InModuleScope $script:moduleName { $script:ShpModelLimitCache = $null }
         }
 
+        It 'Keeps default-host limits after an explicit foreign-host model lookup' {
+            InModuleScope $script:moduleName {
+                $script:reviewModelWindow = 200000
+                Mock Get-ShpSessionToken { @{ token = 'fixture'; endpoints = @{ api = 'https://returned.service.example' } } }
+                Mock Invoke-WebRequest {
+                    @{ Content = (@{ data = @(@{ id = 'shared-model'; capabilities = @{ limits = @{ max_context_window_tokens = $script:reviewModelWindow; max_output_tokens = 4000 } } }) } | ConvertTo-Json -Depth 8) }
+                }
+                $null = Get-ShpModel -Endpoint Default
+                $baseline = (Resolve-ShpContextBudget -Model 'shared-model').MaxTokens
+                $script:reviewModelWindow = 12000
+                $null = Get-ShpModel -GitHubHost 'https://tenant.ghe.com'
+                (Resolve-ShpContextBudget -Model 'shared-model').MaxTokens | Should -Be $baseline
+                $script:ShpModelLimitCache['shared-model'].GitHubHost | Should -Be 'https://github.com'
+            }
+        }
+
+        It 'Does not use another host limits for an explicitly targeted turn' {
+            InModuleScope $script:moduleName {
+                $script:ShpModelLimitCache = @{
+                    'shared-model' = @{ ContextWindowTokens = 200000; MaxOutputTokens = 4000; GitHubHost = 'https://github.com' }
+                }
+                $budget = Resolve-ShpContextBudget -Model 'shared-model' -GitHubHost 'https://tenant.ghe.com'
+                $budget.Source | Should -Be 'Fallback'
+            }
+        }
+
         It 'Records each advertised limit so the context guard needs no request of its own' {
             InModuleScope $script:moduleName {
                 Mock Get-ShpSessionToken {

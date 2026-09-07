@@ -34,6 +34,7 @@ relevant `decisions/*.md` record.
 | `implementation` | Code, build, test, deps | `techContext.md` |
 | `architecture` | Design, pattern, decision | `systemPatterns.md` |
 | `status` | Progress, open work | `progress.md`, `activeContext.md` |
+| `release` | Release readiness, packaging, distribution | `deployment-notes.md`, `techContext.md` |
 | `language` | Canonical terms | `glossary.md` |
 | `interaction-history` | Prompt trends, evals | `promptHistory.md` |
 | `role` | Active Custom agent workflow | That agent's role files |

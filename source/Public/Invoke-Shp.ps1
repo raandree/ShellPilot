@@ -1272,6 +1272,7 @@ function Invoke-Shp {
     # so its whole order lives in one documented resolver. 0 disables the guard,
     # so binding, not truthiness, is what gets passed through.
     $budgetParams = @{ Model = $Model; AlternativeBackend = $usingAltBackend }
+    if (-not $ownedTransport) { $budgetParams.GitHubHost = $sessionTokenParams.GitHubHost }
     if ($PSBoundParameters.ContainsKey('MaxContextWindowTokens')) { $budgetParams.RequestedTokens = $MaxContextWindowTokens }
     $contextBudget = Resolve-ShpContextBudget @budgetParams
     $effectiveContextBudget = $contextBudget.MaxTokens
