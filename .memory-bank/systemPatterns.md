@@ -52,6 +52,8 @@ See [technical context](techContext.md) for services, authentication, and gates.
   it must not silently reinterpret user input or server capabilities.
 - Use explicit per-call parameters for transient behavior. Session setters
   change durable in-memory policy only when the caller requests that change.
+- Model limit cache entries carry their GitHub host. One-off explicit host
+  lookups do not replace the shared cache; budget resolution ignores mismatches.
 - Plan intersects a fixed read-only offered set with caller filters and existing
   Tool policy. Never temporarily replace session state to implement a preset;
   existing dispatch denials enforce the intersection, including on errors/jobs.

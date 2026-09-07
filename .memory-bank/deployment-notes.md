@@ -35,11 +35,42 @@ the existing supported credential path; no speculative exemption was added.
 
 ## Verification
 
-Final current-runtime and package checks are in progress. The final
-PowerShell 7.4.19 gate passed 2,037 tests with zero failures, three existing
-Unix-only skips, and 89.55% coverage. Subsequent test-only analyzer cleanup
-passed all 775 affected fixtures on 7.4.19 with no skips; all 34 changed
-PowerShell files are analyzer-clean. Prior full gates:
+Final gates passed on Windows under `CI=true`:
+
+| Runtime | Passed | Failed | Skipped | Not run | Coverage |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| PowerShell 7.4.19 / .NET 8.0.30 | 2,037 | 0 | 3 | 0 | 89.55% |
+| PowerShell 7.6.5 | 2,037 | 0 | 3 | 0 | 89.55% |
+
+Each full test gate completed nine tasks without errors or warnings. The three
+skips are existing Unix-only checks: named-pipe refusal, Unix mode preservation,
+and private empty Unix staging before content copy. After the 7.4 full gate,
+test-only analyzer cleanup passed all 775 affected fixtures on 7.4.19 with no
+skips; the subsequent current-runtime full gate includes that cleanup.
+
+All 34 changed PowerShell files are analyzer-clean; all 237 source/test ASTs
+parse. YAML and inline PowerShell parse; all 55 documentation files pass
+Markdown lint. Editor diagnostics and Memory Bank health are clean.
+
+The final package workflow passed 22 tasks with zero errors or warnings.
+`output/ShellPilot.0.0.1.nupkg` contains the exact MIT text and the same
+manifest as the built module. An isolated import confirms all 35 actual
+exported commands match the source manifest.
+
+Package SHA-256:
+
+```text
+26FDC90949F7BD92CE491D9CF4D34424222E36847CEEFA9B5187E6A0B882B97D
+```
+
+Retained final logs under `%TEMP%`:
+
+- `shp-readiness-final-minimum-58b1aea6181e43aab38859ea2640e0dd.log`
+- `shp-readiness-final-fixture-quality-4ca89b677d174462862dbcfea26b470c.log`
+- `shp-readiness-final-current-pack-7d7b519552be488fb6bba4caedb458ec.log`
+- `shp-readiness-final-package-smoke-cc3cac3c02bf4b18bc15b01a8841bf84.log`
+
+Prior full gates:
 
 | Boundary | Passed | Coverage |
 | --- | ---: | ---: |
@@ -81,6 +112,25 @@ Changes: zero Blockers, one Major, one Minor. Both findings were accepted.
 
 Report and execution ledger: `%TEMP%/shp-release-review-20260907/`.
 No second independent approval of the repairs is claimed.
+
+## Local commits
+
+| Commit | Stage |
+| --- | --- |
+| `efcde2a` | Release truth, MIT, and Markdown/Memory Bank repair |
+| `7851a40` | Export, license-package, minimum-runtime, and coverage guardrails |
+| `ca9a1bf` | Explicitly blocked F14 probe record |
+| `f59d2ef` | F7/F8 terminal child environment |
+| `5e2a5b5` | F23 named-secret redaction |
+| `7f2d378` | F6 exact Tool visibility |
+| `177cd03` | F22 read-only Plan preset |
+| `92d8a86` | F17 Enterprise Cloud host routing |
+| `ef81aa0` | Independent and self-review remediations |
+| `b0a4769` | Assertion-preserving test-fixture analyzer cleanup |
+
+The documentation-only evidence closure follows these stage commits. Every
+commit has the required AI co-author trailer. Neither main reference moved;
+no merge, push, PR, publication, or release tag was performed.
 
 ## Remaining limits
 

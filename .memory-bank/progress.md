@@ -37,6 +37,14 @@ Copilot content exclusions, and enterprise MCP allowlists are not provided.
 
 ## Recent milestones
 
+- 2026-09-07 - Release-readiness closure: exact full gates on PowerShell
+  7.4.19 and 7.6.5 each passed 2,037 tests, zero failed, three existing Unix
+  skips, zero unrun, 89.55% coverage, nine clean tasks. Package workflow passed
+  22 clean tasks; built module imports 35 commands and nupkg manifest/license
+  match. All 34 changed PowerShell files are analyzer-clean. Recommend completed
+  tranche one for stable 0.4.0 after authorized hosted CI and release approval.
+  F14 and live enterprise proof remain blocked; no remote writes. See
+  [release readiness](deployment-notes.md) for logs, commits, and rollback.
 - 2026-09-07 - Final minimum-runtime gate passed 2,037 tests, zero failed,
   three existing Unix-only skips, 89.55% coverage, nine clean tasks. Whole-branch
   analysis found six warnings already present at `6318225`; explicit Pester
