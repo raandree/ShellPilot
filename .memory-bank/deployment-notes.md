@@ -161,6 +161,19 @@ Secret-environment policy stores names only and requires at least eight
 characters for nonempty values. Explicit host model lookups do not warm the
 shared cache; use Set-ShpContext followed by Get-ShpModel for that purpose.
 
-F9 is the leading tranche-two decision, backed by the existing 10,166-token
-measurement for 61 MCP tools with two offered. Do not implement it without
-maintainer sign-off.
+F9 was separately authorized on 2026-09-07 and implemented locally from
+`640769b`; see [spec 031](../specs/031-deferred-tool-loading.md) and
+[active context](activeContext.md) for its own gates, measurement, and review.
+The historical 10,166-token observation is not a current measurement. No other
+tranche-two feature or release operation is authorized by that work.
+
+F9 exact detached test gates on PowerShell 7.6.5 and 7.4.19 each passed 2,120
+tests, zero failed, three existing Unix skips, and 90.56% coverage. Local pack
+passed 22 clean tasks; an isolated import exports 35 commands, and archive and
+built manifests match. The local 0.0.1 version remains a validation artifact.
+
+F9 package SHA-256:
+
+```text
+77AF876A5ECCBBD028F373B30E7A84DE45D92E97DD722931CF99BE3056B91F41
+```

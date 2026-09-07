@@ -157,6 +157,14 @@ function Invoke-ShpBatch {
         Exact tool names to withdraw after inclusion and category switches for
         every item. Exclusion wins; unknown names are refused by the worker.
 
+    .PARAMETER DeferredToolLoading
+        Forward opt-in deferred Tool schema loading to each item, including
+        batches run with AsJob. Each Turn starts with its own unloaded set.
+        Replayed User tools may be searched; attached MCP processes are not
+        shared with workers. Fixed built-ins and explicitly selected Tool names
+        remain eager. ExcludeTool still wins. Reduces schema cost; it is not
+        authorization, containment, or prompt-injection defense.
+
     .PARAMETER DisableUserTools
         Do not offer the tools registered with Register-ShpTool. By default they
         are re-registered inside each worker runspace; a tool backed by a
@@ -423,6 +431,8 @@ function Invoke-ShpBatch {
         [ValidatePattern('^[a-zA-Z0-9_-]{1,128}$')]
         [string[]]$ExcludeTool,
 
+        [switch]$DeferredToolLoading,
+
         [switch]$AllowPrivateNetwork,
 
         [switch]$DisableFileAccess,
@@ -550,7 +560,7 @@ function Invoke-ShpBatch {
                 'InstructionRoot', 'SkillPath', 'Temperature', 'TopP', 'Seed',
                 'ResponseFormat', 'JsonSchema', 'DisableBrowsing', 'AllowPrivateNetwork',
                 'DisableFileAccess', 'DisableTerminal', 'DisableUserTools', 'DisableTodoList',
-                'DisableRedaction', 'CommandEnvironmentVariable', 'Tool', 'ExcludeTool',
+                'DisableRedaction', 'CommandEnvironmentVariable', 'Tool', 'ExcludeTool', 'DeferredToolLoading',
                 'MaxToolIterations', 'MaxContextWindowTokens', 'MaxBudgetUSD', 'FailOn',
                 'ApiBase', 'TimeoutSec', 'MaxRetryCount', 'RetryDelaySec', 'NetworkOutageToleranceSec', 'TokenPath', 'GitHubHost')) {
             if ($PSBoundParameters.ContainsKey($name)) { $invokeParams[$name] = $PSBoundParameters[$name] }

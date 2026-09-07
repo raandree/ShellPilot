@@ -26,6 +26,22 @@ LONG DESCRIPTION
     headless JSONL event stream (-EventStream) and a background job model
     (-AsJob). Start-ShpChat opens an interactive console session.
 
+    Invoke-Shp and Invoke-ShpBatch accept -DeferredToolLoading to withhold
+    eligible User and MCP schemas until search_tools finds them. Fixed built-ins
+    remain eager; explicitly bound -Tool selections remain eager too.
+    -ExcludeTool always wins, and Plan and disabled categories only narrow the
+    eligible set. Search uses the Frozen tool list without executing a User tool
+    or contacting an MCP server. Matches become callable on the next request.
+    Search accepts a nonblank query up to 512 characters and maxResult (default
+    5, capped at 20); its JSON result contains bounded metadata, not schemas.
+    Loading lasts only for the current Turn, never across calls or batch items.
+    Job model and batch workers replay User tools but do not share attached MCP
+    processes. Results add DeferredToolLoading, DeferredToolsAvailable, and
+    DeferredToolsLoaded without changing eligible/called Tool reporting.
+    Deferred loading reduces schema cost; it is not authorization, containment,
+    or prompt-injection defense. Omit the switch for ordinary eager requests.
+    The search_tools name is reserved against User-tool registration.
+
     Every public cmdlet has full comment-based help; use Get-Help <cmdlet> -Full.
 
 EXAMPLES

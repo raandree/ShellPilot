@@ -225,6 +225,28 @@ Describe 'Invoke-ShpBatch' {
             }
         }
 
+        It 'Forwards DeferredToolLoading to every item without sharing MCP processes' {
+            InModuleScope $script:moduleName {
+                $script:ShpMcpServers = @{ inert = @{ Name = 'inert'; State = 'Ready'; Process = 'not-a-worker-process'; Tools = @() } }
+                try {
+                    $null = Invoke-ShpBatch -Prompt 'a', 'b' -DeferredToolLoading
+                    foreach ($item in $script:capturedWorkItem) {
+                        $item.InvokeParams.DeferredToolLoading | Should -BeTrue
+                        $item.PSObject.Properties.Name | Should -Not -Contain 'ShpMcpServers'
+                        $item.PSObject.Properties.Name | Should -Not -Contain 'Process'
+                        ($item | ConvertTo-Json -Depth 12) | Should -Not -Match 'not-a-worker-process'
+                    }
+                } finally { $script:ShpMcpServers = @{} }
+            }
+        }
+
+        It 'Does not bind DeferredToolLoading in workers unless the caller bound it' {
+            $null = Invoke-ShpBatch -Prompt 'a'
+            InModuleScope $script:moduleName {
+                $script:capturedWorkItem[0].InvokeParams.ContainsKey('DeferredToolLoading') | Should -BeFalse
+            }
+        }
+
         It 'Forwards the GitHub host to each worker and retains its session context' {
             Set-ShpContext -GitHubHost 'https://session.ghe.com'
             try {
@@ -826,6 +848,17 @@ Describe 'Invoke-ShpBatch failure semantics' {
 }
 
 Describe 'Invoke-ShpBatch -AsJob' {
+    It 'Forwards DeferredToolLoading to the Job model' {
+        InModuleScope $script:moduleName {
+            Mock Start-ShpJob { [pscustomobject]@{ Name = 'inert-job' } }
+            $null = Invoke-ShpBatch -Prompt 'a', 'b' -DeferredToolLoading -AsJob
+            Should -Invoke Start-ShpJob -Times 1 -Exactly -ParameterFilter {
+                $Command -eq 'Invoke-ShpBatch' -and $Parameter.DeferredToolLoading -and
+                $Parameter.Prompt.Count -eq 2 -and -not $Parameter.ContainsKey('AsJob')
+            }
+        }
+    }
+
     It 'Exposes an -AsJob switch' {
         (Get-Command -Name 'Invoke-ShpBatch').Parameters['AsJob'].ParameterType |
             Should -Be ([System.Management.Automation.SwitchParameter])

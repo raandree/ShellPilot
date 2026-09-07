@@ -13,9 +13,9 @@ historical present-tense descriptions in the proposals.
 
 ## Implementation status 2026-09-07
 
-Tranche one is implemented locally on `ai/release-readiness-tranche-one`.
-F1 and F2 were already in the published preview baseline; the remaining slices
-are local changes awaiting merge and release authorization, not a publication.
+Tranche one is integrated into verified local `main` at `640769b`. F1 and F2
+were already in the published preview baseline. F9 is a separately authorized
+local tranche-two change; this status does not imply a publication.
 
 | Feature | Local result |
 | --- | --- |
@@ -25,15 +25,20 @@ are local changes awaiting merge and release authorization, not a publication.
 | F6 | Exact all-class Tool inclusion/exclusion and unchanged denial shape. |
 | F22 | Per-call Plan intersects read-only visibility and existing Tool policy. |
 | F17 | Validated Enterprise Cloud host routing and host-safe cache behavior. |
+| F9 | Opt-in deferred User/MCP schemas, Turn-local search, and batch/Job model forwarding; see [spec 031](031-deferred-tool-loading.md). |
 | F14 | Blocked: no `SHELLPILOT_GITHUB_TOKEN`; no exchange or prompt sent. |
 
-The independent branch review produced one Major and one Minor; both were
+Tranche one's independent review produced one Major and one Minor; both were
 reproduced and repaired with regression tests. Final release evidence and
 unavailable checks are in the [release notes for maintainers][readiness].
 
-F9 deferred tool loading is the leading tranche-two candidate: the existing
-measurement is 10,166 prompt tokens for 61 MCP tools with two offered. It is
-not implemented or authorized by completing tranche one.
+F9 was separately authorized on 2026-09-07 and is implemented locally on
+`ai/deferred-tool-loading`, based on verified `main` at `640769b`. The historical
+10,166-token observation is not a current expectation. Deterministic captures
+with 61 synthetic MCP schemas reduce initial Tools from 61 to 1; live provider
+comparison is blocked by the absent MCP attachment. See
+[spec 031](031-deferred-tool-loading.md#measurement). No other tranche-two
+feature is included.
 
 [readiness]: ../.memory-bank/deployment-notes.md
 
@@ -169,6 +174,11 @@ on purpose, and covers the case where no metacharacter is present.
 ## C. Cost and context
 
 ### F9 - Deferred tool loading
+
+**Status 2026-09-07:** implemented as opt-in `-DeferredToolLoading`; fixed
+built-ins and explicitly selected `-Tool` schemas remain eager. See the
+[contract and security limits](031-deferred-tool-loading.md). The proposal
+below and its token count are historical motivation.
 
 Offer the model a tool-search tool instead of every tool schema, and load a
 schema on demand.
@@ -529,7 +539,7 @@ first cut, the F14 probe runs next, and F20 is no longer blocked.
 | Tranche | Items | Status | Why together |
 | :--- | :--- | :--- | :--- |
 | **1 - first cut** | F1 search tools, F2 `edit_file`, F6 tool filters, F7 minimal child env, F8 env denylist, F17 host override, F22 plan preset, F23 secret env var | **Accepted** | No new decisions, no new state, no new dependencies. Each is self-contained and independently testable. Together they make a tight `Set-ShpToolPolicy` genuinely usable (F1, F6, F22), close two known credential-adjacent holes (F7, F8, F23), and unblock one group of users entirely (F17). |
-| **2 - finishes work already started** | F4 `Url()` kind, F9 deferred tool loading, F12 output spill, F16 MCP timeout, F11 focused compaction | Not scheduled | Each extends a mechanism that already exists rather than adding one. F9 is the standout: the measurement justifying it is already in this repository. |
+| **2 - finishes work already started** | F4 `Url()` kind, F9 deferred tool loading, F12 output spill, F16 MCP timeout, F11 focused compaction | F9 implemented locally; others not scheduled | F9 was separately authorized for opt-in User/MCP schemas only. The other items remain separate scope. |
 | **3 - needs a decision first** | F5 `Mcp()` kind → F13 GitHub surface, F15 MCP over HTTP, F18 hooks, F19 subagents | Not scheduled | F5 and F15 reopen open decisions 9 and 12, both of which were deferred pending exactly the experience now available. F13 depends on F5. F18 and F19 are new surface and each deserves its own concept document before any code. |
 | **Blocked** | F20 session resume | **Unblocked 2026-09-05** | Decision 14 settled it. Not yet scheduled. |
 | **Measure first** | F14 credential sources | **Accepted, runs next** | The probe decides a design and may change what spec 025 says. Needs a fine-grained token minted by the user. |

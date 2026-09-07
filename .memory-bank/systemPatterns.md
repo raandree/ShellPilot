@@ -19,9 +19,15 @@ See [technical context](techContext.md) for services, authentication, and gates.
 - `Invoke-Shp` owns one Tool-calling loop. Batch and Job model helpers create
   runspaces and replay Session context, defaults, Tool policy, Redaction policy,
   and User tools. They must not silently lose newly added options or policies.
-- Assemble offered tools once and derive dispatch visibility from that list.
-  A tool not offered cannot execute. Tool policy and `ShouldProcess` remain
-  independent checks; visibility is not authorization or containment.
+- Resolve eligible tools once after F6/category/Plan filtering. Deferred
+  loading partitions only User/MCP schemas when Tool is unbound. Queue search
+  matches for the next request, rebuild both API shapes, and derive dispatch
+  visibility from that request's offered set, never pending matches. Loading
+  is Turn-local; existing availability reports eligible registrations.
+- A tool not offered cannot execute. Tool policy and `ShouldProcess` remain
+  independent checks. Schema cost and visibility are not authorization,
+  containment, or prompt-injection defense. Search never contacts an MCP
+  server or resolves schema references.
 - Tool rules match resolved paths or leading command tokens and fail closed.
   Search checks every result, not only its root. `edit_file` requires both
   Read and Write and carries the authorized target into dispatch.

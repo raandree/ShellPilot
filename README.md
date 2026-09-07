@@ -259,6 +259,41 @@ contract. Availability reporting reflects the filtered set. Batch calls and
 jobs retain these per-call filters; batch still does not attach MCP servers.
 Visibility does not replace Tool policy or provide containment.
 
+### Deferred tool loading
+
+For large registered Tool sets, opt into loading User and MCP schemas on demand:
+
+```powershell
+Register-ShpTool -Command Get-Process
+$result = Invoke-Shp -Prompt 'Which processes use the most memory?' -DeferredToolLoading
+$result.DeferredToolsLoaded
+Invoke-ShpBatch -Prompt $prompts -DeferredToolLoading
+```
+
+Fixed built-ins stay eager. With unbound `-Tool`, eligible dynamic schemas are
+withheld and the model receives `search_tools`. Its plain-text `query` searches
+names, descriptions, origins, Server aliases, and parameter metadata.
+Queries must be nonblank and at most 512 characters; `maxResult` defaults to 5
+and is capped at 20. Matches load for the **next request**, not later in the same
+model response, and remain loaded only for that Turn.
+
+An explicit `-Tool` keeps selected schemas eager; `-ExcludeTool` always wins.
+Plan, disabled categories, and faulted MCP servers only narrow eligibility.
+Search reads the Frozen tool list without executing tools or contacting their
+Servers. It returns bounded metadata, never full schemas in the Tool result.
+The `search_tools` name is reserved against User-tool registration.
+
+Results add `DeferredToolLoading`, `DeferredToolsAvailable`, and
+`DeferredToolsLoaded`. Existing User/MCP availability still reports eligible
+registrations, while called members record actual dispatches. Batch and Job
+model workers keep their existing User-tool replay and do not share attached
+MCP processes. Omit the switch to preserve eager request behavior.
+
+**Deferred loading reduces schema cost; it is not authorization, containment,
+or prompt-injection defense.** Schema descriptions remain untrusted. Search can
+add round-trips, so initial savings do not guarantee lower total cost. See the
+[contract, measurements, and limits](specs/031-deferred-tool-loading.md).
+
 ### Read-only Plan mode
 
 ```powershell

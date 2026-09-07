@@ -2,98 +2,90 @@
 status: current
 last-verified: 2026-09-07
 owner: software-engineer
-source: repository, release APIs, and maintainer request
+source: repository, executable tests, request captures, and maintainer request
 ---
 
 # Active context
 
 ## Focus
 
-Release readiness and tranche one are integrated into local `main`. The branch
-fast-forwarded from `6318225` to validated tip `0cebbcd`; all three local
-`ai/*` branches were then deleted after ancestry checks. The clean linked
-worktree at `D:/Git/ShellPilot-child-isolation` was preserved and detached at
-its original `d2ab318` commit so its branch could be removed safely.
+F9 was explicitly authorized on 2026-09-07 with `review: on`. Work is on
+`ai/deferred-tool-loading`, created from verified local `main` at `640769b`.
+The local `origin/main` tracking ref also pointed at `640769b`; no remote was
+queried or modified. Preserve the pre-existing removal of one trailing blank
+line in the main Invoke-Shp unit fixture and exclude it from F9 commits.
 
-No push, publication, PR, release tag, remote branch deletion, or other remote
-write was performed. `origin/main` remains at `6318225`; the remote-tracking
-`origin/ai/edit-file-tool` remains present and is already contained in local
-`main`. Await maintainer authorization for hosted CI, push, and release.
+## Implemented behavior
 
-## Verified baseline
+- Opt-in `DeferredToolLoading` on Invoke-Shp and Invoke-ShpBatch; no new public
+  commands, dependencies, persistence, or other tranche-two feature.
+- F6 eligibility is resolved before partitioning. Fixed built-ins and bound
+  Tool selections remain eager; exclusion, Plan, categories, and MCP state
+  only narrow eligibility.
+- `search_tools` searches captured schemas by plain-text tokens, returns
+  bounded metadata, and queues schemas for the next request. A Tool call in
+  the same response remains denied. Both API shapes and RequestTransport use
+  the updated Tool list; admission sees the loaded schemas.
+- Loading is Turn-local. Availability remains the eligible filtered set;
+  called members still report actual dispatches. Worker User-tool replay and
+  MCP process isolation are unchanged.
+- See [spec 031](../specs/031-deferred-tool-loading.md) for bounds, result
+  members, security limits, measurement, and rollback.
 
-- Before integration, `main` and `origin/main` were both `6318225` and the
-  worktree was clean. Local `main` now contains `0cebbcd`; `origin/main` is
-  unchanged.
-- [CI run 34105577285](https://github.com/raandree/ShellPilot/actions/runs/34105577285)
-  passed package, Windows, macOS, Ubuntu, and deploy at that commit.
-- GitHub and Gallery APIs confirm preview `0.4.0-preview0013` and latest
-  stable `0.3.1`. Stable `0.4.0` has not been published.
-- Retained baseline gate: 1,937 passed, zero failed, three skips, 89.04%.
+## Verification
 
-## Completed scope
+- Initial red: one eager compatibility test passed; two opt-in tests failed.
+  Search red: three passed, 29 failed. Search implementation: all 32 passed.
+- Affected F9, batch, and real Job model suite: 119 passed, zero failed/skipped.
+- Real native/owned request serialization, admission, redaction, CI, and
+  deterministic measurements: 16 passed, zero failed/skipped.
+- Exact detached test gates under CI=true on PowerShell 7.6.5 and 7.4.19:
+  2,120 passed, zero failed, three existing Unix skips, zero unrun, 90.56%
+  coverage, and nine tasks with no errors or warnings on each runtime.
+- All 241 source/test ASTs parse, ten changed PowerShell files are analyzer
+  clean, six tracked YAML files parse, and source/built manifests retain 35
+  exports. Nine changed Markdown files render and pass lint.
+- Eager request data matches baseline 640769b byte-for-byte in both API shapes,
+  excluding only random RequestId, using an inert credentialless transport.
+- Self-review added a red/green 64 KiB encoded-metadata guard; omitted records
+  never load. Six named-helper tests additionally cover purity and culture.
+- Current resolved tooling is PowerShell 7.6.5 and Pester 6.1.0. Pester 5 is
+  not installed in the resolved dependency directory; no dependency was added.
+- PowerShell 7.4.19 runs from the retained self-contained distribution on
+  .NET 8.0.30. A separate retained framework-dependent executable cannot start
+  because system .NET 8 is absent; it was not used as test evidence.
+- Package workflow passed 22 tasks without errors/warnings. Isolated import
+  confirms 35 actual exports; the packaged manifest matches the built manifest
+  and generated help includes both new switch parameters.
+- Independent review and local commits remain pending; no second feature or
+  remote operation is in scope.
 
-- Maintainer-selected MIT license, Gallery installation, release truth,
-  distribution decision 7, specification 030 index, governance limitations,
-  repaired Markdown, and preserved historical Memory Bank records.
-- Source export regression and 35 synchronized commands, packaged MIT text,
-  all QA discovery, six current/7.4 OS jobs configured, 85% coverage floor.
-- F7/F8 minimal terminal environment and explicit caller pass-through, with
-  protected assignment refusal before startup, including colon-bound arguments.
-- F23 names-only secret environment policy and current literal-value redaction
-  at shared egress. Empty values are ignored; short nonempty values refused.
-- F6 exact all-class Tool inclusion/exclusion, category intersection, unknown
-  name refusal, unchanged denial shape, and batch/job forwarding.
-- F22 per-call Plan intersects read-only visibility with the unchanged session
-  Tool policy. Mutation, terminal, User/MCP, and ask_user tools are withheld.
-- F17 strict Enterprise Cloud host selection, host-specific Session-token
-  caching, service endpoint precedence, readiness, and asynchronous forwarding.
-  Explicit host model lookups cannot overwrite the shared host-tagged cache.
+Latest focused logs under TEMP:
 
-## Verification and review
+- `shp-f9-workers-green-f4d336572d8747358fc749e341a67abb.log`
+- `shp-f9-request-boundaries-35e49bd90b29456daebde03e8564b20d.log`
+- `shp-f9-full-current-5583615f18e742d5b10b067ae724a9b6.log`
+- `shp-f9-full-74-646bf58096044017937f163570c3fb97.log`
+- `shp-f9-package-4d0a9d56be1149aa8a9ecd78188d0cac.log`
+- `shp-f9-package-smoke-034e13aca2ba46269a9434fec1d64a34.log`
 
-The post-merge exact gate on local `main` passed 2,037 tests, zero failed,
-three existing Unix-only skips, 89.55% coverage, and nine tasks with no errors
-or warnings. All 55 Markdown files, 237 source/test ASTs, the 35-export manifest,
-both YAML files, editor diagnostics, and Memory Bank health also passed.
+## Measurement and limits
 
-The exact `./build.ps1 -AutoRestore -Tasks test` gate passed on PowerShell
-7.4.19 and 7.6.5 under `CI=true`: 2,037 passed, zero failed, three existing
-Unix-only skips, 89.55% coverage, and nine clean tasks on each runtime. A final
-test-only scoping cleanup additionally passed 775 affected fixtures on 7.4.19
-with no skips. All 34 changed PowerShell files are analyzer-clean; all 237
-source/test ASTs parse and the source manifest validates.
+With fixed built-ins disabled and 61 synthetic MCP schemas, initial Tools fall
+from 61 to 1. Chat schema bytes: 134,630 to 820; Responses: 128,286 to 748.
+These are serialized UTF-8 sizes, not provider token counts. The historical
+10,166-token observation is motivation only.
 
-One independent security review at `92d8a86` returned one Major and one Minor,
-with zero Blockers. Both were reproduced and fixed: embedding backend and
-credential isolation, and cross-host model-limit reuse. Self-review also fixed
-colon-bound environment assignment syntax. Full remediation and final gates
-are green. No second independent approval of the repairs is claimed.
+Live comparison is blocked: a cached sign-in file exists, but the accessible
+terminal has no loaded ShellPilot module or MCP attachment. No credential
+content was read, no Server started, and no provider request made. Provider
+model, reported prompt tokens, and cost remain unmeasured.
 
-F23 mutation disarmed only its new egress rule and failed four feature tests
-while 29 other checks passed; restoration passed all 33. F6 live provider Usage
-fell from 818 to 27 prompt tokens when excluding read_file, using fresh history,
-zero tool calls, claude-haiku-4.5, and USD 0.000885 combined.
-
-## Blocked and deferred
-
-- F14 remains explicitly blocked: no `SHELLPILOT_GITHUB_TOKEN` is configured.
-  Presence only was checked; no exchange, model request, or prompt was sent.
-  F6's cached-sign-in measurement is not F14 evidence.
-- No hosted branch matrix or live enterprise entitlement proof was run. A
-  missing enterprise service endpoint is refused rather than guessed.
-- No containment, Copilot content-exclusion enforcement, or enterprise MCP
-  allowlist enforcement is supplied. Reads/fetches and same-user code retain
-  their documented risks. Bounded child transport stays GitHub.com-only.
-- F9 is the leading tranche-two candidate, backed by the existing 10,166-token
-  measurement for 61 MCP tools with two offered. It is not authorized or built.
-
-## Next decision
-
-Recommend including completed tranche one in stable `0.4.0`, not promoting
-preview0013 unchanged. Require an authorized six-job hosted run and explicit
-maintainer release approval first. See [release readiness](deployment-notes.md)
-for evidence, local commits, migration, rollback, and remaining checks.
+Deferred loading is a schema-cost option, not authorization, containment, or
+prompt-injection defense. MCP descriptions remain untrusted and Tool policy
+does not authorize MCP calls. Search can add a round-trip and does not promise
+lower total Turn cost. No push, publication, PR, remote mutation, or other
+tranche-two feature is authorized.
 
 ## Retained context
 

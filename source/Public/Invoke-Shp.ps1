@@ -124,6 +124,20 @@ function Invoke-Shp {
         Exclusion wins and never re-enables a disabled tool. A model attempting
         a withdrawn tool receives the existing disabled-tool denial.
 
+    .PARAMETER DeferredToolLoading
+        Opt into Turn-local loading of eligible registered User and MCP schemas
+        through search_tools. Fixed built-ins stay eager. With an explicitly
+        bound Tool parameter, selected dynamic schemas also stay eager.
+        ExcludeTool, Plan, disabled categories, and MCP Server state only narrow
+        eligibility. Search reads the Frozen tool list without contacting a
+        Server or invoking a User tool. Matches become callable on the next
+        request, never later in the same model response, and are not retained
+        across calls. Search accepts a nonblank query up to 512 characters and
+        maxResult (default 5, capped at 20). Results expose DeferredToolLoading,
+        DeferredToolsAvailable, and DeferredToolsLoaded; existing availability
+        members still describe eligible registrations. Reduces schema cost;
+        it is not authorization, containment, or prompt-injection defense.
+
     .PARAMETER DisableBrowsing
         Turn off web browsing. By default the fetch_url tool is exposed to the
         model so it can retrieve web content; this switch disables it.
@@ -908,6 +922,8 @@ function Invoke-Shp {
         [ValidatePattern('^[a-zA-Z0-9_-]{1,128}$')]
         [string[]]$ExcludeTool,
 
+        [switch]$DeferredToolLoading,
+
         [switch]$AllowPrivateNetwork,
 
         [switch]$DisableFileAccess,
@@ -1525,6 +1541,43 @@ function Invoke-Shp {
     $mcpEnabled = $mcpToolMap.Count -gt 0
     if ($userToolsEnabled) { Write-Verbose ("Offering {0} user tool(s): {1}" -f $userToolCommands.Count, (($userToolCommands.Keys) -join ', ')) }
     if ($mcpEnabled) { Write-Verbose ("Offering {0} MCP tool(s): {1}" -f $mcpToolMap.Count, (($mcpToolMap.Keys) -join ', ')) }
+    $deferredTools = [ordered]@{}
+    $deferredToolsLoaded = [System.Collections.Generic.List[string]]::new()
+    $pendingDeferredTools = [System.Collections.Generic.List[string]]::new()
+    if ($DeferredToolLoading -and -not $PSBoundParameters.ContainsKey('Tool')) {
+        for ($toolIndex = $tools.Count - 1; $toolIndex -ge 0; $toolIndex--) {
+            $schema = $tools[$toolIndex]
+            $toolName = [string]$schema.function.name
+            if ($userToolCommands.ContainsKey($toolName) -or $mcpToolMap.ContainsKey($toolName)) {
+                $deferredTools[$toolName] = @{
+                    Name = $toolName
+                    Origin = $(if ($mcpToolMap.ContainsKey($toolName)) { 'Mcp' } else { 'User' })
+                    Server = $(if ($mcpToolMap.ContainsKey($toolName)) { $mcpToolMap[$toolName].Server } else { '' })
+                    Schema = $schema
+                }
+                $tools.RemoveAt($toolIndex)
+                $null = $offeredTool.Remove($toolName)
+            }
+        }
+        if ($deferredTools.Count -gt 0 -and 'search_tools' -notin $ExcludeTool) {
+            $tools.Add(@{
+                type = 'function'
+                function = @{
+                    name = 'search_tools'
+                    description = 'Search registered User and MCP tools using plain text. Matches become callable on the next request. Use specific tool names or task terms.'
+                    parameters = @{
+                        type = 'object'
+                        required = @('query')
+                        properties = @{
+                            query = @{ type = 'string'; minLength = 1; maxLength = 512; description = 'Plain-text tool name or task terms.' }
+                            maxResult = @{ type = 'integer'; minimum = 1; maximum = 20; default = 5; description = 'Maximum number of matches to load.' }
+                        }
+                    }
+                }
+            })
+            $null = $offeredTool.Add('search_tools')
+        }
+    }
     if ($tools.Count -eq 0) { $tools = $null }
 
     $apiHeaders = @{
@@ -1662,14 +1715,6 @@ function Invoke-Shp {
     $userChatContent = if ($hasImages) { ConvertTo-ShpImageContent -Text $effectivePrompt -Image $effectiveImages.ToArray() } else { $effectivePrompt }
     $null = $chatMessages.Add(@{ role='user';   content=$userChatContent })
     $null = $respInput.Add(@{ role='user';   content=$effectivePrompt })
-
-    $respTools = $null
-    if ($tools) {
-        $respTools = @()
-        foreach ($t in $tools) {
-            $respTools += @{ type='function'; name=$t.function.name; description=$t.function.description; parameters=$t.function.parameters }
-        }
-    }
 
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
     $totalPrompt=0; $totalCompletion=0; $totalCached=0; $totalCacheWrite=0; $peakPromptTokens=0
@@ -1835,6 +1880,13 @@ function Invoke-Shp {
             }
             throw $limitError
         }
+        foreach ($toolName in $pendingDeferredTools) {
+            if ($offeredTool.Add($toolName)) {
+                $tools.Add($deferredTools[$toolName].Schema)
+                $deferredToolsLoaded.Add($toolName)
+            }
+        }
+        $pendingDeferredTools.Clear()
         if ($ShowThinking) { Write-Host ("`n=== iteration {0} ({1}) ===" -f $iteration, $apiMode) -ForegroundColor DarkCyan }
         try {
             # Re-resolve the Session token for THIS iteration. It is short-lived
@@ -1849,6 +1901,14 @@ function Invoke-Shp {
                     $apiHeaders.Authorization = "Bearer $iterationToken"
                     Write-Verbose 'Session token refreshed mid-turn; this iteration carries the new bearer.'
                 }
+            }
+            $respTools = $null
+            if ($tools) {
+                $respTools = @(
+                    foreach ($schema in $tools) {
+                        @{ type='function'; name=$schema.function.name; description=$schema.function.description; parameters=$schema.function.parameters }
+                    }
+                )
             }
             $conv = if ($apiMode -eq 'responses') { $respInput } else { $chatMessages }
             $tls  = if ($apiMode -eq 'responses') { $respTools } else { $tools }
@@ -2291,6 +2351,23 @@ function Invoke-Shp {
                         $toolResult = @{ denied = $access.Reason } | ConvertTo-Json -Compress
                     } else {
                     switch ($tc.Name) {
+                        'search_tools' {
+                            if ($fargs.query -isnot [string]) { throw 'search_tools requires query as plain text.' }
+                            $searchParams = @{ Tool = $deferredTools; Query = $fargs.query }
+                            if ($fargs.PSObject.Properties['maxResult']) {
+                                if (($fargs.maxResult -isnot [int] -and $fargs.maxResult -isnot [long]) -or $fargs.maxResult -lt 1) {
+                                    throw 'search_tools requires maxResult as a positive integer.'
+                                }
+                                $searchParams.MaxResult = $fargs.maxResult
+                            }
+                            $search = Find-ShpDeferredTool @searchParams
+                            foreach ($match in $search.tools) {
+                                if (-not $offeredTool.Contains($match.name) -and -not $pendingDeferredTools.Contains($match.name)) {
+                                    $pendingDeferredTools.Add($match.name)
+                                }
+                            }
+                            $toolResult = ConvertTo-Json -InputObject $search -Depth 5 -Compress
+                        }
                         'fetch_url' { $toolResult = Invoke-FetchUrlTool -Url ([string]$fargs.url) -AllowPrivateNetwork:$AllowPrivateNetwork }
                         'read_file' {
                             # path-only stays a bounded first window; offset/limit
@@ -2610,6 +2687,8 @@ function Invoke-Shp {
         Redactions=@($redactionCounts.Keys | ForEach-Object { [pscustomobject]@{ Name=$_; Count=$redactionCounts[$_] } })
         TodoList=@($todoList)
         UserToolsAvailable=@($userToolCommands.Keys); UserToolsCalled=@($userToolsCalled)
+        DeferredToolLoading=[bool]$DeferredToolLoading
+        DeferredToolsAvailable=@($deferredTools.Keys); DeferredToolsLoaded=@($deferredToolsLoaded)
         McpEnabled=[bool]$mcpEnabled
         McpServersAvailable=@($script:ShpMcpServers.Keys)
         McpToolsAvailable=@($mcpToolMap.Keys); McpToolsCalled=@($mcpToolsCalled)

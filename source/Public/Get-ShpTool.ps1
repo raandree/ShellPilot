@@ -15,6 +15,10 @@ function Get-ShpTool {
         MCP tool, Command holds the name the server itself uses, which is what
         its own documentation refers to.
 
+        Lists registrations, not a Turn's loaded schemas. With Invoke-Shp
+        -DeferredToolLoading, eligible dynamic schemas are offered only after
+        search_tools loads them, unless Tool was explicitly bound.
+
         With nothing registered or attached the result is empty.
 
     .PARAMETER Name

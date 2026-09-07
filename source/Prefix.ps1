@@ -348,7 +348,7 @@ $script:ShpEditFileMaxBytes = 8MB
 $script:ShpBuiltInToolName = @(
     'fetch_url', 'read_file', 'list_directory', 'glob_files', 'grep_files',
     'write_file', 'edit_file', 'create_directory',
-    'run_command', 'ask_user', 'load_skill', 'load_instruction', 'manage_todo_list'
+    'run_command', 'ask_user', 'load_skill', 'load_instruction', 'manage_todo_list', 'search_tools'
 )
 
 # Most recent /responses response id, retained only when a call opts into

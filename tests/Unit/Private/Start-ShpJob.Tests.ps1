@@ -76,5 +76,35 @@ Describe 'Start-ShpJob' {
                 Remove-Job -Job $job -Force -ErrorAction SilentlyContinue
             }
         }
+
+        It 'Should preserve deferred worker isolation for <ToolName>' -ForEach @(
+            @{ ToolName = 'Get-Random'; ExpectedError = '*ShpCopilotBackendInCi*' }
+            @{ ToolName = 'mcp_parent_only'; ExpectedError = "*Unknown tool 'mcp_parent_only'*" }
+        ) {
+            $job = InModuleScope $script:moduleName -Parameters @{ ToolName = $ToolName } {
+                param($ToolName)
+                $null = Register-ShpTool -Command Get-Random
+                $script:ShpMcpServers = @{
+                    parent = @{ Name = 'parent'; State = 'Ready'; Process = 'never-share'; Tools = @(@{ Name = 'mcp_parent_only' }) }
+                }
+                Start-ShpJob -Command 'Invoke-Shp' -Parameter @{
+                    Prompt = 'inspect'; DeferredToolLoading = $true; Tool = @($ToolName)
+                }
+            }
+            try {
+                $null = Wait-Job -Job $job -Timeout 30
+                $jobError = $null
+                $null = Receive-Job -Job $job -ErrorAction SilentlyContinue -ErrorVariable jobError
+                @($jobError) | Should -HaveCount 1
+                (@($jobError) | Out-String) + (@($jobError).FullyQualifiedErrorId -join ' ') |
+                    Should -BeLike $ExpectedError
+            } finally {
+                Remove-Job -Job $job -Force -ErrorAction SilentlyContinue
+                InModuleScope $script:moduleName {
+                    $script:ShpMcpServers = @{}
+                    Unregister-ShpTool -All
+                }
+            }
+        }
     }
 }

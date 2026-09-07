@@ -62,6 +62,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Add opt-in `-DeferredToolLoading` to `Invoke-Shp` and `Invoke-ShpBatch` for
+  Turn-local User/MCP schema search with `search_tools`. Keep fixed built-ins
+  and explicit `-Tool` selections eager, with exclusion winning. Reserve the
+  `search_tools` registration name and add deferred availability/loading result
+  members. This is a schema-cost option, not authorization, containment, or
+  prompt-injection defense. See [deferred loading](specs/031-deferred-tool-loading.md).
+
 - Add explicit `-GitHubHost`, Session context, and `SHELLPILOT_GITHUB_HOST`
   routing for GitHub Enterprise Cloud on GHE.com, with validated HTTPS origins,
   host-specific Session-token caching, and readiness reporting. Preserve
