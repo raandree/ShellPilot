@@ -127,10 +127,13 @@ No second independent approval of the repairs is claimed.
 | `92d8a86` | F17 Enterprise Cloud host routing |
 | `ef81aa0` | Independent and self-review remediations |
 | `b0a4769` | Assertion-preserving test-fixture analyzer cleanup |
+| `0cebbcd` | Final release-readiness evidence |
 
-The documentation-only evidence closure follows these stage commits. Every
-commit has the required AI co-author trailer. Neither main reference moved;
-no merge, push, PR, publication, or release tag was performed.
+Every stage commit has the required AI co-author trailer. Local `main`
+fast-forwarded to `0cebbcd`, then passed the exact full gate again. All three
+local `ai/*` branches were deleted after containment checks. `origin/main`
+remains `6318225`; no push, remote branch deletion, PR, publication, or release
+tag was performed.
 
 ## Remaining limits
 

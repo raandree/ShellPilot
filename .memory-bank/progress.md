@@ -11,9 +11,11 @@ source: repository, retained test log, and release APIs
 
 ShellPilot is a Sampler-built PowerShell module with 35 public commands,
 Pester and QA gates, and GitHub Actions packaging and cross-platform tests.
-The current preview requires PowerShell 7.4 or later. At `6318225`, both
-`main` and `origin/main` correspond to published `0.4.0-preview0013`;
-`0.3.1` remains latest stable on GitHub Releases and the PowerShell Gallery.
+The current preview requires PowerShell 7.4 or later. Local `main` contains the
+completed release-readiness and tranche-one work through `0cebbcd`; all local
+`ai/*` branches are removed. `origin/main` remains at published preview
+`0.4.0-preview0013` (`6318225`); `0.3.1` remains latest stable on GitHub
+Releases and the PowerShell Gallery.
 
 Patterns 002-028 and 030 are implemented, including MCP stdio, Tool policy,
 egress redaction, the CI profile, the Event stream, the Job model, and host
@@ -23,12 +25,10 @@ Copilot content exclusions, and enterprise MCP allowlists are not provided.
 
 ## Open work
 
-- Complete release guardrails and remaining tranche-one features: F7/F8,
-  F23, F6, F22, and F17, with test-first local commits and independent review.
 - Measure F14 with an already configured in-memory token; no token means
   explicitly blocked, without blocking the other work.
-- Decide stable `0.4.0` scope after final test and package gates. Distribution
-  decision 7 is closed; stable and preview packages already exist.
+- Authorize and run the new six-job hosted current/7.4 OS matrix before a push
+  or stable release. Decide and explicitly authorize stable `0.4.0` publication.
 - F9 is the leading tranche-two candidate, backed by the existing 10,166-token
   measurement. No tranche-two implementation is authorized.
 - MCP follow-ups, hooks, session resume, and subagents remain separate scope.
@@ -37,6 +37,13 @@ Copilot content exclusions, and enterprise MCP allowlists are not provided.
 
 ## Recent milestones
 
+- 2026-09-07 - Fast-forward local `main` from `6318225` to validated
+  release-readiness tip `0cebbcd`. Post-merge exact gate: 2,037 passed, zero
+  failed, three existing Unix skips, 89.55% coverage, nine clean tasks. All
+  merged Markdown, AST, manifest, YAML, editor, and Memory Bank checks passed.
+  Proved all three local `ai/*` tips were contained, detached the clean linked
+  child-provider worktree at `d2ab318`, then deleted all three local branches.
+  `origin/main` and remote branches were not modified.
 - 2026-09-07 - Release-readiness closure: exact full gates on PowerShell
   7.4.19 and 7.6.5 each passed 2,037 tests, zero failed, three existing Unix
   skips, zero unrun, 89.55% coverage, nine clean tasks. Package workflow passed

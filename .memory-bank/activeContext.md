@@ -9,17 +9,22 @@ source: repository, release APIs, and maintainer request
 
 ## Focus
 
-Release readiness and tranche one are implemented on
-`ai/release-readiness-tranche-one`, based on `6318225`. All work is local:
-no push, publication, PR, release tag, or other remote write was performed.
-Final runtime and package gates are green. The package imports all 35 commands,
-contains the verified manifest and exact MIT text, and remains a local `0.0.1`
-validation artifact. Await maintainer authorization for hosted CI and release.
+Release readiness and tranche one are integrated into local `main`. The branch
+fast-forwarded from `6318225` to validated tip `0cebbcd`; all three local
+`ai/*` branches were then deleted after ancestry checks. The clean linked
+worktree at `D:/Git/ShellPilot-child-isolation` was preserved and detached at
+its original `d2ab318` commit so its branch could be removed safely.
+
+No push, publication, PR, release tag, remote branch deletion, or other remote
+write was performed. `origin/main` remains at `6318225`; the remote-tracking
+`origin/ai/edit-file-tool` remains present and is already contained in local
+`main`. Await maintainer authorization for hosted CI, push, and release.
 
 ## Verified baseline
 
-- `main` and `origin/main` remain at `6318225`. The initial worktree was clean,
-  with `ai/fix-child-provider-ci-tests` checked out at that same tip.
+- Before integration, `main` and `origin/main` were both `6318225` and the
+  worktree was clean. Local `main` now contains `0cebbcd`; `origin/main` is
+  unchanged.
 - [CI run 34105577285](https://github.com/raandree/ShellPilot/actions/runs/34105577285)
   passed package, Windows, macOS, Ubuntu, and deploy at that commit.
 - GitHub and Gallery APIs confirm preview `0.4.0-preview0013` and latest
@@ -46,6 +51,11 @@ validation artifact. Await maintainer authorization for hosted CI and release.
   Explicit host model lookups cannot overwrite the shared host-tagged cache.
 
 ## Verification and review
+
+The post-merge exact gate on local `main` passed 2,037 tests, zero failed,
+three existing Unix-only skips, 89.55% coverage, and nine tasks with no errors
+or warnings. All 55 Markdown files, 237 source/test ASTs, the 35-export manifest,
+both YAML files, editor diagnostics, and Memory Bank health also passed.
 
 The exact `./build.ps1 -AutoRestore -Tasks test` gate passed on PowerShell
 7.4.19 and 7.6.5 under `CI=true`: 2,037 passed, zero failed, three existing
