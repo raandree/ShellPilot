@@ -4,11 +4,14 @@ Current working focus for ShellPilot. Overwrite this file as the focus shifts.
 
 ## Focus
 
-ShellPilot `main` is merging `ai/child-provider-boundary` at the operator's request.
-Production source auto-merged; only `activeContext.md` and `progress.md` required
-additive history resolution. The combined full gate is pending, so neither
-branch's earlier test count proves the merged bytes. No push or package
-publication is authorized by this merge.
+ShellPilot `main` contains the conflict-resolved merge of
+`ai/child-provider-boundary`. The merged full gate passed 1,937 tests with
+zero failures, three existing Unix-only skips, zero unrun cases, and 89.04%
+coverage; all 16 tasks completed without errors/warnings at 08:22:30 UTC.
+DeskPilot passed 108 approval contracts before review and all 117 after the
+review-Minor matrix against the exact merged module. Merge commit `4ab9eed`
+was pushed to `origin/main` and the remote tip was verified equal. No package
+publication, tag, or release.
 
 The merged candidate combines the completed cross-platform `edit_file`
 remediation with explicit `provider-estimate` admission, bounded child provider
@@ -16,8 +19,8 @@ transport, and retained strict/default behavior. The feature branch previously
 passed 1,915 tests without failures/skips and 89.2% coverage. DeskPilot's
 authenticated built child used two counts and two generations, reported 1,601
 input plus 87 output tokens and USD 0.002036, left the Project unchanged, and
-verified cleanup. Those results remain branch evidence until the merged Engine
-passes its own full gate.
+verified cleanup. The merged gate protects their integration with the newer
+`edit_file` source; a new authenticated child proof was not run for the merge.
 
 The new owned-request path provides non-refundable upward reconciliation,
 complete supported Chat-to-Messages counting, bounded no-retry HTTP, fresh Host

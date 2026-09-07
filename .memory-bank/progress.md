@@ -16,11 +16,10 @@ Chronological record of shipped changes and remaining work. Latest first.
   state (011) is implemented but the Copilot proxy does not support it, so it
   falls back to client-side history.
 - The exact detached Sampler gate is currently healthy on PowerShell 7.6.5:
-  merged-candidate validation is pending. The `edit_file` branch previously
-  passed 1,767 tests with three Unix-only skips and 88.60% coverage; the child
-  transport branch passed 1,915 tests without skips and 89.2% coverage. Neither
-  result proves the combined bytes. A prior .NET 10 native access violation on
-  PowerShell 7.6.1 remains historical only.
+  1,937 tests passed, zero failed, three existing Unix-only skips, zero unrun,
+  and 89.04% coverage on 2026-09-07. All 16 tasks completed without errors or
+  warnings. A prior .NET 10 native access violation on PowerShell 7.6.1 remains
+  historical only.
 
 ## What is left
 
@@ -50,8 +49,11 @@ Chronological record of shipped changes and remaining work. Latest first.
 - 2026-09-07 - Merge `ai/child-provider-boundary` into local `main` at the
   operator's request. Production source auto-merged; active context and progress
   required additive resolution with both `edit_file` and child-transport
-  evidence retained. Combined full validation is pending; no push or package
-  publication.
+  evidence retained. Combined validation passed 1,937 tests, zero failures,
+  three existing Unix-only skips, 89.04% coverage, and 16 tasks without errors
+  or warnings. DeskPilot passed all 117 paired approval contracts. Merge commit
+  `4ab9eed` was pushed to `origin/main`; the remote tip matched. No package
+  publication, tag, or release.
 
 - 2026-09-07 - Complete explicit `provider-estimate` owned-request budgets,
   non-refundable upward reconciliation, complete supported counting, bounded
