@@ -7,14 +7,14 @@ Bank and the relevant specs.
 ## Decisions recorded 2026-06-06
 
 | # | Decision | Choice | Delivered |
-|---|----------|--------|-----------|
-| 1 | Scope | Full terminal Copilot (interactive session, streaming, slash commands, MCP) | Mostly (session + streaming done; slash commands partial; MCP not yet) |
+| --- | --- | --- | --- |
+| 1 | Scope | Full terminal Copilot (interactive session, streaming, slash commands, MCP) | Session, streaming, and stdio MCP delivered; slash commands partial |
 | 2 | Build framework | Sampler | Yes |
 | 3 | Naming | Renamed to ShellPilot; cmdlet prefix Shp | Yes |
-| 4 | PowerShell support | PowerShell 7+ only | Yes |
-| 5 | Authentication | Encrypted storage (SecretManagement / DPAPI) | Pending (still clear-text) |
+| 4 | PowerShell support | PowerShell 7+ only | Current preview requires 7.4; Windows PowerShell 5.1 is unsupported |
+| 5 | Authentication | DPAPI on Windows; file permissions elsewhere | Yes; see decision 5 and spec 020 |
 | 6 | Interactivity | Add an interactive chat session | Yes (Start-ShpChat) |
-| 7 | Distribution | PowerShell Gallery | Pending (not yet published) |
+| 7 | Distribution | PowerShell Gallery and GitHub Releases | Yes; stable 0.3.1 and preview 0.4.0-preview0013 verified 2026-09-07 |
 
 The numbered sections below retain the original options for context.
 
@@ -90,6 +90,23 @@ Recommendation: B, after the core is on a build framework.
 
 Recommendation: A, gated behind tests and CHANGELOG discipline.
 
+**CLOSED 2026-09-07: A, with GitHub Releases alongside the Gallery.**
+The [Gallery stable release][gallery-stable] is `0.3.1`; the latest preview is
+[`0.4.0-preview0013`][gallery-preview], also published on
+[GitHub Releases][github-preview]. The release APIs and
+[CI run 34105577285][release-ci] confirm successful package, Windows, macOS,
+Ubuntu, and deploy jobs at `6318225`. Stable `0.4.0` has not been published.
+
+The maintainer selected the [MIT license](../LICENSE) on 2026-09-07. The
+license addition is local until merged and published; it does not retroactively
+change the contents of existing Gallery packages. Copilot service terms and
+account entitlement remain separate from this source license.
+
+[gallery-stable]: https://www.powershellgallery.com/packages/ShellPilot/0.3.1
+[gallery-preview]: https://www.powershellgallery.com/packages/ShellPilot/0.4.0-preview0013
+[github-preview]: https://github.com/raandree/ShellPilot/releases/tag/v0.4.0-preview0013
+[release-ci]: https://github.com/raandree/ShellPilot/actions/runs/34105577285
+
 ## Raised 2026-08-12 by spec 021 (MCP server support)
 
 Each of these is deliberately unresolved in the v1 MCP design rather than
@@ -100,13 +117,13 @@ as numbered sections because most of them defer rather than close - the
 recorded choice is what v1 does and what a later version may revisit.
 
 | # | Decision | Choice |
-|---|----------|--------|
-| 8 | Copilot function-name constraint | Verify empirically before implementing |
+| --- | --- | --- |
+| 8 | Copilot function-name constraint | Closed by measurement on 2026-08-12 |
 | 9 | `Mcp()` policy rule kind | Not in v1; revisit as its own decision |
 | 10 | MCP under `Invoke-ShpBatch` | Not available; warn once |
 | 11 | Restart a crashed server | Mark `Faulted`; explicit `-Force` only |
 | 12 | Streamable HTTP | Defer until stdio has shipped and been measured |
-| 13 | Cross-session tool-list pinning | Needs a module-state-on-disk decision first |
+| 13 | Cross-session tool-list pinning | Option B unblocked by decision 14; implementation remains separate |
 
 Two further questions raised at review and answered there rather than here:
 eager start at registration is **confirmed**, and a configuration entry

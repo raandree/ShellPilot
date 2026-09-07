@@ -3,7 +3,7 @@ schema-version: 1
 loading-mode: routed
 status: accepted
 owner: shared
-last-verified: 2026-07-28
+last-verified: 2026-09-07
 source: repository evidence
 ---
 
@@ -45,3 +45,9 @@ relevant `decisions/*.md` record.
 1. Accepted decision records control durable architectural choices.
 1. Core Memory Bank files control only their assigned topic.
 1. Historical logs never override current source.
+
+## Retained history
+
+The compact active context, progress, and system patterns link to their
+same-directory historical records. Load those only for a specific historical
+question; their old pending states and permissions do not control current work.

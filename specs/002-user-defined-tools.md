@@ -20,7 +20,7 @@ This is the single biggest agent-capability gap.
 
 ## Proposed design
 
-- A registration cmdlet, Register-ShpTool -Command <name>, that reads the
+- A registration cmdlet, `Register-ShpTool -Command <name>`, that reads the
   command's parameter metadata (the [Parameter] attributes, types, mandatory
   flags, and ValidateSet values) and derives a tool JSON schema from it
   automatically.

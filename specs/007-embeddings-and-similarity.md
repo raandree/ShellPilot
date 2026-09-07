@@ -19,7 +19,7 @@ without leaving PowerShell.
 
 ## Proposed design
 
-- Request-ShpEmbedding -Text <string[]> [-Model <id>] that posts to the
+- `Request-ShpEmbedding -Text <string[]> [-Model <id>]` that posts to the
   embeddings endpoint with the existing session token and headers and returns
   the vectors as objects.
 - A pure-PowerShell Get-ShpCosineSimilarity helper to rank vectors, honouring

@@ -39,7 +39,7 @@ surface, and in several areas goes further. These are Done and must not
 regress.
 
 | Capability | PSOpenAI | ShellPilot | Status |
-|------------|----------|------------|--------|
+| ------------ | ---------- | ------------ | -------- |
 | Authentication | API key (`-ApiKey`, env var) | Device-code flow (`Initialize-Shp`) | Done |
 | Model listing | `Get-OpenAIModels` | `Get-ShpModel` (with capability limits) | Done |
 | Chat completion | `Request-ChatCompletion` | `Invoke-Shp` (chat shape) | Done |
@@ -136,7 +136,7 @@ still needed.
 ## Tier 2 - worth doing
 
 | # | Idea (PSOpenAI) | Note | Status |
-|---|-----------------|------|--------|
+| --- | ----------------- | ------ | -------- |
 | 6 | Embeddings plus cosine similarity (`Request-Embeddings`, `Get-CosineSimilarity`) | Unlocks semantic search / RAG from the shell; same token and header pattern as `Get-ShpModel`, plus a new `/embeddings` call. | Done and live-verified - Request-ShpEmbedding / Get-ShpCosineSimilarity (spec 007) |
 | 7 | Unified context object (`Set/Get/Clear-OpenAIContext`) | Extend `$script:ShpDefaults` into a `Set-ShpContext` covering timeout, retry, and endpoint override - one place for connection settings. | Done - Set/Get/Clear-ShpContext (spec 008) |
 | 8 | Pipeline-friendly history | Accept `-History` from the pipeline so `$a \| Invoke-Shp` continues a turn, matching PSOpenAI's piped results. | Done - Invoke-Shp -History from the pipeline (spec 009) |

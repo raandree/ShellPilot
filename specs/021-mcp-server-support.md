@@ -25,7 +25,7 @@ revision 2025-11-25", recorded by the 2026-07-28 gap analysis when
 the base protocol.
 
 | Fact | Source |
-|------|--------|
+| ------ | -------- |
 | `2026-07-28` is the **current** revision; `2025-11-25` and earlier are the "legacy" era | [Versioning](https://modelcontextprotocol.io/specification/versioning) |
 | There is **no `initialize` / `initialized` handshake** in the modern era. The protocol is stateless: every request carries `_meta.io.modelcontextprotocol/protocolVersion` (required), `clientCapabilities` (required) and `clientInfo` (SHOULD) | [Versioning and Compatibility](https://modelcontextprotocol.io/specification/2026-07-28/basic/versioning), [`_meta`](https://modelcontextprotocol.io/specification/2026-07-28/basic#meta) |
 | Version negotiation is per request. An unsupported version returns `UnsupportedProtocolVersionError` (`-32022`) whose `data.supported` lists what the server does speak | [Versioning and Compatibility](https://modelcontextprotocol.io/specification/2026-07-28/basic/versioning) |
@@ -75,9 +75,9 @@ not cover all three:
    a command line in a configuration file, running as the caller. `npx -y
    some-package` resolves and executes whatever that name points at today.
    This is a supply-chain position, not a sandbox.
-2. **Whoever can write the configuration file** the caller reads. A file is a
+1. **Whoever can write the configuration file** the caller reads. A file is a
    command line, and a command line is arbitrary code.
-3. **Untrusted content**, as in spec 019 - except that with MCP the untrusted
+1. **Untrusted content**, as in spec 019 - except that with MCP the untrusted
    content arrives *inside the protocol*. A tool `description` is read by the
    model on **every** round-trip, before any tool has been called, and a tool
    *result* is untrusted content injected mid-loop.
@@ -115,7 +115,7 @@ changes; only the tool list does.
 ### Why the existing controls do not cover it
 
 | Control | Why it does not help here |
-|---------|---------------------------|
+| --------- | --------------------------- |
 | `Set-ShpToolPolicy` | **It cannot gate an MCP call at all.** `Test-ShpToolAccess` matches a `Read`/`Write` rule against a resolved filesystem path and a `Shell` rule against leading command tokens. An MCP tool call is a name and a JSON blob: it exposes neither. Worse, the gap is counter-intuitive - a policy that scopes `read_file` to one directory does **nothing** to an attached filesystem server that reads anywhere, so a caller who has locked down the built-ins may believe they are covered when they are not. See decision 12 |
 | `-DisableFileAccess` / `-DisableTerminal` | Turn off the *built-in* tools. An attached server can offer file and shell tools of its own, so disabling the built-ins can reduce visibility without reducing reach |
 | `Test-ShpUrlSafe` | Guards `fetch_url` only. An MCP server makes its own network calls in its own process; nothing in this module is on that path |
@@ -133,7 +133,7 @@ extension) - a server nobody here wrote, which is the point: a stub implements
 the author's own reading of the specification and therefore cannot falsify it.
 
 | Observation | Result |
-|-------------|--------|
+| ------------- | -------- |
 | Era | **legacy** - `initialize`, `2025-11-25`. Microsoft's own current server does not speak the modern era, which settles whether dual-era support was worth building |
 | Tools | 61 accepted, 0 dropped, 0 names outside `^[a-zA-Z0-9_-]{1,128}$`, 0 needing sanitising |
 | `instructions` | supplied and captured |
@@ -200,14 +200,14 @@ the legitimate function as well as an exfiltration route.
 One Turn, one policy (`Read(<repo>/**)`), two tool calls:
 
 | Tool call | Outcome |
-|-----------|---------|
+| --- | --- |
 | `read_file` on a file outside the repository | **denied**: *No Read rule in the tool policy allows '...\decoy.txt'* |
 | `mcp_notes_get_release_notes` | **ran**, and its content reached the answer |
 
-**Everything else that was verified live**
+Everything else that was verified live:
 
 | Check | Result |
-|-------|--------|
+| ------- | -------- |
 | Legacy era | `initialize` negotiated `2025-11-25`; tool called; its content (`ZULU-4417`) reached the answer |
 | Modern era | `server/discover` negotiated `2026-07-28` against the same stub started in modern mode |
 | Progress record | `ToolCall` emitted as `mcp_notes_get_release_notes {"version":"2.0.0"}`, so a host renders an MCP call like any other |
@@ -311,10 +311,10 @@ in order of weight:
 1. `Invoke-Shp` assembles `$tools` *before* the first request, so the tool
    list has to exist by then regardless. A lazy start would move the process
    spawn inside the turn without removing it.
-2. A failure to start is then a failure of the command the caller just ran,
+1. A failure to start is then a failure of the command the caller just ran,
    with the server's `stderr` in the error. Lazily, the same failure becomes a
    degraded Turn - the class of silent no-op this repository keeps removing.
-3. It creates the approval point that decisions 8 and 12 depend on: one moment
+1. It creates the approval point that decisions 8 and 12 depend on: one moment
    where the caller sees the tool list before the model does.
 
 **A server outlives a Turn** and stays attached across `Invoke-Shp` calls,
@@ -363,11 +363,11 @@ The client speaks the modern era first and falls back:
 
 1. Send `server/discover` with
    `_meta.io.modelcontextprotocol/protocolVersion = '2026-07-28'`.
-2. A `DiscoverResult` - modern server. Pick a mutually supported version from
+1. A `DiscoverResult` - modern server. Pick a mutually supported version from
    `supportedVersions`.
-3. `UnsupportedProtocolVersionError` (`-32022`) - modern server, different
+1. `UnsupportedProtocolVersionError` (`-32022`) - modern server, different
    version. Retry with one from `data.supported`. **Do not** fall back.
-4. Any other error, or no answer within `ConnectTimeoutSec` - legacy server.
+1. Any other error, or no answer within `ConnectTimeoutSec` - legacy server.
    Send `initialize` (offering `2025-11-25`), honour the version it answers
    with, then send `notifications/initialized`.
 
@@ -405,7 +405,7 @@ can see.
 candidate name:
 
 | Name | Verdict |
-|------|---------|
+| ------ | --------- |
 | `mcp_files_read_text_file`, `mcp-files-read-text-file`, `1mcp_tool` | accepted |
 | 64, 65 and 128 characters | accepted |
 | 129 and 256 characters | `String should have at most 128 characters` |
@@ -527,7 +527,7 @@ The mapping produces the module's existing envelope shape
 tool-result cap and its `...[truncated, original N chars]` marker:
 
 | Block | Mapped to |
-|-------|-----------|
+| ------- | ----------- |
 | `text` | The text, joined with newlines |
 | `image` / `audio` | A placeholder recording `mimeType` and byte length. Base64 payloads are never inlined: the tool-result channel is a string on the `tool` role, the bytes would be re-sent on every later round-trip, and the module's image path is `Invoke-Shp -Image`, not this |
 | `resource_link` | `uri`, `name`, `mimeType`. **Not fetched** - fetching a URI a tool result named would be an unannounced outbound request |
@@ -627,7 +627,7 @@ without them. Open decision 10.
 ## Source hook points
 
 | File | Change |
-|------|--------|
+| ------ | -------- |
 | `source/Public/Register-ShpMcpServer.ps1` | New. Starts a server, negotiates the era, lists and freezes its tools, applies the name and bound rules |
 | `source/Public/Get-ShpMcpServer.ps1` | New. Reports attached servers; masks `env` values |
 | `source/Public/Unregister-ShpMcpServer.ps1` | New. Specification shutdown sequence, then removes the record |
@@ -648,7 +648,7 @@ without them. Open decision 10.
 ## Deliberately not done in v1
 
 | Not done | Why |
-|----------|-----|
+| ---------- | ----- |
 | Streamable HTTP transport | Decision 4. Needs the Authorization framework, SSE parsing and an SSRF answer - its own design cycle |
 | OAuth / the MCP Authorization framework | HTTP-only by definition; follows the transport |
 | Resources (`resources/list`, `resources/read`) | A context-attachment feature, not a tool feature. It belongs with a design for how external context enters the system prompt |

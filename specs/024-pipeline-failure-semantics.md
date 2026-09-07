@@ -23,7 +23,7 @@ a half-finished answer.
 The same holds for three more outcomes that are pure data today:
 
 | Outcome | What the caller gets | What an unattended run does |
-|---------|----------------------|-----------------------------|
+| --------- | ---------------------- | ----------------------------- |
 | Budget stop | warning + `BudgetExceeded` | continues |
 | Output cap hit | `FinishReason = 'length'` | continues, with a truncated answer |
 | Empty reply | `Content = ''` | continues, writing an empty artifact |
@@ -43,7 +43,7 @@ nothing at all, which is the whole back-compatibility guarantee: today's warning
 plus property is still what a caller who never asked for failure semantics gets.
 
 | Condition | Fires when | Error id |
-|-----------|------------|----------|
+| ----------- | ------------ | ---------- |
 | `BudgetExceeded` | the `-MaxBudgetUSD` cap stopped the loop | `ShpBudgetExceeded` |
 | `Truncated` | `FinishReason -eq 'length'` | `ShpTruncated` |
 | `ToolIterationLimit` | the loop passed `-MaxToolIterations` | `ShpToolIterationLimit` |
@@ -142,7 +142,7 @@ finished, with `ShpBatchItemsFailed,Invoke-ShpBatch` and a
 `ShellPilot.BatchSummary` on `TargetObject`:
 
 | Member | Meaning |
-|--------|---------|
+| -------- | --------- |
 | `TotalCount` | items in the batch, including malformed input |
 | `SucceededCount` | items that completed |
 | `FailedCount` | items that did not, for any reason |
@@ -164,7 +164,7 @@ variable.
 ## Source hook points
 
 | File | Change |
-|------|--------|
+| ------ | -------- |
 | `source/Private/New-ShpFailureError.ps1` | New. Owns the condition-to-error-id map and builds the `ErrorRecord`. |
 | `source/Public/Invoke-Shp.ps1` | `-FailOn`; the structured throw at the iteration guard; the four-condition check after the usage row. |
 | `source/Private/Invoke-ShpBatchItem.ps1` | Recovers a `ShellPilot.Result` from `TargetObject` so a failed item keeps its cost. |

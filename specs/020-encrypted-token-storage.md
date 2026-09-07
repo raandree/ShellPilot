@@ -59,7 +59,7 @@ The control is against *ordinary* other principals, not against privilege.
 **DPAPI plus file permissions.** Not SecretManagement, not permissions alone.
 
 | Option | Why not chosen |
-|--------|----------------|
+| -------- | ---------------- |
 | SecretManagement / SecretStore | Prompts to unlock by default. Unattended use without a prompt is a **hard** constraint - the CopilotAtelier eval harness drives `Invoke-Shp` non-interactively - and configuring SecretStore with no password reduces its protection to file permissions plus obfuscation while adding this module's **first runtime dependency**. An empty dependency list is a property worth defending; spending it to arrive back at option 3 is a bad trade |
 | File permissions only | The floor, and it is applied. But on Windows it leaves the token readable to anything that can read the file, including a careless backup or archive that does not preserve ACLs |
 | DPAPI only | Windows only. The module is cross-platform by construction - the default token path is built from `UserProfile` precisely so it works on Linux and macOS |
@@ -117,7 +117,7 @@ Migration is by **reading both formats**, not by a flag day:
 `Unprotect-ShpTokenValue` throws rather than guessing when it cannot be sure:
 
 | Input | Behaviour |
-|-------|-----------|
+| ------- | ----------- |
 | No envelope | Treated as a legacy clear-text token |
 | `SHPv1:NONE:...` | Payload returned |
 | `SHPv1:DPAPI:...` that will not decrypt | Throws, naming `Initialize-Shp -Force`. The realistic cause is a token file copied from another machine or account |
@@ -149,7 +149,7 @@ a corrupt blob throws) are skipped off Windows, with a stated reason.
 ## Source hook points
 
 | File | Change |
-|------|--------|
+| ------ | -------- |
 | `source/Private/Protect-ShpTokenValue.ps1` | New. Writes the envelope, picks the scheme |
 | `source/Private/Unprotect-ShpTokenValue.ps1` | New. Reads both formats, fails closed |
 | `source/Private/Get-ShpTokenProtection.ps1` | New. Names the scheme, for reporting and for the upgrade check |

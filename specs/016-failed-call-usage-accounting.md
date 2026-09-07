@@ -16,7 +16,7 @@ succeeded, and report duration and elapsed time on the summary.
 A failed call left no trace at all. Measured against the built module:
 
 | Scenario | Usage records afterwards |
-|----------|--------------------------|
+| ---------- | -------------------------- |
 | One `Invoke-Shp` call that fails (`model_not_supported`) | **0** |
 | Two `Invoke-ShpBatch` items that both fail | **0** |
 | One successful call | 1 |
@@ -49,7 +49,7 @@ figures an evaluation run reports, and it was one aggregation away.
 `Invoke-Shp` contains exactly three `throw` statements:
 
 | Line | Throw | Requests issued | Recorded |
-|------|-------|-----------------|----------|
+| ------ | ------- | ----------------- | ---------- |
 | 1005 | `UseServerSideState` combined with structured output or image input | none - parameter validation, before the loop | **No** |
 | 1042 | `Exceeded MaxToolIterations` | one per completed iteration, all billed | **Yes** |
 | 1095 | rethrow after the API-shape fallbacks decline the error | at least one | **Yes** |

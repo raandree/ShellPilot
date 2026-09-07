@@ -1,3 +1,10 @@
+---
+status: accepted
+last-verified: 2026-09-07
+owner: raandree
+source: specs/001-open-decisions.md decision 14
+---
+
 # Decision 002 - Module state on disk
 
 - **Status:** accepted

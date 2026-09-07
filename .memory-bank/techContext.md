@@ -1,3 +1,10 @@
+---
+status: current
+last-verified: 2026-09-07
+owner: shared
+source: repository source and retained build evidence
+---
+
 # Technical context
 
 Stable facts about the stack, services, and constraints behind ShellPilot.
@@ -14,21 +21,21 @@ Update this file when the stack or a dependency changes.
   unchecked path. `edit_file` uses `UnixStat.ItemType` to refuse special files;
   `UnixMode` formatting can misidentify a pipe with mode 0644 as a regular file.
 - Pure PowerShell; no compiled binaries.
-- Windows PowerShell 5.1 support is an open decision (see activeContext).
+- Windows PowerShell 5.1 is unsupported (decision 4).
 
 ## External services
 
 ShellPilot talks to the same HTTP services as the Copilot Chat extension.
 
 | Service | Purpose |
-|---------|---------|
+| --- | --- |
 | github.com/login/device/code | Start the OAuth device-code flow |
 | github.com/login/oauth/access_token | Poll for the OAuth token |
 | api.github.com/copilot_internal/v2/token | Exchange OAuth for a session token |
-| <endpoint>/models | List available models |
-| <endpoint>/chat/completions | Chat-shaped completion (streams reasoning_text) |
-| <endpoint>/responses | Responses-shaped completion (reasoning) |
-| <endpoint>/embeddings | Text embedding vectors (Request-ShpEmbedding) |
+| `<endpoint>/models` | List available models |
+| `<endpoint>/chat/completions` | Chat-shaped completion (streams reasoning_text) |
+| `<endpoint>/responses` | Responses-shaped completion (reasoning) |
+| `<endpoint>/embeddings` | Text embedding vectors (Request-ShpEmbedding) |
 
 ### Endpoint map
 
@@ -42,7 +49,7 @@ ShellPilot talks to the same HTTP services as the Copilot Chat extension.
 - GitHub OAuth device-code flow using the public VS Code Copilot Chat
   client id.
 - The OAuth token is cached at $env:USERPROFILE\.shellpilot-token in a
-  self-describing envelope (SHPv1:<scheme>:<payload>). On Windows the scheme is
+  self-describing envelope (`SHPv1:<scheme>:<payload>`). On Windows the scheme is
   DPAPI, encrypted for the current user via the built-in SecureString
   conversion, so no dependency is added and nothing prompts. On Linux/macOS the
   scheme is NONE and file permissions (mode 600) are the only control; the file
@@ -54,7 +61,7 @@ ShellPilot talks to the same HTTP services as the Copilot Chat extension.
 
 ## Key request headers
 
-- Authorization: Bearer <session-token>
+- Authorization: `Bearer <session-token>`
 - Editor-Version, Editor-Plugin-Version, Copilot-Integration-Id, User-Agent
   identify the client to the service.
 - Openai-Intent: agent when tools are offered, otherwise conversation-panel.

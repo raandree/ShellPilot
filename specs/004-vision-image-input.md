@@ -53,7 +53,7 @@ this screenshot?", "read this diagram" - is impossible from the shell.
 
 ## Proposed design
 
-- Invoke-Shp -Image <path-or-url> (accepting one or more) that attaches each
+- `Invoke-Shp -Image <path-or-url>` (accepting one or more) that attaches each
   image to the user message as an image_url content block: a data URI for a
   local file, the URL directly for a remote one.
 - Gate the parameter on the model's advertised vision support, and warn (or

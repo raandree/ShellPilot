@@ -59,7 +59,7 @@ and not another, which is the hardest kind to diagnose from a log.
 ### Backend precedence
 
 | Rank | Source | Supplied by | Notes |
-|------|--------|-------------|-------|
+| ------ | -------- | ------------- | ------- |
 | 1 | `-ApiBase` | The caller, on the call | Naming an endpoint on the call is the strongest statement about where the request goes |
 | 2 | Session context | `Set-ShpContext -ApiBase` / `-ApiKey` | In-memory for the session, `ApiKey` masked by `Get-ShpContext` |
 | 3 | Environment | `$env:SHELLPILOT_API_BASE`, `$env:SHELLPILOT_API_KEY` | The pipeline case: a runner injects what it already holds, with no `Set-ShpContext` line in the job |

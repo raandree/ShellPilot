@@ -49,7 +49,7 @@ channel** (`fetch_url`, or `run_command` running `curl` or `git push`).
 ### Why the existing controls do not cover it
 
 | Control | Why it does not help here |
-|---------|---------------------------|
+| --------- | --------------------------- |
 | `ShouldProcess` (`-Confirm`) | Interactive only. `ConfirmImpact` is left at the default, so an unattended run never prompts - and `Invoke-ShpBatch` forces `-DisableUserPrompts` because a worker runspace has no console. The one run that needs the control is the one that cannot use it |
 | `-DisableFileAccess` / `-DisableTerminal` | All-or-nothing. A run that must read the repository has to enable file access, which also grants `~/.ssh/id_rsa`. A run that must call `git status` has to enable the terminal, which also grants `git push` |
 | `Test-ShpUrlSafe` | Covers `fetch_url` only, and only against reaching the host's own network. It does not stop exfiltration to a public host, and it says nothing about the filesystem |
@@ -196,7 +196,7 @@ for a security control it is the failure mode that must not exist.
 ## Source hook points
 
 | File | Change |
-|------|--------|
+| ------ | -------- |
 | `source/Public/Set-ShpToolPolicy.ps1` | New. Parses and applies the rule set |
 | `source/Public/Get-ShpToolPolicy.ps1` | New. Reads it, for auditing |
 | `source/Public/Clear-ShpToolPolicy.ps1` | New. Returns to unrestricted |

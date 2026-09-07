@@ -1,3 +1,10 @@
+---
+status: accepted
+last-verified: 2026-09-07
+owner: raandree
+source: specs/029-candidate-features.md and recorded maintainer decision
+---
+
 # Decision 001 - First tranche of candidate features
 
 - **Status:** accepted

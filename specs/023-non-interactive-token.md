@@ -57,7 +57,7 @@ upgrades, or touches the token file. A token supplied in memory stays in memory.
 ## Precedence
 
 | Rank | Source | Supplied by | Notes |
-|------|--------|-------------|-------|
+| ------ | -------- | ------------- | ------- |
 | 1 | `-TokenPath` | The caller, on the call | Naming a file is the strongest statement about which identity to use, so it beats a token left in the session or the environment. Read through the at-rest seam |
 | 2 | Session context | `Set-ShpContext -GitHubToken` | In-memory for the session, never persisted, masked by `Get-ShpContext`. Replayed into `Invoke-ShpBatch` workers |
 | 3 | Environment | `$env:SHELLPILOT_GITHUB_TOKEN` | The pipeline case: a runner injects the secret it already holds. Rejected when set-but-empty (below) |
@@ -105,7 +105,7 @@ explicitly did **not** buy protection against *code running as this user*. That
 statement is unchanged. What changes is the set of places a token can live.
 
 | Change | Effect |
-|--------|--------|
+| -------- | -------- |
 | A token may now live only in process memory | **Better than the file case.** Nothing is written, so there is no artifact for a backup, a share, or an over-broad ACL to capture, and nothing to leave behind on a shared runner |
 | A token may now come from the environment block | **Worse in one specific way.** `run_command` runs a child PowerShell that *inherits the whole environment block* (spec 019), so a permitted command can read `SHELLPILOT_GITHUB_TOKEN`. That was already true of any secret in the environment, and it is why the environment sits at rank 3: `Set-ShpContext -GitHubToken` is the stronger choice where the caller can hold the value in memory, because an MCP child (spec 021) and a `run_command` child are both denied it |
 | The token is now readable from session state | **Unchanged in kind.** `$script:ShpContext.ApiKey` already held a bearer token this way. Anything that can read module state could already read the decrypted OAuth token from memory during a call |
@@ -134,7 +134,7 @@ written** when the token comes from the environment.
 ## Source hook points
 
 | File | Change |
-|------|--------|
+| ------ | -------- |
 | `source/Private/Resolve-ShpOAuthToken.ps1` | New. Owns the precedence, the trimming, and the empty-environment rejection |
 | `source/Private/Get-ShpSessionToken.ps1` | The unconditional `Test-Path` throw moves behind the resolver; `-TokenPath` loses its default |
 | `source/Public/Set-ShpContext.ps1` | New `-GitHubToken`, validated non-whitespace at the boundary, masked on `-PassThru` |

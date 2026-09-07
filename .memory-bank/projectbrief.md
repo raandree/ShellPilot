@@ -1,3 +1,10 @@
+---
+status: current
+last-verified: 2026-09-07
+owner: shared
+source: repository and release APIs
+---
+
 # Project brief: ShellPilot
 
 ShellPilot is a PowerShell module that brings GitHub Copilot's chat and agent
@@ -45,6 +52,17 @@ pipeline.
 
 ## Status
 
-Early outlining. A working proof of concept exists in the ShellPilot folder. This
-brief captures the intended direction; several scope and tooling decisions
-are still open (see activeContext.md and the specs folder).
+ShellPilot is a Sampler-built module with 35 public commands, Pester and QA
+gates, and GitHub Actions packaging and cross-platform tests. PowerShell Gallery
+and GitHub Releases carry stable `0.3.1` and preview `0.4.0-preview0013`, verified
+on 2026-09-07. The preview requires PowerShell 7.4 or later.
+
+Distribution decision 7 is closed. The maintainer selected MIT on 2026-09-07;
+the new license is local pending merge and publication. The current work is
+release readiness and the remaining accepted tranche-one features, not an
+initial proof of concept. Stable `0.4.0` remains a release decision.
+
+ShellPilot does not enforce Copilot content exclusions or enterprise MCP
+allowlists and provides no native containment. The module license does not
+grant Copilot service access. See [activeContext.md](activeContext.md) for
+current validation and outstanding work.

@@ -188,7 +188,7 @@ mode [spec 024](024-pipeline-failure-semantics.md) exists to stop.
 Every record has these five fields:
 
 | Field | Type | Meaning |
-|-------|------|---------|
+| ------- | ------ | --------- |
 | `schemaVersion` | number | The stream contract version. Currently `1` |
 | `sequence` | number | Monotonic from 1 within one stream; emission order |
 | `timestamp` | string | ISO 8601 UTC (`o` round-trip format), always `Z` |
@@ -198,7 +198,7 @@ Every record has these five fields:
 ### `type` to `data`
 
 | `type` | `data` fields |
-|--------|---------------|
+| -------- | --------------- |
 | `turn.start` | `model`, `apiMode`, `prompt`, `promptLength`, `endpoint`, `toolCount`, `attachmentCount`, `maxToolIterations`, `contextBudget`, `streaming`, `unattended`, `redaction` |
 | `model.request` | `iteration`, `model`, `apiMode`, `endpoint`, `messageCount`, `toolCount`, `streaming` |
 | `usage` | `iteration`, `model`, `apiMode`, `finishReason`, `promptTokens`, `completionTokens`, `cachedTokens`, `cacheWriteTokens`, `contextTokens` |

@@ -41,7 +41,7 @@ failure two thirds of the way through an expensive unattended run.
 than reasoned about, because the failure modes here are silent.
 
 | Question | Measured answer |
-|----------|-----------------|
+| ---------- | ----------------- |
 | Are worker runspaces reused across items? | **Yes.** With `-ThrottleLimit 2` over 6 items the runspace ids repeated `11,12,11,12,11,12` and a module `$script:` counter climbed `1,2,3` in each. |
 | Does a module's `$script:` state persist between items in one runspace? | **Yes** - so session state accumulates inside a worker exactly as it does in a serial loop. |
 | Are loaded modules inherited by a worker? | **No.** The worker must import the module itself. |
@@ -70,19 +70,19 @@ reasons:
    `PSUseProcessBlockForPipelineCommand` saying exactly that. Pipeline binding
    would require restructuring the module's largest and most critical function
    into `begin`/`process`/`end`.
-2. **The pipeline slot is already taken, by a colliding member.** `-History` is
+1. **The pipeline slot is already taken, by a colliding member.** `-History` is
    `ValueFromPipelineByPropertyName` so that `$result | Invoke-Shp` continues a
    conversation (spec 009). A `ShellPilot.Result` carries **both** a `History`
    and a `Prompt` property, so adding `ValueFromPipelineByPropertyName` to
    `-Prompt` would silently re-send the previous prompt, and adding a bare
    `ValueFromPipeline` would bind the whole result object into `[string]$Prompt`.
    Either way the documented ergonomic breaks.
-3. **It invites the exact bug this spec exists to prevent.** A caller writing
+1. **It invites the exact bug this spec exists to prevent.** A caller writing
    `$prompts | Invoke-Shp` would reasonably expect the documented session-chat
    continuation to apply. Under concurrency it cannot, and the module-scoped
    `$script:ShpChat`, `$script:ShpUsageLog` (a `List[T]`) and
    `$script:ShpSessionTokenCache` (a `Hashtable`) are none of them thread-safe.
-4. **Blast radius.** A separate cmdlet changes nothing about `Invoke-Shp`, which
+1. **Blast radius.** A separate cmdlet changes nothing about `Invoke-Shp`, which
    carries the overwhelming majority of the module's behaviour and tests.
 
 `Invoke-ShpBatch` gets the ergonomic anyway - it takes pipeline input itself, so

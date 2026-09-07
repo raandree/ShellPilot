@@ -52,6 +52,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Add the maintainer-selected [MIT license](LICENSE) and document stable and
+  prerelease [Gallery installation](README.md#install).
+
 - **Add explicit estimated budgets for trusted owned requests.** Opt into
   `RequestBudgetMode provider-estimate` for non-refundable reservations and
   upward reconciliation; default verified counters keep their meaning.
@@ -623,7 +626,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   indistinguishable from a free one. `PriceTableKey` stays populated even when
   nothing matched, naming the key that was looked up and missed, and the first
   call for an unpriced model warns once per session rather than once per tool
-  iteration. `CostUSD` and `Credits` are unchanged and still `null` - never `0` -
+  iteration. `CostUSD` and `Credits` are unchanged and still `null`, never `0`,
   when no rate is found. `Priced` is also recorded on each `Get-ShpUsage` entry.
 - `Resolve-ShpError` explains the last error in the session and suggests a fix.
   It takes an error record (`$Error[0]` by default, or from the pipeline), sends
@@ -729,7 +732,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   other 413, `model_max_prompt_tokens_exceeded`, carries its own JSON error
   object and is left untouched.
 
-
   Turn resolved its short-lived Copilot session token once, before the loop, and
   then reused that one credential for every iteration - so an agentic Turn that
   ran longer than the token's lifetime failed part-way through (observed at
@@ -792,8 +794,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A failed **buffered** request now hands the service's error to the caller as
   data instead of only as text. `Invoke-ShpHttpRequest` raises a built error
   record rather than a bare exception, so `$_.ErrorDetails.Message` carries the
-  response body the way `Invoke-RestMethod` does, and `$_.TargetObject` carries a
-  `ShellPilot.HttpErrorDetail` with `StatusCode`, the service's own `ErrorCode`
+  response body the way `Invoke-RestMethod` does, and `$_.TargetObject` carries
+  a `ShellPilot.HttpErrorDetail` with `StatusCode`, the service's own `ErrorCode`
   and `Param`, its `Message`, the whole raw `Body` and the `RequestUri` - so a
   script can branch on the error code without matching substrings in an
   exception string. `Invoke-Shp`'s own catch block has always read
@@ -1197,7 +1199,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   explicit history (the result's History property) for stateless, scriptable
   multi-turn flows. `Get-ShpChat` and `Clear-ShpChat` view and reset the
   session conversation - run `Clear-ShpChat` to start a fresh chat. The
-  unreleased `-ContinueChat` switch was removed: continuation is now implicit.- `Invoke-Shp -Stream` streams the reply token-by-token to the host via
+  unreleased `-ContinueChat` switch was removed: continuation is now implicit.
+- `Invoke-Shp -Stream` streams the reply token-by-token to the host via
   Server-Sent Events on /chat/completions, and - because the service caps
   non-streaming replies far lower - lifts the output ceiling to the model's
   streaming maximum (for example 64000 tokens for claude-opus-4.8 versus 16000
@@ -1232,6 +1235,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   count, finish reason and duration) to a module-scoped log. Get-ShpUsage reads
   the records, or returns a session total plus a per-model breakdown with
   `-Summary`; Clear-ShpUsage resets the log.
+
 ### Changed
 
 - Renamed the module from Ghcp to ShellPilot and the cmdlet noun prefix to

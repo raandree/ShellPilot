@@ -9,7 +9,7 @@ into a PowerShell object, so results compose with the pipeline.
 - State: Implemented and live-verified (2026-06-07). Invoke-Shp
   -ResponseFormat / -JsonSchema returns JSON parsed onto the result's
   ContentObject member. The parser strips a Markdown code fence first, since
-  models often wrap the JSON in ```json ... ``` even when asked not to.
+  models often wrap the JSON in ```json ...``` even when asked not to.
 
 ## Problem
 

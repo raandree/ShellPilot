@@ -53,7 +53,7 @@ number does.
 `Invoke-Shp -Attachment <path...>` classifies each file and routes it:
 
 | Kind | How it reaches the model |
-|------|--------------------------|
+| ------ | -------------------------- |
 | Image | A vision `image_url` content block - the existing `-Image` path, with the same request-body guard |
 | Text | Decoded and inlined into the user message in a delimited block, with its path, encoding and size |
 | Binary | **Not** inlined. A manifest entry: absolute path, size, detected format, and a hex preview of the first bytes, plus an instruction to decode it with the file and terminal tools |

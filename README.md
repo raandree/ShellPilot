@@ -29,7 +29,7 @@ structured objects carrying token usage and estimated cost.
 
 ---
 
-> **Status: experimental pre-release.** ShellPilot talks to the same internal
+> **Status: 0.4.0 preview; stable 0.3.1 is available.** ShellPilot uses internal
 > endpoints as the GitHub Copilot Chat extension. Those are intended for
 > first-party editors and may change without notice. See
 > [Security and limitations](#security-and-limitations).
@@ -41,8 +41,27 @@ structured objects carrying token usage and estimated cost.
 
 ## Install
 
-ShellPilot is not yet on the PowerShell Gallery. Build it from source with the
-included Sampler build:
+Install the latest stable release from the PowerShell Gallery (currently
+`0.3.1`):
+
+```powershell
+Install-Module -Name ShellPilot -Repository PSGallery -Scope CurrentUser
+Import-Module ShellPilot
+```
+
+For the `0.4.0` preview features described in this README, install the latest
+prerelease (currently `0.4.0-preview0013`):
+
+```powershell
+Install-Module -Name ShellPilot -Repository PSGallery -Scope CurrentUser -AllowPrerelease
+Import-Module ShellPilot
+```
+
+Use `-RequiredVersion '0.4.0-preview0013' -AllowPrerelease` to pin that preview.
+ShellPilot is distributed under the [MIT license](LICENSE); access to GitHub
+Copilot remains subject to GitHub's service terms and account entitlement.
+
+To develop from source, use the included Sampler build:
 
 ```powershell
 git clone https://github.com/raandree/ShellPilot.git
@@ -66,7 +85,7 @@ Nothing is written to disk on this path.
 
 ```powershell
 $env:SHELLPILOT_GITHUB_TOKEN = $tokenFromTheCiSecretStore   # or:
-Set-ShpContext -GitHubToken $tokenFromTheCiSecretStore      # session only, masked on read
+Set-ShpContext -GitHubToken $tokenFromTheCiSecretStore
 ```
 
 Precedence, highest first: an explicit `-TokenPath`, the session context, the
@@ -287,7 +306,8 @@ Invoke-Shp -Prompt 'Transcribe this recording.' -SkillPath ./skills
 Ask for a JSON object and get it parsed onto `ContentObject`.
 
 ```powershell
-$r = Invoke-Shp -Prompt 'List three primes as JSON {"primes":[...]}.' -ResponseFormat json_object
+$r = Invoke-Shp -Prompt 'List three primes as JSON {"primes":[...]}.' `
+  -ResponseFormat json_object
 $r.ContentObject.primes
 ```
 
@@ -296,7 +316,8 @@ $r.ContentObject.primes
 Send images to a vision-capable model.
 
 ```powershell
-Invoke-Shp -Model claude-haiku-4.5 -Image ./diagram.png -Prompt 'What does this diagram show?'
+Invoke-Shp -Model claude-haiku-4.5 -Image ./diagram.png `
+  -Prompt 'What does this diagram show?'
 ```
 
 ### See the model think
@@ -309,7 +330,8 @@ property. Models that expose no trace still show the iteration and tool-call
 activity plus a one-line note.
 
 ```powershell
-Invoke-Shp -Model claude-opus-4.8 -Prompt 'Prove there are infinitely many primes.' -ShowThinking
+Invoke-Shp -Model claude-opus-4.8 -ShowThinking `
+  -Prompt 'Prove there are infinitely many primes.'
 ```
 
 ### Embeddings and similarity
@@ -333,7 +355,8 @@ grader itself stops contributing variance. Each is omitted from the request
 unless you pass it, so the model's own default otherwise applies.
 
 ```powershell
-Invoke-Shp -Prompt "Score this answer 0-1, reply with only the number.`n$answer" -Temperature 0
+Invoke-Shp -Temperature 0 `
+  -Prompt "Score this answer 0-1, reply with only the number.`n$answer"
 Invoke-Shp -Prompt 'Name one PowerShell cmdlet.' -Temperature 0.7 -Seed 1234
 ```
 
@@ -491,8 +514,11 @@ wrapper's job. See
 
 ## Cmdlet reference
 
+<!-- Wide command-name cells are kept together for scanning. -->
+<!-- markdownlint-disable MD013 -->
+
 | Area | Cmdlets |
-|------|---------|
+| --- | --- |
 | Auth | `Initialize-Shp` |
 | Models | `Get-ShpModel`, `Get-ShpModelName`, `Select-ShpModel`, `Get-ShpDefault` |
 | Prompt | `Invoke-Shp`, `Start-ShpChat` |
@@ -505,12 +531,18 @@ wrapper's job. See
 | Context | `Set-ShpContext`, `Get-ShpContext`, `Clear-ShpContext` |
 | CI | `Test-ShpCiReadiness` |
 
+<!-- markdownlint-enable MD013 -->
+
 Every cmdlet has full comment-based help: `Get-Help Invoke-Shp -Full`.
 
 ## Security and limitations
 
 - **Internal endpoints.** ShellPilot calls the same private Copilot services as
   the editor extension. They can change or break without notice.
+- **Enterprise governance.** ShellPilot does not enforce Copilot content
+  exclusions or enterprise MCP allowlists. Authenticating with the same GitHub
+  account does not import those controls. Do not use ShellPilot where those
+  policies are required unless the host independently enforces them.
 - **Protected token.** The OAuth token is cached as `.shellpilot-token` in your
   home directory in a self-describing envelope: DPAPI-encrypted for your account
   on Windows, and file permissions only (`SHPv1:NONE:`) on Linux and macOS,

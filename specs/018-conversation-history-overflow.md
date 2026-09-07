@@ -62,7 +62,7 @@ clear message. That was measured before it was built, comparing
 `ConvertTo-ShpTokenCount` with the token count the service itself reported:
 
 | Content | Estimated | Service counted | Estimate / actual |
-|---------|----------:|----------------:|------------------:|
+| --- | ---: | ---: | ---: |
 | Ordinary prose (this repository's specs) | 39768 | 45289 | **0.88x** |
 | Word-dense filler (`'w ' * 60000`) | 78000 | 60027 | **1.30x** |
 
@@ -148,7 +148,7 @@ call.
 ## What was checked first
 
 | Question | Answer | Evidence |
-|----------|--------|----------|
+| ---------- | -------- | ---------- |
 | Is the failure detectable before the request? | Only as a hint, never as a gate | estimator is +30% / -12% against the service's own count |
 | Does `-UseServerSideState` offer a route out? | **No** | still live: *"The backend does not support server-side conversation state (store); falling back to client-side history"* |
 | Does `Invoke-ShpBatch` change the priority? | It lowers it | every item is dispatched `-History @()` and is stateless by contract, so a batch cannot accumulate. The exposure is interactive, long-running, single-session use |
@@ -172,7 +172,7 @@ It is a heuristic, it is named, and `-MaxTokens` overrides it.
 ## Source hook points
 
 | File | Change |
-|------|--------|
+| ------ | -------- |
 | `source/Public/Compress-ShpChat.ps1` | New. Drops the oldest exchanges on request |
 | `source/Private/Compress-ShpChatContext.ps1` | Returns `Trimmed` / `EstimatedTokens` / `Fits` instead of an `int` |
 | `source/Public/Invoke-Shp.ps1` | Pre-send warning when the guard is exhausted, once per turn; the 400 warning names `Compress-ShpChat` |

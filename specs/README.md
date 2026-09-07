@@ -13,7 +13,7 @@ Design and scope documents for ShellPilot. Start with the overview, then the
 open decisions. The numbered specs that follow each describe a single pattern,
 its design, and its source hook points.
 
-> **Status:** every numbered pattern below (002-028) is **implemented**. Each
+> **Status:** the numbered patterns below (002-028 and 030) are implemented. Each
 > spec's own `## Status` section records the current state, including any
 > backend caveat (for example server-side state, which the Copilot proxy does
 > not support and which falls back to client-side history). The tiers below
@@ -54,6 +54,7 @@ numbered specs below are the implemented ones.
 - [Egress redaction](026-egress-redaction.md)
 - [Headless JSONL event stream and the job model](027-headless-event-stream.md)
 - [CI annotation formatter](028-ci-annotations.md)
+- [Host request transport and conditional admission](030-host-request-transport.md)
 
 ### Tier 2
 

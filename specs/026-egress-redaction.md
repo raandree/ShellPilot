@@ -52,7 +52,7 @@ gone; rotating the credential afterwards is a mitigation, not a fix.
 ### Why the existing controls do not cover it
 
 | Control | Why it does not help here |
-|---------|---------------------------|
+| --------- | --------------------------- |
 | `Set-ShpToolPolicy` | Scopes WHICH files and commands the model may reach. Says nothing about what a permitted command's own output contains |
 | `Test-ShpUrlSafe` (`fetch_url`) | Stops the tool reaching a private address. Does not scan the page it fetches for a secret |
 | `-MaxContextWindowTokens` / `Compress-ShpChatContext` | Bounds SIZE, not content. A secret at the front of a result is still sent even after the tail is elided |
@@ -154,7 +154,7 @@ Six built-in patterns ship in `$script:ShpBuiltInRedactionPattern`
 (`source/Prefix.ps1`), each a narrow syntactic shape rather than a heuristic:
 
 | Name | Shape |
-|------|-------|
+| ------ | ------- |
 | `github-token` | `gh[pousr]_` followed by 36+ alphanumeric characters |
 | `aws-access-key-id` | A known AWS key-id prefix (`AKIA`, `ASIA`, ...) followed by 16 uppercase alphanumerics |
 | `pem-private-key` | A `-----BEGIN ... PRIVATE KEY-----` block through its matching `-----END-----` marker, spanning lines |
@@ -210,7 +210,7 @@ construction, not by a special case that has to be kept in sync.
 ## Source hook points
 
 | File | Change |
-|------|--------|
+| ------ | -------- |
 | `source/Prefix.ps1` | `$script:ShpBuiltInRedactionPattern` (the six built-in rules), `$script:ShpRedactionPolicy` (custom rules, `$null` by default) |
 | `source/Private/Protect-ShpEgressContent.ps1` | New. The single choke point: walks a conversation list, skips the model's own turn, redacts `content` (string or content-block array) and `output` in place, returns per-pattern counts |
 | `source/Public/Set-ShpRedactionPolicy.ps1` | New. Parses and applies custom `Name(Pattern)` rules |

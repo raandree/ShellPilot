@@ -24,13 +24,13 @@ models that advertise a context window sit below that constant**, the smallest
 by a factor of 55:
 
 | Advertised window | Models | Ratio to the 900000 fallback |
-|------------------:|-------:|-----------------------------:|
-| 16384             | 2      | 55x too permissive |
-| 32768             | 2      | 27x |
-| 128000            | 11     | 7x |
-| 200000            | 1      | 4.5x |
-| 256000 - 500000   | 6      | 1.8x - 3.5x |
-| 1000000 - 1050000 | 14     | fallback is stricter |
+| ---: | ---: | ---: |
+| 16384 | 2 | 55x too permissive |
+| 32768 | 2 | 27x |
+| 128000 | 11 | 7x |
+| 200000 | 1 | 4.5x |
+| 256000 - 500000 | 6 | 1.8x - 3.5x |
+| 1000000 - 1050000 | 14 | fallback is stricter |
 
 For every model in the first five rows the guard could not fire before the
 service refused the request. That is the failure the prompt series opened with:
@@ -55,7 +55,7 @@ Confirmed by sending a deliberately oversized prompt and reading the limit out
 of the rejection:
 
 | Model | Advertised | Max output | Enforced prompt limit | Relationship |
-|-------|-----------:|-----------:|----------------------:|--------------|
+| ------- | -----------: | -----------: | ----------------------: | -------------- |
 | `claude-haiku-4.5` | 200000 | 64000 | 136000 | window - output, exactly |
 | `grok-4.5` | 500000 | 128000 | 500000 | window, no reservation |
 | `gpt-4o-mini` | 128000 | 4096 | 12288 | neither |
@@ -128,7 +128,7 @@ stated in one place rather than implied by scattered fallbacks. First match
 wins:
 
 | Step | Source | Comes from |
-|-----:|--------|------------|
+| -----: | -------- | ------------ |
 | 1 | `Parameter` | `Invoke-Shp -MaxContextWindowTokens` |
 | 2 | `SessionContext` | `Set-ShpContext -MaxContextWindowTokens` |
 | 3 | `Model` | the cached advertised limits, less the output reservation and the margin |
@@ -185,7 +185,7 @@ which is below the 900000 fallback. So no existing caller's guard becomes more
 permissive; some become stricter, which is the point.
 
 | Model | Advertised | Max output | Resolved budget |
-|-------|-----------:|-----------:|----------------:|
+| ------- | -----------: | -----------: | ----------------: |
 | `gpt-3.5-turbo` | 16384 | 4096 | 11059 |
 | `gpt-4o` | 128000 | 4096 | 111513 |
 | `claude-haiku-4.5` | 200000 | 64000 | 122400 |
@@ -201,7 +201,7 @@ enforce. That is the sweep's failure closed.
 Three distinct states, deliberately not collapsed into one:
 
 | State | Cache | Behaviour |
-|-------|-------|-----------|
+| ------- | ------- | ----------- |
 | Never looked up | `$null` | Fallback, `Write-Verbose`. **No warning** |
 | Looked up, model absent | populated | Fallback, `Write-Warning` once per model per session |
 | Looked up, no advertised window | populated, null limits | Same as absent |
@@ -247,7 +247,7 @@ a race for no benefit.
 ## Source hook points
 
 | File | Change |
-|------|--------|
+| ------ | -------- |
 | `source/Prefix.ps1` | `$script:ShpModelLimitCache`, `$script:ShpUnknownLimitModelWarned`, `$script:ContextWindowSafetyMarginPercent` |
 | `source/Private/Resolve-ShpContextBudget.ps1` | New. Owns the four-step order |
 | `source/Public/Get-ShpModel.ps1` | Records the advertised limits as a side effect |

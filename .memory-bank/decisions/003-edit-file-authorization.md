@@ -1,3 +1,10 @@
+---
+status: accepted
+last-verified: 2026-09-07
+owner: raandree
+source: accepted edit_file security review and repository regression tests
+---
+
 # Decision 003 - edit_file authorization
 
 - **Status:** accepted

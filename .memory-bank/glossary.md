@@ -1,3 +1,10 @@
+---
+status: current
+last-verified: 2026-09-07
+owner: shared
+source: established repository terminology
+---
+
 # Glossary (Ubiquitous Language)
 
 Canonical vocabulary for ShellPilot. Use the term in the first column in code,
@@ -6,7 +13,7 @@ term from the "Don't say" column for that concept. If a concept is missing,
 propose a new row instead of inventing a synonym.
 
 | Term | Means | Don't say |
-|------|-------|-----------|
+| ------ | ------- | ----------- |
 | OAuth token | The long-lived GitHub token from the device-code flow, cached on disk in a protected envelope. | PAT, access token, auth token |
 | Token envelope | The self-describing `SHPv1:<scheme>:<payload>` format of the token file, where the scheme is DPAPI (Windows) or NONE (file permissions only); a file with no envelope is a legacy clear-text token and still reads. | token format, token blob |
 | In-memory token | An OAuth token supplied by `Set-ShpContext -GitHubToken` or `$env:SHELLPILOT_GITHUB_TOKEN`, held for the session only and never written to disk; masked as `***` on read. | injected token, CI token, env token, ambient token |
@@ -55,7 +62,7 @@ propose a new row instead of inventing a synonym.
 | Pinned conversation | A Session chat left at its oversized state because Invoke-Shp writes the conversation back only on success, so every later call is refused identically until it is compressed or cleared. | stuck session, dead session, poisoned chat |
 | Model limit cache | The module-scoped record of each model's advertised context window and output cap ($script:ShpModelLimitCache), written only by Get-ShpModel and read by Resolve-ShpContextBudget so no turn issues a request to size the guard; $null until a lookup happens, cleared by Initialize-Shp on re-auth. | model cache, window cache, capability cache |
 | MCP server | A third-party process attached by Register-ShpMcpServer and spoken to over JSON-RPC, whose tools are offered to the model beside the built-ins; never started by discovery, always by an explicit act. | plugin, extension, tool server, integration |
-| MCP tool | One tool contributed by an attached MCP server, offered under the namespaced name mcp_<alias>_<tool> and dispatched over the protocol rather than as a PowerShell command. | remote tool, external tool, server tool |
+| MCP tool | One tool contributed by an attached MCP server, offered under the namespaced name `mcp_<alias>_<tool>` and dispatched over the protocol rather than as a PowerShell command. | remote tool, external tool, server tool |
 | Server alias | The caller-chosen name that namespaces an attached server's tools; deliberately not serverInfo.name, which the protocol says is self-reported and unverified. | server name, server id, server label |
 | Frozen tool list | The tools/list snapshot taken once at registration and offered unchanged for the life of the attachment, so a server cannot add tools after the caller approved it. | cached tools, tool cache, tool snapshot |
 | Protocol era | Which MCP generation a server speaks: modern (per-request _meta, revision 2026-07-28 and later, no handshake) or legacy (the initialize handshake, 2025-11-25 and earlier), decided by a server/discover probe. | protocol mode, protocol generation, MCP version |

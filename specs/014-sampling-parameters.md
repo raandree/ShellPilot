@@ -41,7 +41,7 @@ carries `reasoning_effort`, `streaming`, `structured_outputs`, `tool_calls`,
 seed. Support was therefore probed directly against the session endpoint:
 
 | Shape | Models probed | temperature | top_p | seed |
-|-------|---------------|-------------|-------|------|
+| ------- | --------------- | ------------- | ------- | ------ |
 | `/chat/completions` | claude-opus-4.7, claude-haiku-4.5, claude-sonnet-4.6, gpt-4o-mini, gpt-4.1, gpt-5-mini, gpt-5.4, gemini-3.5-flash | accepted | accepted | accepted |
 | `/responses` | grok-4.5 | accepted | accepted | accepted |
 | `/responses` | gpt-5.5 | **rejected** | **rejected** | accepted |
