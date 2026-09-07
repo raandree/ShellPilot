@@ -1404,6 +1404,15 @@ Describe 'Invoke-Shp' {
             }
         }
 
+        It 'Forwards caller-named command environment variables at dispatch' {
+            InModuleScope $script:moduleName {
+                $null = Invoke-Shp -Prompt 'inspect' -CommandEnvironmentVariable 'SHP_EXPLICIT_ENVIRONMENT' -DisableUserPrompts
+                Should -Invoke Invoke-RunCommandTool -Times 1 -Exactly -ParameterFilter {
+                    $EnvironmentVariable -contains 'SHP_EXPLICIT_ENVIRONMENT'
+                }
+            }
+        }
+
         # A disabled tool is not merely unadvertised. The model can still name it
         # from its own priors or from a replayed history, and until this held the
         # dispatch switch ran the built-in anyway - so -DisableTerminal bounded

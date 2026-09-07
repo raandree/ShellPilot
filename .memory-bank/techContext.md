@@ -103,8 +103,12 @@ ShellPilot talks to the same HTTP services as the Copilot Chat extension.
   tool runs arbitrary shell commands in a child PowerShell with the caller's
   full privileges. Both are on by default (opt out with -DisableFileAccess /
   -DisableTerminal), and Set-ShpToolPolicy scopes them to named paths and
-  commands for an unattended run (spec 019). A permitted command still inherits
-  the whole environment block.
+  commands for an unattended run (spec 019). The terminal child now starts from
+  the established MCP minimal environment plus caller-named
+  `CommandEnvironmentVariable` entries. Credentials are not inherited by
+  default. Literal assignments to execution-sensitive variables are refused
+  before startup even without a Tool policy. Indirect code and caller privileges
+  remain; these controls do not provide containment.
 - An attached MCP server (spec 021) is a third-party process with the caller's
   privileges and no sandbox. Set-ShpToolPolicy CANNOT gate an MCP call - its
   rules match resolved paths and leading command tokens, and a tools/call has

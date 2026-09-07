@@ -143,6 +143,11 @@ function Invoke-ShpBatch {
         commands concurrently, so leaving this on lets several unsandboxed shells
         run at once.
 
+    .PARAMETER CommandEnvironmentVariable
+        Additional parent environment variable names to pass to run_command in
+        every item. The minimal platform base is always available; credentials
+        and other variables require explicit names. This is not containment.
+
     .PARAMETER DisableUserTools
         Do not offer the tools registered with Register-ShpTool. By default they
         are re-registered inside each worker runspace; a tool backed by a
@@ -402,6 +407,9 @@ function Invoke-ShpBatch {
 
         [switch]$DisableTerminal,
 
+        [ValidatePattern('^[A-Za-z_][A-Za-z0-9_]*$')]
+        [string[]]$CommandEnvironmentVariable,
+
         [switch]$DisableUserTools,
 
         [switch]$DisableTodoList,
@@ -517,7 +525,7 @@ function Invoke-ShpBatch {
                 'InstructionRoot', 'SkillPath', 'Temperature', 'TopP', 'Seed',
                 'ResponseFormat', 'JsonSchema', 'DisableBrowsing', 'AllowPrivateNetwork',
                 'DisableFileAccess', 'DisableTerminal', 'DisableUserTools', 'DisableTodoList',
-                'DisableRedaction',
+                'DisableRedaction', 'CommandEnvironmentVariable',
                 'MaxToolIterations', 'MaxContextWindowTokens', 'MaxBudgetUSD', 'FailOn',
                 'ApiBase', 'TimeoutSec', 'MaxRetryCount', 'RetryDelaySec', 'NetworkOutageToleranceSec', 'TokenPath')) {
             if ($PSBoundParameters.ContainsKey($name)) { $invokeParams[$name] = $PSBoundParameters[$name] }

@@ -37,6 +37,13 @@ Copilot content exclusions, and enterprise MCP allowlists are not provided.
 
 ## Recent milestones
 
+- 2026-09-07 - Stage 4 / F7-F8 complete: minimal terminal child environment,
+  caller-only `CommandEnvironmentVariable` pass-through, and pre-start literal
+  assignment refusal across the required variable families. Direct child
+  observations and public/batch forwarding went red to green. Existing Tool
+  policy and redaction regressions remain intact. Full gate: 1,971 passed,
+  zero failed, three skips, 89.02% coverage, nine clean tasks. No containment
+  claim; indirect code and caller privileges remain. Review pending.
 - 2026-09-07 - Stage 3 / F14 blocked: `SHELLPILOT_GITHUB_TOKEN` is not
   configured. Checked presence only; no exchange, model list, prompt, or
   credential output. No HTTP or entitlement result is available. Record the

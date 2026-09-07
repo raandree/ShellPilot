@@ -18,8 +18,10 @@ function Invoke-RunCommandTool {
 
         The command is handed to the child unaltered - no escaping, no quoting
         layer - so the string reported back in the envelope is exactly the string
-        that ran. The child also inherits the host process environment, including
-        any credential kept in $env:.
+        that ran. The child receives the established minimal platform environment
+        plus variables explicitly named by the caller. Other parent variables,
+        including credentials, are not inherited. Dangerous literal environment
+        assignments are refused before the child starts, even without a Tool policy.
 
     .PARAMETER Command
         The command line to execute. Interpreted by PowerShell 7, so it may use
@@ -30,6 +32,11 @@ function Invoke-RunCommandTool {
         Directory to run the command in. Defaults to the session's current
         location so relative paths and tools such as git behave as the user
         expects.
+
+    .PARAMETER EnvironmentVariable
+        Additional parent environment variable names to pass through explicitly.
+        Values are read when the child starts. No wildcard or automatic secret
+        detection is used; naming a credential deliberately exposes it to the child.
 
     .PARAMETER TimeoutSeconds
         Maximum number of seconds to let the command run before it is forcibly
@@ -62,12 +69,20 @@ function Invoke-RunCommandTool {
 
         [string]$WorkingDirectory,
 
+        [ValidatePattern('^[A-Za-z_][A-Za-z0-9_]*$')]
+        [string[]]$EnvironmentVariable,
+
         [ValidateRange(1, 86400)]
         [int]$TimeoutSeconds = 120,
 
         [ValidateRange(0, [int]::MaxValue)]
         [int]$MaxChars = 100000
     )
+
+    $access = Test-ShpToolAccess -Tool 'run_command' -Command $Command
+    if (-not $access.Allowed) {
+        return (@{ command = $Command; error = $access.Reason } | ConvertTo-Json -Compress)
+    }
 
     $outFile = [System.IO.Path]::GetTempFileName()
     $errFile = [System.IO.Path]::GetTempFileName()
@@ -98,6 +113,12 @@ function Invoke-RunCommandTool {
         $psi.CreateNoWindow = $true
         $psi.RedirectStandardOutput = $true
         $psi.RedirectStandardError = $true
+        $psi.Environment.Clear()
+        foreach ($variableName in @($script:ShpMcpBaseEnvironmentVariable) + @($EnvironmentVariable)) {
+            if ([string]::IsNullOrWhiteSpace($variableName)) { continue }
+            $value = [Environment]::GetEnvironmentVariable($variableName)
+            if ($null -ne $value) { $psi.Environment[$variableName] = $value }
+        }
         foreach ($argument in '-NoProfile', '-NonInteractive', '-Command', $Command) { $psi.ArgumentList.Add($argument) }
 
         $outStream = [System.IO.File]::Create($outFile)

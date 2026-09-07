@@ -128,6 +128,12 @@ function Invoke-Shp {
         directory); this switch disables it. Disable it for untrusted prompts -
         full terminal access lets the model run arbitrary commands.
 
+    .PARAMETER CommandEnvironmentVariable
+        Additional parent environment variable names to pass to run_command.
+        The child otherwise receives only a minimal platform base. Names are
+        explicit, not wildcard patterns; passing a credential exposes it to the
+        child. This reduces inheritance but does not provide containment.
+
     .PARAMETER DisableUserPrompts
         Turn off interactive questions. By default the ask_user tool is exposed
         to the model so it can pause and ask you a clarifying question on the
@@ -867,6 +873,9 @@ function Invoke-Shp {
         [switch]$DisableFileAccess,
 
         [switch]$DisableTerminal,
+
+        [ValidatePattern('^[A-Za-z_][A-Za-z0-9_]*$')]
+        [string[]]$CommandEnvironmentVariable,
 
         [switch]$DisableUserPrompts,
 
@@ -2272,7 +2281,14 @@ function Invoke-Shp {
                         }
                         'run_command' {
                             if ($PSCmdlet.ShouldProcess([string]$fargs.command, 'run_command')) {
-                                $toolResult = Invoke-RunCommandTool -Command ([string]$fargs.command) -WorkingDirectory ([string]$fargs.workingDirectory)
+                                $commandParameters = @{
+                                    Command = [string]$fargs.command
+                                    WorkingDirectory = [string]$fargs.workingDirectory
+                                }
+                                if ($CommandEnvironmentVariable) {
+                                    $commandParameters.EnvironmentVariable = $CommandEnvironmentVariable
+                                }
+                                $toolResult = Invoke-RunCommandTool @commandParameters
                                 if (-not $commandsRun.Contains([string]$fargs.command)) { $null = $commandsRun.Add([string]$fargs.command) }
                             } else {
                                 $toolResult = @{ skipped = 'The user did not approve this run_command call.' } | ConvertTo-Json -Compress

@@ -40,6 +40,122 @@ AfterAll {
 }
 
 Describe 'Invoke-RunCommandTool' {
+    Context 'Minimal child environment' {
+        It 'Does not inherit <Name> from the parent' -ForEach @(
+            @{ Name = 'SHELLPILOT_GITHUB_TOKEN' }
+            @{ Name = 'GH_TOKEN' }
+            @{ Name = 'GITHUB_TOKEN' }
+            @{ Name = 'SHP_UNRELATED_SECRET' }
+        ) {
+            $savedValue = [Environment]::GetEnvironmentVariable($Name)
+            try {
+                [Environment]::SetEnvironmentVariable($Name, 'shp-private-parent-sentinel')
+                $result = InModuleScope $script:moduleName -Parameters @{ Name = $Name } {
+                    param($Name)
+                    Invoke-RunCommandTool -Command ('[Environment]::GetEnvironmentVariable(''{0}'')' -f $Name) |
+                        ConvertFrom-Json
+                }
+                $result.exitCode | Should -Be 0
+                $result.stdout | Should -Not -Match 'shp-private-parent-sentinel'
+                $result.stdout | Should -BeNullOrEmpty
+            }
+            finally {
+                [Environment]::SetEnvironmentVariable($Name, $savedValue)
+            }
+        }
+
+        It 'Passes only explicitly named additional variables to the child' {
+            $savedValue = [Environment]::GetEnvironmentVariable('SHP_EXPLICIT_ENVIRONMENT')
+            try {
+                [Environment]::SetEnvironmentVariable('SHP_EXPLICIT_ENVIRONMENT', 'explicit-value')
+                $result = InModuleScope $script:moduleName {
+                    Invoke-RunCommandTool -Command '$env:SHP_EXPLICIT_ENVIRONMENT' -EnvironmentVariable 'SHP_EXPLICIT_ENVIRONMENT' |
+                        ConvertFrom-Json
+                }
+                $result.exitCode | Should -Be 0
+                $result.stdout.Trim() | Should -BeExactly 'explicit-value'
+            }
+            finally {
+                [Environment]::SetEnvironmentVariable('SHP_EXPLICIT_ENVIRONMENT', $savedValue)
+            }
+        }
+
+        It 'Still resolves an executable through PATH' {
+            InModuleScope $script:moduleName {
+                $result = Invoke-RunCommandTool -Command 'pwsh -NoProfile -NonInteractive -Command "Write-Output path-ok"' |
+                    ConvertFrom-Json
+                $result.exitCode | Should -Be 0
+                $result.stdout.Trim() | Should -BeExactly 'path-ok'
+            }
+        }
+
+        It 'Still writes and removes a temporary file' {
+            InModuleScope $script:moduleName {
+                $command = '$temporaryFile = [IO.Path]::GetTempFileName(); try { [IO.File]::WriteAllText($temporaryFile, "temp-ok"); [IO.File]::ReadAllText($temporaryFile) } finally { [IO.File]::Delete($temporaryFile) }'
+                $result = Invoke-RunCommandTool -Command $command | ConvertFrom-Json
+                $result.exitCode | Should -Be 0
+                $result.stdout.Trim() | Should -BeExactly 'temp-ok'
+            }
+        }
+    }
+
+    Context 'Environment assignment refusal' {
+        It 'Refuses <Name> before starting a child without a Tool policy' -ForEach @(
+            @{ Name = 'PATH' }
+            @{ Name = 'LD_PRELOAD' }
+            @{ Name = 'LD_LIBRARY_PATH' }
+            @{ Name = 'DYLD_INSERT_LIBRARIES' }
+            @{ Name = 'GIT_CONFIG_COUNT' }
+            @{ Name = 'GIT_CONFIG_GLOBAL' }
+            @{ Name = 'GIT_EXTERNAL_DIFF' }
+            @{ Name = 'GIT_PROXY_COMMAND' }
+            @{ Name = 'GIT_SSH_COMMAND' }
+            @{ Name = 'GIT_ASKPASS' }
+            @{ Name = 'BASH_ENV' }
+            @{ Name = 'ENV' }
+            @{ Name = 'PAGER' }
+            @{ Name = 'GIT_PAGER' }
+            @{ Name = 'EDITOR' }
+            @{ Name = 'VISUAL' }
+            @{ Name = 'BROWSER' }
+        ) {
+            $markerPath = Join-Path $TestDrive 'child-started.txt'
+            InModuleScope $script:moduleName -Parameters @{ Name = $Name; MarkerPath = $markerPath } {
+                param($Name, $MarkerPath)
+                Clear-ShpToolPolicy
+                $command = '$env:{0} = ''unused''; [IO.File]::WriteAllText(''{1}'', ''started'')' -f $Name, $MarkerPath.Replace("'", "''")
+                $result = Invoke-RunCommandTool -Command $command | ConvertFrom-Json
+                $result.error | Should -BeLike "*$Name*"
+                $result.exitCode | Should -BeNullOrEmpty
+                Test-Path -LiteralPath $MarkerPath | Should -BeFalse
+            }
+        }
+
+        It 'Refuses alternative assignment syntax <Command>' -ForEach @(
+            @{ Command = '${env:paTH} = "unused"' }
+            @{ Command = 'Set-Item -LiteralPath Env:PATH -Value unused' }
+            @{ Command = 'Set-Content env:GIT_PAGER unused' }
+            @{ Command = '[Environment]::SetEnvironmentVariable("GIT_PAGER", "unused")' }
+            @{ Command = 'env LD_PRELOAD=unused git status' }
+        ) {
+            InModuleScope $script:moduleName -Parameters @{ Command = $Command } {
+                param($Command)
+                Clear-ShpToolPolicy
+                $access = Test-ShpToolAccess -Tool run_command -Command $Command
+                $access.Allowed | Should -BeFalse
+                $access.Reason | Should -Match 'PATH|GIT_PAGER|LD_PRELOAD'
+            }
+        }
+
+        It 'Does not mistake quoted assignment text for an environment write' {
+            InModuleScope $script:moduleName {
+                $result = Invoke-RunCommandTool -Command 'Write-Output ''$env:PATH = example''' | ConvertFrom-Json
+                $result.exitCode | Should -Be 0
+                $result.stdout.Trim() | Should -BeExactly '$env:PATH = example'
+            }
+        }
+    }
+
     Context 'Command fidelity' {
         It 'Keeps a double-quoted string literal intact' {
             InModuleScope $script:moduleName {

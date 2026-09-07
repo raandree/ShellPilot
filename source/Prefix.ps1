@@ -307,10 +307,8 @@ $script:ShpMcpLegacyProtocolVersion = '2025-11-25'
 
 # The environment an MCP child process starts from. ProcessStartInfo.Environment
 # is pre-populated with the parent's whole block, so it is cleared and rebuilt
-# from this list plus whatever the caller named. Invoke-RunCommandTool inherits
-# the parent block deliberately, but that is a compatibility argument about
-# callers who already depend on it; an MCP child is new surface with none, so it
-# can be strict at no migration cost. The entries here are what an interpreter
+# from this list plus whatever the caller named. The terminal child uses the
+# same established base. The entries here are what an interpreter
 # needs to run at all (and, on Windows, what a Node or Python launcher needs to
 # find its own package cache), not a convenience list.
 $script:ShpMcpBaseEnvironmentVariable = if ($IsWindows -or $null -eq $IsWindows) {
@@ -321,6 +319,8 @@ $script:ShpMcpBaseEnvironmentVariable = if ($IsWindows -or $null -eq $IsWindows)
     @('PATH', 'HOME', 'TMPDIR', 'LANG', 'LC_ALL', 'LC_CTYPE', 'SHELL', 'USER', 'LOGNAME',
       'DOTNET_ROOT')
 }
+
+$script:ShpCommandDeniedEnvironmentPattern = '^(?:PATH|LD_.*|DYLD_.*|GIT_CONFIG.*|GIT_EXTERNAL_DIFF|GIT_PROXY_COMMAND|GIT_SSH_COMMAND|GIT_ASKPASS|BASH_ENV|ENV|PAGER|GIT_PAGER|EDITOR|VISUAL|BROWSER)$'
 
 # Built-in bounds for an attached MCP server. Every one of them bounds input the
 # module did not author: the endpoint refuses a tool name outside

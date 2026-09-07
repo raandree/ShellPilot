@@ -54,6 +54,23 @@ Stage 2 commit: `7851a40`. Stage 3 is explicitly blocked: no
 request or prompt was sent and no service outcome is claimed. Record the
 blocker in F14 and continue Stage 4 with F7/F8. Do not substitute credentials.
 
+Stage 4 / F7-F8: 27 new helper checks went red against inherited environments
+and accepted assignments. The helper and Tool policy suites now pass 69 tests;
+two public/batch forwarding tests also went red to green. The child uses the
+MCP minimal base plus `CommandEnvironmentVariable` names supplied by the caller.
+AST-based assignment checks precede the no-policy permissive return. Existing
+policy metacharacter denial wording is preserved. The full gate passed 1,971
+tests, zero failed, three skipped, 89.02% coverage, and nine clean tasks under
+`CI=true`. It caught null optional-list forwarding; omitting the unbound option
+restored existing dispatch and redaction tests. Independent review is pending.
+Next slice: F23, named secret environment values at the shared egress helper.
+
+Threat model: untrusted model command text can try to read parent credentials
+or alter variables that redirect trusted programs. Minimal inheritance removes
+the ambient-secret path; literal assignment refusal narrows executable setup.
+Neither control blocks indirect arbitrary code, filesystem access, or network
+egress under the caller's identity. Explicit pass-through is trusted caller input.
+
 ## Next steps
 
 1. Add the source-export regression, synchronize missing exports, cover

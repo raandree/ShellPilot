@@ -206,6 +206,15 @@ Describe 'Invoke-ShpBatch' {
             }
         }
 
+        It 'Forwards caller-named command environment variables to every batch item' {
+            $null = Invoke-ShpBatch -Prompt 'a', 'b' -CommandEnvironmentVariable 'SHP_EXPLICIT_ENVIRONMENT'
+            InModuleScope $script:moduleName {
+                foreach ($item in $script:capturedWorkItem) {
+                    $item.InvokeParams.CommandEnvironmentVariable | Should -Be @('SHP_EXPLICIT_ENVIRONMENT')
+                }
+            }
+        }
+
         It 'Should resolve the module by full path so a worker cannot load another version' {
             $null = Invoke-ShpBatch -Prompt 'a'
             InModuleScope $script:moduleName {

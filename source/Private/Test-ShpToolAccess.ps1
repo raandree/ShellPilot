@@ -8,8 +8,8 @@ function Test-ShpToolAccess {
         Private helper guarding the unsandboxed tools, mirroring the shape and
         the fail-closed stance of Test-ShpUrlSafe.
 
-        With no policy set it allows everything, so an existing caller sees no
-        change. Once Set-ShpToolPolicy has been called the answer is
+        With no policy set it allows operations except dangerous environment
+        assignments in run_command. Once Set-ShpToolPolicy is called the answer is
         deny-by-default: an operation is permitted only when a rule allows it,
         and any matching deny rule overrides every allow.
 
@@ -26,7 +26,9 @@ function Test-ShpToolAccess {
         say. That is the honest limit of command-line allow-listing: without it
         `git status; curl ...` passes a rule that only ever meant `git status`.
         A Shell rule therefore constrains WHICH program runs, not what it does -
-        it is a coarse control and it is not a sandbox.
+        it is a coarse control and it is not a sandbox. Literal assignments to
+        execution-sensitive environment variables are refused even without a
+        policy, before starting a child. This is not a general code sandbox.
 
     .PARAMETER Tool
         The tool being dispatched: read_file, list_directory, glob_files,
@@ -70,6 +72,55 @@ function Test-ShpToolAccess {
         [AllowNull()]
         [string]$Command
     )
+
+    if ($Tool -eq 'run_command' -and -not [string]::IsNullOrWhiteSpace($Command)) {
+        $parseErrors = $null
+        $commandAst = [System.Management.Automation.Language.Parser]::ParseInput($Command, [ref]$null, [ref]$parseErrors)
+        if ($parseErrors.Count -gt 0 -and $null -eq $script:ShpToolPolicy) {
+            return @{ Allowed = $false; Target = $Command; Reason = 'The command cannot be parsed for environment assignment checks.' }
+        }
+        $assignedNames = [System.Collections.Generic.List[string]]::new()
+        foreach ($assignment in $commandAst.FindAll({ $args[0] -is [System.Management.Automation.Language.AssignmentStatementAst] }, $true)) {
+            foreach ($variable in $assignment.Left.FindAll({ $args[0] -is [System.Management.Automation.Language.VariableExpressionAst] }, $true)) {
+                if ($variable.VariablePath.UserPath -match '^env:(.+)$') {
+                    $assignedNames.Add($Matches[1])
+                }
+            }
+        }
+        foreach ($invocation in $commandAst.FindAll({ $args[0] -is [System.Management.Automation.Language.InvokeMemberExpressionAst] }, $true)) {
+            if ($invocation.Static -and $invocation.Expression -is [System.Management.Automation.Language.TypeExpressionAst] -and
+                $invocation.Expression.TypeName.FullName -in 'Environment', 'System.Environment' -and
+                $invocation.Member.Value -eq 'SetEnvironmentVariable') {
+                if ($invocation.Arguments[0] -isnot [System.Management.Automation.Language.StringConstantExpressionAst]) {
+                    return @{ Allowed = $false; Target = $Command; Reason = 'The environment assignment target must be a literal variable name.' }
+                }
+                $assignedNames.Add($invocation.Arguments[0].Value)
+            }
+        }
+        foreach ($commandNode in $commandAst.FindAll({ $args[0] -is [System.Management.Automation.Language.CommandAst] }, $true)) {
+            $commandName = ($commandNode.GetCommandName() -split '\\')[-1]
+            $environmentWriter = $commandName -in 'Set-Item', 'New-Item', 'Set-Content', 'Add-Content', 'Clear-Item', 'Remove-Item', 'si', 'ni', 'sc', 'ac', 'cli', 'ri', 'set', 'del', 'erase', 'rd'
+            foreach ($element in $commandNode.CommandElements) {
+                if ($element -isnot [System.Management.Automation.Language.StringConstantExpressionAst]) { continue }
+                if ($environmentWriter -and $element.Value -match '^env:(.+)$') {
+                    $assignedNames.Add($Matches[1])
+                }
+                if ($element.StringConstantType -eq 'BareWord' -and $element.Value -match '^([A-Za-z_][A-Za-z0-9_]*)=') {
+                    $assignedNames.Add($Matches[1])
+                }
+            }
+        }
+        foreach ($variableName in $assignedNames) {
+            if ($variableName -imatch $script:ShpCommandDeniedEnvironmentPattern -or
+                [System.Management.Automation.WildcardPattern]::ContainsWildcardCharacters($variableName)) {
+                return @{
+                    Allowed = $false
+                    Target = $Command
+                    Reason = "The command assigns protected environment variable '$variableName'; run_command refuses it before starting a child."
+                }
+            }
+        }
+    }
 
     if ($null -eq $script:ShpToolPolicy) {
         return @{ Allowed = $true; Reason = ''; Target = $(if ($Command) { $Command } else { $Path }) }

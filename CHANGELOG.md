@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- Limit `run_command` to a minimal environment and refuse execution-sensitive
+  literal environment assignments before child startup, even without a Tool
+  policy. See [command environment](README.md#command-environment).
+
 - **Protect Unix `edit_file` staging from creation.** Apply the source file
   mode when creating the empty temporary file, before any content is copied,
   so a private source is not temporarily exposed through default permissions.
@@ -239,6 +243,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   any URL credentials redacted.
 
 ### Changed
+
+- Require explicit `-CommandEnvironmentVariable` names on `Invoke-Shp` and
+  `Invoke-ShpBatch` for variables outside the minimal child environment.
+  Scripts relying on implicit inheritance must opt in; naming a credential
+  deliberately makes it available to the child. This is not containment.
 
 - **Raise the required PowerShell version from 7.0 to 7.4.** Upgrade the host
   before importing this version. Unix staging uses `FileStreamOptions` with

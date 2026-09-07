@@ -197,6 +197,35 @@ and replacement are not a filesystem compare-and-swap guarantee. An
 unsupported replacement fails rather than falling back to truncating the
 original file.
 
+### Command environment
+
+`run_command` receives a minimal platform environment: PATH plus the established
+home, temporary-directory, locale, and runtime variables. It no longer inherits
+all parent variables. In particular, `SHELLPILOT_GITHUB_TOKEN`, `GH_TOKEN`,
+`GITHUB_TOKEN`, and unrelated secrets are absent unless you explicitly name them:
+
+```powershell
+Invoke-Shp -Prompt 'Run the project checks.' -CommandEnvironmentVariable BUILD_TARGET
+```
+
+`Invoke-ShpBatch` and `-AsJob` retain this caller-owned list. Tool arguments
+cannot add names. A named credential becomes available to the child, so only
+pass variables the command needs. Existing scripts that depended on inherited
+variables must name those variables explicitly.
+
+Before starting a child, ShellPilot refuses literal environment assignments to
+`PATH`, `LD_*`, `DYLD_*`, `GIT_CONFIG*`, `GIT_EXTERNAL_DIFF`, `GIT_PROXY_COMMAND`,
+`GIT_SSH_COMMAND`, `GIT_ASKPASS`, `BASH_ENV`, `ENV`, `PAGER`, `GIT_PAGER`, `EDITOR`,
+`VISUAL`, and `BROWSER`, even without a Tool policy. The refusal names the
+variable. PowerShell assignments, environment-provider writes, direct
+`Environment.SetEnvironmentVariable` calls, and bare `NAME=value` arguments
+are checked. Quoted text describing an assignment is not executed or refused.
+
+This is not a sandbox or a general proof about arbitrary PowerShell code.
+Indirect code, child programs, inherited PATH/home locations, and commands
+running with your privileges can still reach local files and the network.
+Use Tool policy and external containment for untrusted work.
+
 ### User-defined tools
 
 Expose any PowerShell command to the model as a callable tool. The schema is
