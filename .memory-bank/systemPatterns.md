@@ -37,6 +37,9 @@ See [technical context](techContext.md) for services, authentication, and gates.
 - One egress-redaction helper protects outgoing content at the API boundary.
   Preserve assistant-turn and binary-image exclusions; do not redact only the
   initial user prompt or mutate the caller's input objects.
+- Named secret policy stores only environment names. Resolve current values
+  at the shared egress helper, escape them for literal matching, ignore empty
+  values, and refuse short nonempty values. Replay names, not secret snapshots.
 - Resolve each option family in one place, using explicit binding where zero
   or an empty value is meaningful. Alternative backends never receive the
   Copilot Session token. Keep the CI profile and backend gate intact.

@@ -25,6 +25,37 @@ Describe 'Set-ShpRedactionPolicy' {
     }
 
     Context 'Parsing' {
+        It 'Stores named secret variables without exposing their values' {
+            $savedValue = [Environment]::GetEnvironmentVariable('SHP_POLICY_SECRET')
+            try {
+                $env:SHP_POLICY_SECRET = 'opaque.[value]+$42'
+                Set-ShpRedactionPolicy -SecretEnvironmentVariable 'SHP_POLICY_SECRET'
+                $policy = Get-ShpRedactionPolicy
+                $policy.SecretEnvironmentVariable | Should -Be @('SHP_POLICY_SECRET')
+                $policy | ConvertTo-Json -Depth 8 | Should -Not -Match ([regex]::Escape($env:SHP_POLICY_SECRET))
+                @($policy.Rule).Count | Should -Be 0
+            }
+            finally { [Environment]::SetEnvironmentVariable('SHP_POLICY_SECRET', $savedValue) }
+        }
+
+        It 'Keeps the previous policy when a named value is too short' {
+            $savedValue = [Environment]::GetEnvironmentVariable('SHP_POLICY_SECRET')
+            try {
+                Set-ShpRedactionPolicy -Rule 'Existing(existing-secret)'
+                $env:SHP_POLICY_SECRET = 'true'
+                { Set-ShpRedactionPolicy -SecretEnvironmentVariable 'SHP_POLICY_SECRET' } |
+                    Should -Throw '*SHP_POLICY_SECRET*8*'
+                (Get-ShpRedactionPolicy).Rule[0].Name | Should -Be 'Existing'
+            }
+            finally { [Environment]::SetEnvironmentVariable('SHP_POLICY_SECRET', $savedValue) }
+        }
+
+        It 'Combines named variables with ordinary pattern rules' {
+            Set-ShpRedactionPolicy -Rule 'Example(example-secret)' -SecretEnvironmentVariable 'SHP_UNSET_LITERAL_SECRET'
+            (Get-ShpRedactionPolicy).Rule.Count | Should -Be 1
+            (Get-ShpRedactionPolicy).SecretEnvironmentVariable | Should -Be @('SHP_UNSET_LITERAL_SECRET')
+        }
+
         It 'Accepts the documented Name(Pattern) rule shape' {
             Set-ShpRedactionPolicy -Rule @('InternalToken(itk_[A-Za-z0-9]{10,})', 'Ticket(TCK-[0-9]{4,})')
 

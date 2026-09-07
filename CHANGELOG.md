@@ -56,6 +56,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Add `Set-ShpRedactionPolicy -SecretEnvironmentVariable` for current literal
+  values in outgoing text and Event records, with names-only reporting and
+  batch/job replay. See [named secret redaction](README.md#named-secret-redaction).
+
 - Add the maintainer-selected [MIT license](LICENSE) and document stable and
   prerelease [Gallery installation](README.md#install). Bundle the same license
   text in built modules and packages.

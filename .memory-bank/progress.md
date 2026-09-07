@@ -37,6 +37,12 @@ Copilot content exclusions, and enterprise MCP allowlists are not provided.
 
 ## Recent milestones
 
+- 2026-09-07 - Stage 4 / F23 complete: names-only secret environment policy,
+  current literal values resolved at egress, empty values ignored, minimum
+  eight-character nonempty values enforced. Event, batch, and structured-output
+  tests pass. Mutation disarmed only F23 and failed four of its cases; 29 other
+  checks stayed green. Restored full gate: 1,981 passed, zero failed, three
+  skips, 89.06% coverage, nine clean tasks. Analyzer clean; review pending.
 - 2026-09-07 - Stage 4 / F7-F8 complete: minimal terminal child environment,
   caller-only `CommandEnvironmentVariable` pass-through, and pre-start literal
   assignment refusal across the required variable families. Direct child

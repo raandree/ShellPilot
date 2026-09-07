@@ -215,6 +215,25 @@ Describe 'Invoke-ShpBatch' {
             }
         }
 
+        It 'Replays named secret environment policy without copying secret values' {
+            $savedValue = [Environment]::GetEnvironmentVariable('SHP_BATCH_SECRET')
+            try {
+                $env:SHP_BATCH_SECRET = 'batch-opaque-value'
+                Set-ShpRedactionPolicy -SecretEnvironmentVariable 'SHP_BATCH_SECRET'
+                $null = Invoke-ShpBatch -Prompt 'a', 'b'
+                InModuleScope $script:moduleName {
+                    foreach ($item in $script:capturedWorkItem) {
+                        $item.RedactionPolicy.SecretEnvironmentVariable | Should -Be @('SHP_BATCH_SECRET')
+                        $item.RedactionPolicy | ConvertTo-Json -Depth 8 | Should -Not -Match 'batch-opaque-value'
+                    }
+                }
+            }
+            finally {
+                Clear-ShpRedactionPolicy
+                [Environment]::SetEnvironmentVariable('SHP_BATCH_SECRET', $savedValue)
+            }
+        }
+
         It 'Should resolve the module by full path so a worker cannot load another version' {
             $null = Invoke-ShpBatch -Prompt 'a'
             InModuleScope $script:moduleName {

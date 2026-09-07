@@ -65,6 +65,15 @@ tests, zero failed, three skipped, 89.02% coverage, and nine clean tasks under
 restored existing dispatch and redaction tests. Independent review is pending.
 Next slice: F23, named secret environment values at the shared egress helper.
 
+F23 implementation passes 291 integrated tests. Policy stores names only;
+the egress helper resolves current literal values, ignores unset/empty values,
+and refuses nonempty values shorter than eight characters. Event records and
+batch policy replay use existing paths; structured replies and DisableRedaction
+remain unchanged. Mutation disarming only F23 produced four named-secret egress
+failures with 29 other checks green; restoration passed all 33. Full gate:
+1,981 passed, zero failed, three skips, 89.06% coverage, nine clean tasks.
+Next slice: F6 exact-name visibility filters across built-in, User, and MCP tools.
+
 Threat model: untrusted model command text can try to read parent credentials
 or alter variables that redirect trusted programs. Minimal inheritance removes
 the ambient-secret path; literal assignment refusal narrows executable setup.

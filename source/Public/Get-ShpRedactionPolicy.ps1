@@ -16,6 +16,9 @@ function Get-ShpRedactionPolicy {
         an Invoke-Shp result's Redactions member for what actually matched on a
         given call (pattern name and count only - never the matched value).
 
+        SecretEnvironmentVariable contains only caller-selected variable names.
+        Their values are resolved at egress and are never returned in this policy.
+
     .EXAMPLE
         Get-ShpRedactionPolicy
 

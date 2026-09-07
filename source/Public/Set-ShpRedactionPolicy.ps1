@@ -37,6 +37,20 @@ function Set-ShpRedactionPolicy {
         file picked up from the working directory would let whoever can write
         there decide what this session redacts.
 
+    .PARAMETER SecretEnvironmentVariable
+        Names of environment variables whose current values must be redacted
+        literally. Stored as names only and resolved for every outbound request
+        and Event record, including batch workers. Unset or empty values add no
+        match; nonempty values shorter than 8 characters are refused to prevent
+        broad accidental replacement. Placeholders are [redacted:env-NAME].
+        Can be used alone or combined with Rule or Path; replaces the current
+        custom policy. Values are never included in policy or match reports.
+
+    .EXAMPLE
+        Set-ShpRedactionPolicy -SecretEnvironmentVariable DATABASE_PASSWORD
+
+        Redacts the current literal value without storing or reporting it.
+
     .EXAMPLE
         Set-ShpRedactionPolicy -Rule 'InternalToken(itk_[A-Za-z0-9]{20,})'
 
@@ -60,7 +74,7 @@ function Set-ShpRedactionPolicy {
     .LINK
         Invoke-Shp
     #>
-    [CmdletBinding(SupportsShouldProcess, DefaultParameterSetName = 'Rule')]
+    [CmdletBinding(SupportsShouldProcess, DefaultParameterSetName = 'Environment')]
     [OutputType([System.Void])]
     param(
         [Parameter(ParameterSetName = 'Rule', Mandatory, Position = 0)]
@@ -69,15 +83,31 @@ function Set-ShpRedactionPolicy {
 
         [Parameter(ParameterSetName = 'Path', Mandatory)]
         [ValidateNotNullOrEmpty()]
-        [string]$Path
+        [string]$Path,
+
+        [Parameter(ParameterSetName = 'Environment', Mandatory)]
+        [Parameter(ParameterSetName = 'Rule')]
+        [Parameter(ParameterSetName = 'Path')]
+        [ValidateNotNullOrEmpty()]
+        [ValidatePattern('^[A-Za-z_][A-Za-z0-9_]*$')]
+        [string[]]$SecretEnvironmentVariable
     )
 
     $lines = if ($PSCmdlet.ParameterSetName -eq 'Path') {
         if (-not (Test-Path -LiteralPath $Path)) { throw "Redaction policy file not found: $Path" }
         @(Get-Content -LiteralPath $Path -ErrorAction Stop |
             Where-Object { -not [string]::IsNullOrWhiteSpace($_) -and $_.TrimStart() -notlike '#*' })
-    } else {
+    } elseif ($PSCmdlet.ParameterSetName -eq 'Rule') {
         @($Rule)
+    } else {
+        @()
+    }
+
+    foreach ($variableName in $SecretEnvironmentVariable) {
+        $value = [Environment]::GetEnvironmentVariable($variableName)
+        if (-not [string]::IsNullOrEmpty($value) -and $value.Length -lt 8) {
+            throw "Secret environment variable '$variableName' must contain at least 8 characters when set."
+        }
     }
 
     # Parse and compile everything before assigning anything: a policy
@@ -111,6 +141,7 @@ function Set-ShpRedactionPolicy {
     $script:ShpRedactionPolicy = [pscustomobject]@{
         PSTypeName = 'ShellPilot.RedactionPolicy'
         Rule       = $parsed.ToArray()
+        SecretEnvironmentVariable = @($SecretEnvironmentVariable | Select-Object -Unique)
         Source     = if ($PSCmdlet.ParameterSetName -eq 'Path') { (Resolve-ShpRealPath -Path $Path) } else { '(inline)' }
     }
 }

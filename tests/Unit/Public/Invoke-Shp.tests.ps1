@@ -3150,6 +3150,7 @@ Describe 'Invoke-Shp egress redaction' {
                             ModelName = $Model; CopilotUsage = $null; Raw = @{}; Response = [pscustomobject]@{ Headers = @{} }
                         }
                     } else {
+                        $script:structuredToolContent = @($Conversation | Where-Object { $_['role'] -eq 'tool' }).content
                         [pscustomobject]@{
                             Mode = 'chat'; Content = '{"ok":true}'; FinishReason = 'stop'; ToolCalls = @()
                             AssistantMessage = [pscustomobject]@{ content = '{"ok":true}' }; Reasoning = ''
@@ -3172,6 +3173,30 @@ Describe 'Invoke-Shp egress redaction' {
                 $r.ContentObject | Should -Not -BeNullOrEmpty
                 $r.ContentObject.ok | Should -Be $true
                 ($r.Redactions | Where-Object Name -eq 'github-token').Count | Should -Be 1
+            }
+        }
+
+        It 'Keeps structured replies identical with named redaction enabled or disabled' {
+            $savedValue = [Environment]::GetEnvironmentVariable('SHP_REPLY_SECRET')
+            try {
+                $env:SHP_REPLY_SECRET = 'opaque-reply-secret'
+                Set-ShpRedactionPolicy -SecretEnvironmentVariable 'SHP_REPLY_SECRET'
+                InModuleScope $script:moduleName {
+                    Mock Invoke-RunCommandTool { '{"stdout":"opaque-reply-secret","exitCode":0}' }
+                    $protected = Invoke-Shp -Prompt 'inspect' -DisableUserPrompts -JsonSchema '{"type":"object"}'
+                    $script:turnCount = 0
+                    $unprotected = Invoke-Shp -Prompt 'inspect' -History @() -DisableUserPrompts -JsonSchema '{"type":"object"}' -DisableRedaction
+                    $protected.Content | Should -BeExactly $unprotected.Content
+                    $protected.ContentObject.ok | Should -BeTrue
+                    $unprotected.ContentObject.ok | Should -BeTrue
+                    ($protected.Redactions | Where-Object Name -eq 'env-SHP_REPLY_SECRET').Count | Should -Be 1
+                    @($unprotected.Redactions).Count | Should -Be 0
+                    $script:structuredToolContent | Should -Match 'opaque-reply-secret'
+                }
+            }
+            finally {
+                Clear-ShpRedactionPolicy
+                [Environment]::SetEnvironmentVariable('SHP_REPLY_SECRET', $savedValue)
             }
         }
     }

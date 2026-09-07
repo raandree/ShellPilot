@@ -38,6 +38,11 @@ function Protect-ShpEgressContent {
         way to turn off a single built-in pattern short of Invoke-Shp
         -DisableRedaction, which skips this function entirely.
 
+        Named secret environment variables are resolved on each call and matched
+        literally, not as patterns. Unset and empty values are ignored; nonempty
+        values shorter than 8 characters are refused before anything is changed.
+        Only variable names and match counts are reported.
+
     .PARAMETER Message
         The conversation about to be sent - the same list Invoke-Shp passes to
         Invoke-CopilotTurn as chatMessages or respInput. Mutated in place.
@@ -70,6 +75,19 @@ function Protect-ShpEgressContent {
     foreach ($r in $script:ShpBuiltInRedactionPattern) { $null = $rules.Add($r) }
     if ($script:ShpRedactionPolicy -and $script:ShpRedactionPolicy.Rule) {
         foreach ($r in $script:ShpRedactionPolicy.Rule) { $null = $rules.Add($r) }
+    }
+    foreach ($variableName in @($script:ShpRedactionPolicy.SecretEnvironmentVariable)) {
+        if ([string]::IsNullOrEmpty($variableName)) { continue }
+        $value = [Environment]::GetEnvironmentVariable($variableName)
+        if ([string]::IsNullOrEmpty($value)) { continue }
+        if ($value.Length -lt 8) {
+            throw "Secret environment variable '$variableName' must contain at least 8 characters when set."
+        }
+        $rules.Add([pscustomobject]@{
+            Name = "env-$variableName"
+            Pattern = [regex]::Escape($value)
+            Replacement = "[redacted:env-$variableName]"
+        })
     }
 
     $counts = [ordered]@{}

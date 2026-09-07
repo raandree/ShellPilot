@@ -285,6 +285,29 @@ without scraping `-ShowThinking` output. They are silent on the console; opt out
 with `-DisableProgressEvents`. A host running `Invoke-Shp` on a `[powershell]`
 instance reads them from `$shell.Streams.Information`.
 
+### Named secret redaction
+
+Use names for secrets without a recognizable credential shape:
+
+```powershell
+Set-ShpRedactionPolicy -SecretEnvironmentVariable DATABASE_PASSWORD, LICENSE_KEY
+```
+
+The policy stores names only. Each outgoing request and Event record resolves
+the current values, matches them literally, and uses `[redacted:env-NAME]`.
+`Get-ShpRedactionPolicy` lists names; result `Redactions` contains names and
+counts, never the values. The same policy reaches batch workers and jobs.
+
+Unset or empty variables contribute no match. A nonempty value shorter than
+eight characters is refused, both when setting policy and at egress, to avoid
+redacting common short text. Values may rotate without resetting policy.
+Combine the option with `-Rule` or `-Path` to retain pattern rules in the new
+policy. The setter replaces the previous custom policy; built-ins remain.
+
+`-DisableRedaction` disables all redaction for that call. Assistant replies,
+including `ContentObject`, are not rewritten. This is a literal-content control,
+not protection against transformed secrets or arbitrary unsandboxed code.
+
 ### Headless event stream and background jobs
 
 For an unattended run, `-EventStream` writes a JSONL record of the whole turn -

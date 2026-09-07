@@ -12,6 +12,74 @@ AfterAll {
 Describe 'Protect-ShpEgressContent' {
     AfterEach { Clear-ShpRedactionPolicy }
 
+    Context 'Named secret environment values' {
+        BeforeEach {
+            $script:savedLiteralSecret = [Environment]::GetEnvironmentVariable('SHP_LITERAL_SECRET')
+            $env:SHP_LITERAL_SECRET = 'opaque.[value]+$42'
+            Set-ShpRedactionPolicy -SecretEnvironmentVariable 'SHP_LITERAL_SECRET'
+        }
+
+        AfterEach {
+            [Environment]::SetEnvironmentVariable('SHP_LITERAL_SECRET', $script:savedLiteralSecret)
+        }
+
+        It 'Redacts named values literally in every outbound text shape and reports only names and counts' {
+            InModuleScope $script:moduleName {
+                $secret = $env:SHP_LITERAL_SECRET
+                $messages = @(
+                    @{ role = 'user'; content = "first $secret then $secret" }
+                    @{ role = 'tool'; content = @(@{ type = 'text'; text = $secret }) }
+                    @{ type = 'function_call_output'; output = $secret }
+                    @{ role = 'assistant'; content = $secret }
+                )
+                $hits = Protect-ShpEgressContent -Message $messages
+                $messages[0].content | Should -BeExactly 'first [redacted:env-SHP_LITERAL_SECRET] then [redacted:env-SHP_LITERAL_SECRET]'
+                $messages[1].content[0].text | Should -BeExactly '[redacted:env-SHP_LITERAL_SECRET]'
+                $messages[2].output | Should -BeExactly '[redacted:env-SHP_LITERAL_SECRET]'
+                $messages[3].content | Should -BeExactly $secret
+                ($hits | Where-Object Name -eq 'env-SHP_LITERAL_SECRET').Count | Should -Be 4
+                $hits | ConvertTo-Json | Should -Not -Match ([regex]::Escape($secret))
+                @(Protect-ShpEgressContent -Message $messages).Count | Should -Be 0
+            }
+        }
+
+        It 'Resolves the current value after a secret rotates' {
+            $env:SHP_LITERAL_SECRET = 'rotated-secret-value'
+            InModuleScope $script:moduleName {
+                $message = @(@{ role = 'user'; content = 'rotated-secret-value' })
+                $null = Protect-ShpEgressContent -Message $message
+                $message[0].content | Should -BeExactly '[redacted:env-SHP_LITERAL_SECRET]'
+            }
+        }
+
+        It 'Skips an unset or empty named value without matching all text' {
+            $env:SHP_LITERAL_SECRET = ''
+            InModuleScope $script:moduleName {
+                $message = @(@{ role = 'user'; content = 'unchanged text' })
+                @(Protect-ShpEgressContent -Message $message).Count | Should -Be 0
+                $message[0].content | Should -BeExactly 'unchanged text'
+            }
+        }
+
+        It 'Refuses a value that becomes too short before egress' {
+            $env:SHP_LITERAL_SECRET = 'true'
+            InModuleScope $script:moduleName {
+                { Protect-ShpEgressContent -Message @(@{ role = 'user'; content = 'true' }) } |
+                    Should -Throw '*SHP_LITERAL_SECRET*8*'
+            }
+        }
+
+        It 'Protects the Event stream through the same rule' {
+            $eventPath = Join-Path $TestDrive 'literal-secret.jsonl'
+            InModuleScope $script:moduleName -Parameters @{ EventPath = $eventPath } {
+                param($EventPath)
+                Write-ShpEvent -State @{ Enabled = $true; Path = $EventPath; Sequence = 0; Redact = $true } -Type 'tool.result' -Data @{ text = $env:SHP_LITERAL_SECRET }
+            }
+            (Get-Content -LiteralPath $eventPath -Raw | ConvertFrom-Json).data.text |
+                Should -BeExactly '[redacted:env-SHP_LITERAL_SECRET]'
+        }
+    }
+
     Context 'Built-in patterns' {
         It 'Redacts a GitHub token and reports a stable placeholder and count' {
             InModuleScope $script:moduleName {
