@@ -1070,6 +1070,106 @@ Describe 'Invoke-Shp' {
         }
     }
 
+    Context 'Tool visibility filters' {
+        BeforeEach {
+            InModuleScope $script:moduleName {
+                $script:ShpChat = @()
+                $script:visibilityTurn = 0
+                $script:visibilityRequest = $null
+                $script:visibilityOffered = @()
+                $script:ShpUserTools = @{
+                    test_clock = @{ Name = 'test_clock'; Command = 'Get-Random'; Schema = @{ type = 'function'; function = @{ name = 'test_clock'; description = 'inert user tool'; parameters = @{ type = 'object'; properties = @{} } } } }
+                }
+                $script:ShpMcpServers = @{
+                    inert = @{ Name = 'inert'; State = 'Ready'; Tools = @(@{ Name = 'mcp_inert_read'; OriginalName = 'read'; Schema = @{ type = 'function'; function = @{ name = 'mcp_inert_read'; description = 'inert MCP tool'; parameters = @{ type = 'object'; properties = @{} } } } }) }
+                }
+                Mock Get-ShpSessionToken { [pscustomobject]@{ token = 't'; expires_at = 0; endpoints = @{ api = 'https://api.example' } } }
+                Mock Invoke-ReadFileTool { throw 'Excluded file tool executed.' }
+                Mock Invoke-ShpMcpTool { throw 'Excluded MCP tool executed.' }
+                Mock Get-Random { throw 'Excluded User tool executed.' }
+                Mock Invoke-CopilotTurn {
+                    $script:visibilityOffered = @($Tools)
+                    $script:visibilityTurn++
+                    $calls = if ($script:visibilityTurn -eq 1 -and $script:visibilityRequest) { @($script:visibilityRequest) } else { @() }
+                    [pscustomobject]@{
+                        Mode = 'chat'; Content = 'ok'; FinishReason = 'stop'; ToolCalls = $calls
+                        AssistantMessage = @{ content = 'ok' }; Reasoning = ''
+                        PromptTokens = 1; CompletionTokens = 1; CachedTokens = 0; CacheWriteTokens = 0
+                        ModelName = $Model; CopilotUsage = $null; Raw = @{}; Response = @{ Headers = @{} }
+                    }
+                }
+            }
+        }
+
+        AfterEach {
+            InModuleScope $script:moduleName {
+                $script:ShpUserTools = @{}
+                $script:ShpMcpServers = @{}
+                $script:ShpChat = @()
+            }
+        }
+
+        It 'Offers exactly the selected names across every tool class with exclusion winning' {
+            InModuleScope $script:moduleName {
+                $result = Invoke-Shp -Prompt 'inspect' -Tool read_file,test_clock,mcp_inert_read -ExcludeTool test_clock -DisableUserPrompts
+                @($script:visibilityOffered.function.name | Sort-Object) | Should -Be @('mcp_inert_read','read_file')
+                $result.UserToolsAvailable | Should -BeNullOrEmpty
+                $result.McpToolsAvailable | Should -Be @('mcp_inert_read')
+            }
+        }
+
+        It 'Never restores a tool removed by a category switch' {
+            InModuleScope $script:moduleName {
+                $null = Invoke-Shp -Prompt 'inspect' -Tool read_file -DisableFileAccess
+                $script:visibilityOffered | Should -BeNullOrEmpty
+            }
+        }
+
+        It 'Allows an explicitly empty selection without offering defaults' {
+            InModuleScope $script:moduleName {
+                $result = Invoke-Shp -Prompt 'inspect' -Tool @()
+                $script:visibilityOffered | Should -BeNullOrEmpty
+                @($result.InstructionsApplied.Kind) | Should -Not -Contain 'TodoListGuidance'
+            }
+        }
+
+        It 'Refuses unknown filter names before credential resolution' {
+            InModuleScope $script:moduleName {
+                { Invoke-Shp -Prompt 'inspect' -Tool misspelled_tool } | Should -Throw '*misspelled_tool*'
+                { Invoke-Shp -Prompt 'inspect' -ExcludeTool misspelled_tool } | Should -Throw '*misspelled_tool*'
+                Should -Invoke Get-ShpSessionToken -Times 0 -Exactly
+            }
+        }
+
+        It 'Refuses an excluded <Name> through the existing denial contract' -ForEach @(
+            @{ Name = 'read_file'; Arguments = '{"path":"unused"}' }
+            @{ Name = 'test_clock'; Arguments = '{}' }
+            @{ Name = 'mcp_inert_read'; Arguments = '{}' }
+        ) {
+            InModuleScope $script:moduleName -Parameters @{ Name = $Name; Arguments = $Arguments } {
+                param($Name, $Arguments)
+                $script:visibilityRequest = [pscustomobject]@{ Id = 'excluded'; Name = $Name; Arguments = $Arguments }
+                $result = Invoke-Shp -Prompt 'inspect' -ExcludeTool $Name -DisableUserPrompts
+                $result.ToolCallsDenied | Should -Contain "$Name`: The '$Name' tool is disabled for this call and was not run."
+                ($result.ToolCalls[0].ResultPreview | ConvertFrom-Json).denied | Should -Match 'disabled'
+                Should -Invoke Invoke-ReadFileTool -Times 0 -Exactly
+                Should -Invoke Invoke-ShpMcpTool -Times 0 -Exactly
+                Should -Invoke Get-Random -Times 0 -Exactly
+            }
+        }
+
+        It 'Reduces the measured serialized schema payload when a tool is excluded' {
+            InModuleScope $script:moduleName {
+                $null = Invoke-Shp -Prompt 'inspect' -History @() -DisableUserPrompts
+                $baseline = $script:visibilityOffered | ConvertTo-Json -Depth 20 -Compress
+                $null = Invoke-Shp -Prompt 'inspect' -History @() -DisableUserPrompts -ExcludeTool read_file
+                $filtered = $script:visibilityOffered | ConvertTo-Json -Depth 20 -Compress
+                $filtered.Length | Should -BeLessThan $baseline.Length
+                $filtered | Should -Not -Match '"name":"read_file"'
+            }
+        }
+    }
+
     Context 'New parameters and tool wiring' {
         It 'Exposes the new switches and -InstructionRoot' {
             $params = (Get-Command -Name 'Invoke-Shp').Parameters.Keys

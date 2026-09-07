@@ -102,6 +102,17 @@ function Invoke-Shp {
         files and let it choose the relevant ones itself, instead of forcing
         every file into the prompt with -InstructionPath.
 
+    .PARAMETER Tool
+        Exact tool names to offer, intersected with enabled categories and
+        available registrations. Applies to built-in, User, and namespaced MCP
+        tools. An empty array offers none; unknown names are refused before
+        credential resolution. Wildcards are not supported.
+
+    .PARAMETER ExcludeTool
+        Exact tool names to remove after Tool inclusion and category switches.
+        Exclusion wins and never re-enables a disabled tool. A model attempting
+        a withdrawn tool receives the existing disabled-tool denial.
+
     .PARAMETER DisableBrowsing
         Turn off web browsing. By default the fetch_url tool is exposed to the
         model so it can retrieve web content; this switch disables it.
@@ -868,6 +879,14 @@ function Invoke-Shp {
 
         [switch]$DisableBrowsing,
 
+        [AllowEmptyCollection()]
+        [ValidatePattern('^[a-zA-Z0-9_-]{1,128}$')]
+        [string[]]$Tool,
+
+        [AllowEmptyCollection()]
+        [ValidatePattern('^[a-zA-Z0-9_-]{1,128}$')]
+        [string[]]$ExcludeTool,
+
         [switch]$AllowPrivateNetwork,
 
         [switch]$DisableFileAccess,
@@ -980,6 +999,19 @@ function Invoke-Shp {
         [string]$UserAgent     = $script:DefaultUserAgent,
         [string]$IntegrationId = $script:DefaultIntegrationId
     )
+
+    $knownToolName = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    foreach ($knownName in @($script:ShpBuiltInToolName) + @($script:ShpUserTools.Keys)) {
+        $null = $knownToolName.Add($knownName)
+    }
+    foreach ($server in $script:ShpMcpServers.Values) {
+        foreach ($registeredTool in $server.Tools) { $null = $knownToolName.Add($registeredTool.Name) }
+    }
+    foreach ($requestedName in @($Tool) + @($ExcludeTool)) {
+        if ($null -ne $requestedName -and -not $knownToolName.Contains($requestedName)) {
+            throw "Unknown tool '$requestedName'. Use an exact built-in or registered tool name."
+        }
+    }
 
     $ownedTransport = $PSBoundParameters.ContainsKey('RequestTransport')
     if ($ownedTransport) {
@@ -1407,17 +1439,6 @@ function Invoke-Shp {
             }
         })
     }
-    # Every built-in this call actually offered. Derived from the tool list that
-    # was just assembled, rather than re-tested against each -Disable* switch, so
-    # a tool added later cannot be offered under one condition and dispatched
-    # under another. Captured before user and MCP tools are appended, so only the
-    # module's own tools can ever land in it.
-    $offeredBuiltInTool = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
-    foreach ($offered in $tools) {
-        $offeredName = [string]$offered.function.name
-        if ($offeredName -in $script:ShpBuiltInToolName) { $null = $offeredBuiltInTool.Add($offeredName) }
-    }
-
     # User-defined tools (Register-ShpTool): offer any registered command to the
     # model unless this call opted out. Each registered schema is added as-is and
     # dispatched by name in the tool loop below.
@@ -1428,7 +1449,6 @@ function Invoke-Shp {
             $null = $tools.Add($record.Schema)
             $userToolCommands[$record.Name] = $record.Command
         }
-        Write-Verbose ("Offering {0} user tool(s): {1}" -f $userToolCommands.Count, (($userToolCommands.Keys) -join ', '))
     }
 
     # MCP tools (Register-ShpMcpServer): offer the tool list captured when each
@@ -1448,10 +1468,31 @@ function Invoke-Shp {
                 $mcpToolMap[$mcpTool.Name] = @{ Server = $server.Name; Tool = $mcpTool.OriginalName }
             }
         }
-        if ($mcpToolMap.Count -gt 0) {
-            Write-Verbose ("Offering {0} MCP tool(s): {1}" -f $mcpToolMap.Count, (($mcpToolMap.Keys) -join ', '))
+    }
+    for ($toolIndex = $tools.Count - 1; $toolIndex -ge 0; $toolIndex--) {
+        $toolName = [string]$tools[$toolIndex].function.name
+        if (($PSBoundParameters.ContainsKey('Tool') -and $toolName -notin $Tool) -or $toolName -in $ExcludeTool) {
+            $tools.RemoveAt($toolIndex)
         }
     }
+    $offeredTool = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    foreach ($offered in $tools) { $null = $offeredTool.Add([string]$offered.function.name) }
+    foreach ($toolName in @($userToolCommands.Keys)) {
+        if (-not $offeredTool.Contains($toolName)) { $userToolCommands.Remove($toolName) }
+    }
+    foreach ($toolName in @($mcpToolMap.Keys)) {
+        if (-not $offeredTool.Contains($toolName)) { $mcpToolMap.Remove($toolName) }
+    }
+    $browsingEnabled = $offeredTool.Contains('fetch_url')
+    $fileAccessEnabled = @('read_file','list_directory','glob_files','grep_files','write_file','edit_file','create_directory').Where({ $offeredTool.Contains($_) }).Count -gt 0
+    $terminalEnabled = $offeredTool.Contains('run_command')
+    $userPromptsEnabled = $offeredTool.Contains('ask_user')
+    $skillsEnabled = $offeredTool.Contains('load_skill')
+    $instructionRootEnabled = $offeredTool.Contains('load_instruction')
+    $userToolsEnabled = $userToolCommands.Count -gt 0
+    $mcpEnabled = $mcpToolMap.Count -gt 0
+    if ($userToolsEnabled) { Write-Verbose ("Offering {0} user tool(s): {1}" -f $userToolCommands.Count, (($userToolCommands.Keys) -join ', ')) }
+    if ($mcpEnabled) { Write-Verbose ("Offering {0} MCP tool(s): {1}" -f $mcpToolMap.Count, (($mcpToolMap.Keys) -join ', ')) }
     if ($tools.Count -eq 0) { $tools = $null }
 
     $apiHeaders = @{
@@ -1471,8 +1512,13 @@ function Invoke-Shp {
         $systemContent += ' You have a fetch_url tool - use it whenever the user asks about current web content or a URL. Cite the URLs you fetched.'
     }
     if ($fileAccessEnabled) {
+        if ($PSBoundParameters.ContainsKey('Tool') -or $PSBoundParameters.ContainsKey('ExcludeTool')) {
+            $fileToolNames = @('read_file','list_directory','glob_files','grep_files','write_file','edit_file','create_directory').Where({ $offeredTool.Contains($_) })
+            $systemContent += ' The available file tools are: ' + ($fileToolNames -join ', ') + '. Read a file before reasoning about its contents; use only the tools actually offered for this call.'
+        } else {
         $systemContent += ' You have read_file and list_directory tools - use them whenever the user refers to a local file or directory by path. Read a file before reasoning about its contents; never guess. You also have glob_files (find files by name pattern) and grep_files (search file contents) - use them to locate a file or a definition instead of running a shell command, then read_file to read around a hit. You also have write_file and create_directory tools - use write_file whenever the user asks you to create, write, save or generate a file (do not just print the content and claim you cannot write files).'
         $systemContent += ' For targeted changes to an existing file, prefer edit_file with path, oldString and newString. It requires exactly one literal match, preserving encoding and unchanged line endings. If it refuses zero matches, check the current text, case and literal line endings; for multiple matches, include more surrounding text. An explicitly empty newString deletes the match.'
+        }
     }
     if ($terminalEnabled) {
         $systemContent += ' You have a run_command tool that runs a shell command line in PowerShell and returns its stdout, stderr and exit code - use it to run commands the user asks for and to inspect or change system state the file tools cannot (git, builds, package managers, processes, services). Prefer non-destructive commands and explain any destructive one before running it.'
@@ -1539,7 +1585,7 @@ function Invoke-Shp {
     # When the todo-list tool is offered, add a short built-in instruction so the
     # model reliably plans and tracks multi-step work rather than relying on the
     # tool description alone.
-    if (-not $DisableTodoList) {
+    if ($offeredTool.Contains('manage_todo_list')) {
         $null = $extraInstructions.Add('For any multi-step task, call manage_todo_list to plan and track sub-tasks: keep exactly one item in-progress, send the full list on each update, and mark items completed as soon as they finish. Skip it for trivial one-step requests.')
         $null = $instructionsApplied.Add([pscustomobject]@{ Kind='TodoListGuidance'; Source='(built-in)'; Chars=0 })
     }
@@ -2181,13 +2227,13 @@ function Invoke-Shp {
                         'run_command' { Test-ShpToolAccess -Tool $tc.Name -Command ([string]$fargs.command) }
                         default       { @{ Allowed = $true; Reason = '' } }
                     }
-                    # A disabled built-in must not run, and not offering it is not
+                    # A disabled known tool must not run, and not offering it is not
                     # enough on its own: the model can still name it from its own
                     # priors or from a replayed history, and the dispatch switch
                     # matches built-in names before it looks at anything else. So
                     # -DisableTerminal and its siblings bound what executes here,
                     # not merely what was advertised above.
-                    if ($access.Allowed -and $tc.Name -in $script:ShpBuiltInToolName -and -not $offeredBuiltInTool.Contains($tc.Name)) {
+                    if ($access.Allowed -and $knownToolName.Contains($tc.Name) -and -not $offeredTool.Contains($tc.Name)) {
                         $access = @{
                             Allowed = $false
                             Reason  = ("The '{0}' tool is disabled for this call and was not run." -f $tc.Name)

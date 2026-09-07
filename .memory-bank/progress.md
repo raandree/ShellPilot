@@ -37,6 +37,13 @@ Copilot content exclusions, and enterprise MCP allowlists are not provided.
 
 ## Recent milestones
 
+- 2026-09-07 - Stage 4 / F6 complete: exact inclusion/exclusion across all
+  tool classes, category intersection, unknown-name refusal before credentials,
+  existing denial shape, and batch forwarding. Nine tests went red to green.
+  Final provider measurement: 818 to 27 prompt tokens, zero tool calls,
+  USD 0.000885 combined, claude-haiku-4.5 with fresh history. Full gate:
+  1,990 passed, zero failed, three skips, 89.28% coverage, nine clean tasks.
+  F14 is still blocked; the measurement used the existing cached sign-in.
 - 2026-09-07 - Stage 4 / F23 complete: names-only secret environment policy,
   current literal values resolved at egress, empty values ignored, minimum
   eight-character nonempty values enforced. Event, batch, and structured-output

@@ -148,6 +148,15 @@ function Invoke-ShpBatch {
         every item. The minimal platform base is always available; credentials
         and other variables require explicit names. This is not containment.
 
+    .PARAMETER Tool
+        Exact tool names to offer in every item, intersected with enabled
+        categories. An empty array offers none. MCP remains unavailable in batch
+        workers; this option does not create or widen a registration.
+
+    .PARAMETER ExcludeTool
+        Exact tool names to withdraw after inclusion and category switches for
+        every item. Exclusion wins; unknown names are refused by the worker.
+
     .PARAMETER DisableUserTools
         Do not offer the tools registered with Register-ShpTool. By default they
         are re-registered inside each worker runspace; a tool backed by a
@@ -401,6 +410,14 @@ function Invoke-ShpBatch {
 
         [switch]$DisableBrowsing,
 
+        [AllowEmptyCollection()]
+        [ValidatePattern('^[a-zA-Z0-9_-]{1,128}$')]
+        [string[]]$Tool,
+
+        [AllowEmptyCollection()]
+        [ValidatePattern('^[a-zA-Z0-9_-]{1,128}$')]
+        [string[]]$ExcludeTool,
+
         [switch]$AllowPrivateNetwork,
 
         [switch]$DisableFileAccess,
@@ -525,7 +542,7 @@ function Invoke-ShpBatch {
                 'InstructionRoot', 'SkillPath', 'Temperature', 'TopP', 'Seed',
                 'ResponseFormat', 'JsonSchema', 'DisableBrowsing', 'AllowPrivateNetwork',
                 'DisableFileAccess', 'DisableTerminal', 'DisableUserTools', 'DisableTodoList',
-                'DisableRedaction', 'CommandEnvironmentVariable',
+                'DisableRedaction', 'CommandEnvironmentVariable', 'Tool', 'ExcludeTool',
                 'MaxToolIterations', 'MaxContextWindowTokens', 'MaxBudgetUSD', 'FailOn',
                 'ApiBase', 'TimeoutSec', 'MaxRetryCount', 'RetryDelaySec', 'NetworkOutageToleranceSec', 'TokenPath')) {
             if ($PSBoundParameters.ContainsKey($name)) { $invokeParams[$name] = $PSBoundParameters[$name] }

@@ -56,6 +56,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Add exact `-Tool` and `-ExcludeTool` visibility filters to `Invoke-Shp` and
+  `Invoke-ShpBatch`, covering built-in, User, and MCP names with exclusion
+  winning. Withdrawn tools retain the existing denial contract. See
+  [tool visibility](README.md#tool-visibility).
+
 - Add `Set-ShpRedactionPolicy -SecretEnvironmentVariable` for current literal
   values in outgoing text and Event records, with names-only reporting and
   batch/job replay. See [named secret redaction](README.md#named-secret-redaction).

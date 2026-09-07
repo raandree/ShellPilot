@@ -74,6 +74,17 @@ failures with 29 other checks green; restoration passed all 33. Full gate:
 1,981 passed, zero failed, three skips, 89.06% coverage, nine clean tasks.
 Next slice: F6 exact-name visibility filters across built-in, User, and MCP tools.
 
+F6 passes nine focused regressions. Unknown names fail before credentials;
+the final assembled list is filtered once, dispatch maps are pruned, and the
+existing denial branch covers every known withdrawn tool. Category switches
+cannot be widened. Empty selection also removes todo guidance (red to green).
+Batch forwards both options. Final live provider comparison: 818 to 27 prompt
+tokens on claude-haiku-4.5, fresh history, zero tool calls, USD 0.000885 total.
+F14 remains blocked: this used an existing cached sign-in, not a fine-grained
+in-memory token. Full gate: 1,990 passed, zero failed, three skips, 89.28%
+coverage, nine clean tasks. Next: F22, intersect a per-call read-only tool set
+with the caller filters and unchanged session Tool policy.
+
 Threat model: untrusted model command text can try to read parent credentials
 or alter variables that redirect trusted programs. Minimal inheritance removes
 the ambient-secret path; literal assignment refusal narrows executable setup.

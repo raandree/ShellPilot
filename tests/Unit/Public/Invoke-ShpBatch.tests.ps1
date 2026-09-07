@@ -215,6 +215,16 @@ Describe 'Invoke-ShpBatch' {
             }
         }
 
+        It 'Forwards exact tool inclusion and exclusion filters to each batch item' {
+            $null = Invoke-ShpBatch -Prompt 'a', 'b' -Tool read_file,grep_files -ExcludeTool read_file
+            InModuleScope $script:moduleName {
+                foreach ($item in $script:capturedWorkItem) {
+                    $item.InvokeParams.Tool | Should -Be @('read_file','grep_files')
+                    $item.InvokeParams.ExcludeTool | Should -Be @('read_file')
+                }
+            }
+        }
+
         It 'Replays named secret environment policy without copying secret values' {
             $savedValue = [Environment]::GetEnvironmentVariable('SHP_BATCH_SECRET')
             try {

@@ -197,6 +197,26 @@ and replacement are not a filesystem compare-and-swap guarantee. An
 unsupported replacement fails rather than falling back to truncating the
 original file.
 
+### Tool visibility
+
+Select exact names across built-in, User, and namespaced MCP tools:
+
+```powershell
+Invoke-Shp -Prompt 'Inspect the source.' -Tool read_file, glob_files, grep_files
+Invoke-Shp -Prompt 'Inspect the source.' -ExcludeTool run_command, write_file
+```
+
+`-Tool` is an inclusion list; `-ExcludeTool` is applied afterward and wins.
+Category switches still apply, so naming `read_file` with `-DisableFileAccess`
+does not restore it. An explicit `-Tool @()` offers no tools. Names are exact,
+case-insensitive, and cannot contain wildcards; unknown names are errors.
+
+Withdrawn tools are removed from the request and refused if the model names
+them anyway. They retain the existing `ToolCallsDenied` and denial-result
+contract. Availability reporting reflects the filtered set. Batch calls and
+jobs retain these per-call filters; batch still does not attach MCP servers.
+Visibility does not replace Tool policy or provide containment.
+
 ### Command environment
 
 `run_command` receives a minimal platform environment: PATH plus the established
