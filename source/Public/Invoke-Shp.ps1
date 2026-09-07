@@ -102,6 +102,17 @@ function Invoke-Shp {
         files and let it choose the relevant ones itself, instead of forcing
         every file into the prompt with -InstructionPath.
 
+    .PARAMETER Mode
+        Default preserves ordinary behavior. Plan is a per-call read-only policy
+        preset: read, list, search, fetch, and the in-memory todo tool remain
+        eligible; writes, edits, directory creation, terminal execution, User
+        tools, MCP tools, and ask_user are withheld. Caller tool filters and
+        category switches can narrow it further.
+        A preset is a convenience, not an enforcement boundary. It intersects
+        existing Tool policy checks and never replaces or mutates session policy.
+        MCP tools are not covered by Tool policy and are therefore withheld.
+        Reads and fetches still run with caller privileges; there is no containment.
+
     .PARAMETER Tool
         Exact tool names to offer, intersected with enabled categories and
         available registrations. Applies to built-in, User, and namespaced MCP
@@ -879,6 +890,9 @@ function Invoke-Shp {
 
         [switch]$DisableBrowsing,
 
+        [ValidateSet('Default', 'Plan')]
+        [string]$Mode = 'Default',
+
         [AllowEmptyCollection()]
         [ValidatePattern('^[a-zA-Z0-9_-]{1,128}$')]
         [string[]]$Tool,
@@ -1471,7 +1485,9 @@ function Invoke-Shp {
     }
     for ($toolIndex = $tools.Count - 1; $toolIndex -ge 0; $toolIndex--) {
         $toolName = [string]$tools[$toolIndex].function.name
-        if (($PSBoundParameters.ContainsKey('Tool') -and $toolName -notin $Tool) -or $toolName -in $ExcludeTool) {
+        if (($PSBoundParameters.ContainsKey('Tool') -and $toolName -notin $Tool) -or
+            $toolName -in $ExcludeTool -or
+            ($Mode -eq 'Plan' -and $toolName -notin 'read_file','list_directory','glob_files','grep_files','fetch_url','manage_todo_list')) {
             $tools.RemoveAt($toolIndex)
         }
     }
@@ -1512,7 +1528,7 @@ function Invoke-Shp {
         $systemContent += ' You have a fetch_url tool - use it whenever the user asks about current web content or a URL. Cite the URLs you fetched.'
     }
     if ($fileAccessEnabled) {
-        if ($PSBoundParameters.ContainsKey('Tool') -or $PSBoundParameters.ContainsKey('ExcludeTool')) {
+        if ($PSBoundParameters.ContainsKey('Tool') -or $PSBoundParameters.ContainsKey('ExcludeTool') -or $Mode -eq 'Plan') {
             $fileToolNames = @('read_file','list_directory','glob_files','grep_files','write_file','edit_file','create_directory').Where({ $offeredTool.Contains($_) })
             $systemContent += ' The available file tools are: ' + ($fileToolNames -join ', ') + '. Read a file before reasoning about its contents; use only the tools actually offered for this call.'
         } else {
@@ -1728,11 +1744,11 @@ function Invoke-Shp {
         throw 'UseServerSideState (responses API) cannot be combined with structured output or image input (chat API).'
     }
     $streamingEnabled = (-not $DisableStreaming) -and (-not $UseServerSideState)
-    $mode = if ($UseServerSideState) { 'responses' }
+    $apiMode = if ($UseServerSideState) { 'responses' }
             elseif ($hasImages -or $structured) { 'chat' }
             elseif ($ShowThinking -and -not $streamingEnabled) { 'responses' }
             else { 'chat' }
-    $requestReasoning = [bool]$ShowThinking -and ($mode -eq 'responses')
+    $requestReasoning = [bool]$ShowThinking -and ($apiMode -eq 'responses')
     $previousResponseId = if ($UseServerSideState) { $script:ShpLastResponseId } else { $null }
     # Server-side state can be switched off mid-loop if the backend rejects the
     # store parameter (the Copilot proxy is stateless and returns
@@ -1772,7 +1788,7 @@ function Invoke-Shp {
 
     & $emit 'turn.start' @{
         model             = $Model
-        apiMode           = $mode
+        apiMode           = $apiMode
         prompt            = $Prompt
         promptLength      = $Prompt.Length
         endpoint          = $(if ($usingAltBackend) { $backend.SafeApiBase } else { $apiBase })
@@ -1803,7 +1819,7 @@ function Invoke-Shp {
             }
             throw $limitError
         }
-        if ($ShowThinking) { Write-Host ("`n=== iteration {0} ({1}) ===" -f $iteration, $mode) -ForegroundColor DarkCyan }
+        if ($ShowThinking) { Write-Host ("`n=== iteration {0} ({1}) ===" -f $iteration, $apiMode) -ForegroundColor DarkCyan }
         try {
             # Re-resolve the Session token for THIS iteration. It is short-lived
             # and a Turn is a loop, so the credential resolved before the loop is
@@ -1818,14 +1834,14 @@ function Invoke-Shp {
                     Write-Verbose 'Session token refreshed mid-turn; this iteration carries the new bearer.'
                 }
             }
-            $conv = if ($mode -eq 'responses') { $respInput } else { $chatMessages }
-            $tls  = if ($mode -eq 'responses') { $respTools } else { $tools }
+            $conv = if ($apiMode -eq 'responses') { $respInput } else { $chatMessages }
+            $tls  = if ($apiMode -eq 'responses') { $respTools } else { $tools }
             # Guard the context window (defence in depth): a Turn accumulates every
             # tool result, so before a chat request trim the oldest tool results
             # when the estimated prompt exceeds the budget - otherwise a few large
             # read_file / fetch_url / run_command results overflow the window
             # (the 413 / model_max_prompt_tokens_exceeded failure).
-            if ($mode -ne 'responses') {
+            if ($apiMode -ne 'responses') {
                 $guard = Compress-ShpChatContext -Messages $chatMessages -MaxTokens $effectiveContextBudget
                 if ($guard.Trimmed -gt 0) { Write-Verbose ("Context guard elided {0} old tool result(s) to stay within the window." -f $guard.Trimmed) }
                 # The guard may only touch tool results, so a conversation-heavy
@@ -1852,11 +1868,11 @@ function Invoke-Shp {
             & $emit 'model.request' @{
                 iteration    = $iteration
                 model        = $Model
-                apiMode      = $mode
+                apiMode      = $apiMode
                 endpoint     = $(if ($usingAltBackend) { $backend.SafeApiBase } else { $apiBase })
                 messageCount = @($conv).Count
                 toolCount    = @($tls).Count
-                streaming    = ($streamingEnabled -and $mode -eq 'chat')
+                streaming    = ($streamingEnabled -and $apiMode -eq 'chat')
             }
             $reasoningChunks = [System.Collections.Generic.List[string]]::new()
             $onRequestRetry = $null
@@ -1876,7 +1892,7 @@ function Invoke-Shp {
                 }.GetNewClosure()
             }
             $onReasoningChunk = $null
-            if ($eventState.Enabled -and $ShowThinking -and $streamingEnabled -and $mode -eq 'chat') {
+            if ($eventState.Enabled -and $ShowThinking -and $streamingEnabled -and $apiMode -eq 'chat') {
                 $onReasoningChunk = {
                     param([string]$Chunk)
 
@@ -1927,12 +1943,12 @@ function Invoke-Shp {
                     RequestId = [guid]::NewGuid().ToString('N')
                     Iteration = $iteration
                     Model = $Model
-                    Mode = $mode
+                    Mode = $apiMode
                     Conversation = $conv
                     Tools = $tls
                     MaxOutputTokens = $MaxOutputTokens
                     ReasoningEffort = $ReasoningEffort
-                    RequestReasoningSummary = ($mode -eq 'responses' -and $requestReasoning)
+                    RequestReasoningSummary = ($apiMode -eq 'responses' -and $requestReasoning)
                     Structured = $structuredParams
                     Sampling = $samplingParams
                 }
@@ -1983,7 +1999,7 @@ function Invoke-Shp {
                     }
                 }
             } else {
-                $turn = Invoke-CopilotTurn -Mode $mode -Model $Model -ApiBase $apiBase -Headers $apiHeaders -Conversation $conv -Tools $tls -RequestReasoningSummary:($mode -eq 'responses' -and $requestReasoning) -ReasoningEffort $ReasoningEffort -MaxOutputTokens $MaxOutputTokens -Stream:($streamingEnabled -and $mode -eq 'chat') -EchoReasoning:($ShowThinking -and $streamingEnabled -and $mode -eq 'chat') -OnReasoningChunk $onReasoningChunk -OnRetry $onRequestRetry -Store:($serverSideActive -and $mode -eq 'responses') -PreviousResponseId $previousResponseId @structuredParams @samplingParams @connectionParams
+                $turn = Invoke-CopilotTurn -Mode $apiMode -Model $Model -ApiBase $apiBase -Headers $apiHeaders -Conversation $conv -Tools $tls -RequestReasoningSummary:($apiMode -eq 'responses' -and $requestReasoning) -ReasoningEffort $ReasoningEffort -MaxOutputTokens $MaxOutputTokens -Stream:($streamingEnabled -and $apiMode -eq 'chat') -EchoReasoning:($ShowThinking -and $streamingEnabled -and $apiMode -eq 'chat') -OnReasoningChunk $onReasoningChunk -OnRetry $onRequestRetry -Store:($serverSideActive -and $apiMode -eq 'responses') -PreviousResponseId $previousResponseId @structuredParams @samplingParams @connectionParams
             }
         } catch {
             $errText = $_.ErrorDetails.Message
@@ -2033,29 +2049,29 @@ function Invoke-Shp {
             if (-not $NoAutomaticRetry -and $serverSideActive -and $errText -and $errText -match 'store') {
                 Write-Warning 'The backend does not support server-side conversation state (store); falling back to client-side history.'
                 & $emit 'retry' @{ iteration = $iteration; reason = 'ServerSideStateUnsupported'; detail = 'The backend rejected the store parameter; the turn continues with client-side history on the chat shape.' }
-                $serverSideActive = $false; $previousResponseId = $null; $mode = 'chat'; $iteration--; continue
+                $serverSideActive = $false; $previousResponseId = $null; $apiMode = 'chat'; $iteration--; continue
             }
             # The model does not support /responses at all - fall back to chat
             # (this also covers -ShowThinking forcing responses on a chat-only
             # model such as claude-opus-4.8).
-            if (-not $NoAutomaticRetry -and $mode -eq 'responses' -and -not $apiShapeSwitched -and $errText -and ($errText -match 'unsupported_api_for_model' -or $errText -match 'does not support Responses')) {
+            if (-not $NoAutomaticRetry -and $apiMode -eq 'responses' -and -not $apiShapeSwitched -and $errText -and ($errText -match 'unsupported_api_for_model' -or $errText -match 'does not support Responses')) {
                 Write-Verbose "Model '$Model' does not support /responses - switching to /chat/completions."
                 if ($ShowThinking) { Write-Host '(model has no /responses API; reasoning summary unavailable, continuing on /chat)' -ForegroundColor DarkGray }
                 & $emit 'retry' @{ iteration = $iteration; reason = 'ApiShapeSwitch'; detail = ("Model '{0}' does not support /responses; the turn continues on /chat/completions." -f $Model) }
-                $apiShapeSwitched = $true; $mode='chat'; $requestReasoning=$false; $iteration--; continue
+                $apiShapeSwitched = $true; $apiMode='chat'; $requestReasoning=$false; $iteration--; continue
             }
             # The model accepts /responses but rejected the reasoning-summary
             # request specifically - retry the same turn without it.
-            if (-not $NoAutomaticRetry -and $mode -eq 'responses' -and $requestReasoning -and $errText -and ($errText -match 'reasoning' -or $errText -match 'summary')) {
+            if (-not $NoAutomaticRetry -and $apiMode -eq 'responses' -and $requestReasoning -and $errText -and ($errText -match 'reasoning' -or $errText -match 'summary')) {
                 Write-Verbose "Model '$Model' rejected the reasoning summary - retrying without it."
                 if ($ShowThinking) { Write-Host '(model does not support a reasoning summary; continuing without it)' -ForegroundColor DarkGray }
                 & $emit 'retry' @{ iteration = $iteration; reason = 'ReasoningSummaryRejected'; detail = ("Model '{0}' rejected the reasoning summary; the iteration is retried without it." -f $Model) }
                 $requestReasoning = $false; $iteration--; continue
             }
-            if (-not $NoAutomaticRetry -and $mode -eq 'chat' -and $iteration -eq 1 -and -not $apiShapeSwitched -and $errText -and ($errText -match 'unsupported_api_for_model' -or $errText -match 'invalid_request_body')) {
+            if (-not $NoAutomaticRetry -and $apiMode -eq 'chat' -and $iteration -eq 1 -and -not $apiShapeSwitched -and $errText -and ($errText -match 'unsupported_api_for_model' -or $errText -match 'invalid_request_body')) {
                 Write-Verbose "Model '$Model' rejected on /chat/completions - switching to /responses."
                 & $emit 'retry' @{ iteration = $iteration; reason = 'ApiShapeSwitch'; detail = ("Model '{0}' was rejected on /chat/completions; the turn continues on /responses." -f $Model) }
-                $apiShapeSwitched = $true; $mode='responses'; $iteration--; continue
+                $apiShapeSwitched = $true; $apiMode='responses'; $iteration--; continue
             }
             # No fallback applied, so this turn is over. Record it before
             # rethrowing: a Turn is a loop of billable round-trips, and the ones
@@ -2150,7 +2166,7 @@ function Invoke-Shp {
             # reasoning live in dim italic; only print it here for the
             # non-streaming / responses path so it is not shown twice. Dim italic
             # marks it as reasoning "backnoise", distinct from the answer.
-            if ($ShowThinking -and -not ($streamingEnabled -and $mode -eq 'chat')) {
+            if ($ShowThinking -and -not ($streamingEnabled -and $apiMode -eq 'chat')) {
                 Write-Host "`nthinking:" -ForegroundColor DarkGray
                 Write-Host ("`e[3;90m{0}`e[0m" -f $turn.Reasoning)
             }
@@ -2158,7 +2174,7 @@ function Invoke-Shp {
 
         if ($turn.ToolCalls.Count -gt 0) {
             $consecutiveEmptyNudges = 0
-            if ($mode -eq 'responses') {
+            if ($apiMode -eq 'responses') {
                 foreach ($ai in $turn.AssistantItems) {
                     $h = @{}; $ai.PSObject.Properties | ForEach-Object { $h[$_.Name] = $_.Value }
                     $null = $respInput.Add($h)
@@ -2430,7 +2446,7 @@ function Invoke-Shp {
                     length    = $toolResult.Length
                     truncated = ($toolResult.Length -gt 200)
                 }
-                if ($mode -eq 'responses') {
+                if ($apiMode -eq 'responses') {
                     $null = $respInput.Add(@{ type='function_call_output'; call_id=$tc.Id; output=$toolResult })
                 } else {
                     $null = $chatMessages.Add(@{ role='tool'; tool_call_id=$tc.Id; name=$tc.Name; content=$toolResult })
@@ -2448,7 +2464,7 @@ function Invoke-Shp {
             }
             Write-Warning ("Model claimed a tool call but emitted none. Nudging ({0}/{1})." -f $consecutiveEmptyNudges, $maxConsecutiveEmptyNudges)
             $nudge = 'Your previous turn signalled a tool call but contained no usable tool call. If you still need a tool, emit it as a structured tool_calls object (not as text). If you have finished the task, reply with your final answer in plain text and do not request a tool.'
-            if ($mode -eq 'responses') {
+            if ($apiMode -eq 'responses') {
                 $null = $respInput.Add(@{ role='assistant'; content=$turn.Content })
                 $null = $respInput.Add(@{ role='user'; content=$nudge })
             } else {

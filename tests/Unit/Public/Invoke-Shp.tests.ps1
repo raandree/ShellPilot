@@ -1087,6 +1087,10 @@ Describe 'Invoke-Shp' {
                 Mock Invoke-ReadFileTool { throw 'Excluded file tool executed.' }
                 Mock Invoke-ShpMcpTool { throw 'Excluded MCP tool executed.' }
                 Mock Get-Random { throw 'Excluded User tool executed.' }
+                Mock Invoke-WriteFileTool { throw 'Plan write executed.' }
+                Mock Invoke-EditFileTool { throw 'Plan edit executed.' }
+                Mock New-DirectoryTool { throw 'Plan directory creation executed.' }
+                Mock Invoke-RunCommandTool { throw 'Plan terminal command executed.' }
                 Mock Invoke-CopilotTurn {
                     $script:visibilityOffered = @($Tools)
                     $script:visibilityTurn++
@@ -1106,6 +1110,7 @@ Describe 'Invoke-Shp' {
                 $script:ShpUserTools = @{}
                 $script:ShpMcpServers = @{}
                 $script:ShpChat = @()
+                Clear-ShpToolPolicy
             }
         }
 
@@ -1166,6 +1171,87 @@ Describe 'Invoke-Shp' {
                 $filtered = $script:visibilityOffered | ConvertTo-Json -Depth 20 -Compress
                 $filtered.Length | Should -BeLessThan $baseline.Length
                 $filtered | Should -Not -Match '"name":"read_file"'
+            }
+        }
+
+        It 'Offers only read-only tools in Plan mode' {
+            InModuleScope $script:moduleName {
+                $null = Invoke-Shp -Prompt 'inspect' -Mode Plan
+                @($script:visibilityOffered.function.name | Sort-Object) |
+                    Should -Be @('fetch_url','glob_files','grep_files','list_directory','manage_todo_list','read_file')
+                Get-ShpToolPolicy | Should -BeNullOrEmpty
+            }
+        }
+
+        It 'Denies <Name> in Plan mode with the existing event contract' -ForEach @(
+            @{ Name = 'write_file'; Arguments = '{"path":"unused","content":"unused"}' }
+            @{ Name = 'edit_file'; Arguments = '{"path":"unused","oldString":"old","newString":"new"}' }
+            @{ Name = 'create_directory'; Arguments = '{"path":"unused"}' }
+            @{ Name = 'run_command'; Arguments = '{"command":"Get-Date"}' }
+            @{ Name = 'test_clock'; Arguments = '{}' }
+            @{ Name = 'mcp_inert_read'; Arguments = '{}' }
+        ) {
+            $eventPath = Join-Path $TestDrive "plan-$Name.jsonl"
+            InModuleScope $script:moduleName -Parameters @{ Name = $Name; Arguments = $Arguments; EventPath = $eventPath } {
+                param($Name, $Arguments, $EventPath)
+                $script:visibilityRequest = [pscustomobject]@{ Id = 'plan-denied'; Name = $Name; Arguments = $Arguments }
+                $result = Invoke-Shp -Prompt 'inspect' -Mode Plan -EventStream $EventPath
+                $result.ToolCallsDenied | Should -Not -BeNullOrEmpty
+                ($result.ToolCalls[0].ResultPreview | ConvertFrom-Json).denied | Should -Match 'disabled'
+                $events = @(Get-Content -LiteralPath $EventPath | ConvertFrom-Json)
+                ($events | Where-Object type -eq 'tool.call').data.policy | Should -Be 'denied'
+                Should -Invoke Invoke-WriteFileTool -Times 0 -Exactly
+                Should -Invoke Invoke-EditFileTool -Times 0 -Exactly
+                Should -Invoke New-DirectoryTool -Times 0 -Exactly
+                Should -Invoke Invoke-RunCommandTool -Times 0 -Exactly
+                Should -Invoke Invoke-ShpMcpTool -Times 0 -Exactly
+                Should -Invoke Get-Random -Times 0 -Exactly
+            }
+        }
+
+        It 'Intersects Plan mode with the existing session policy without replacing it' {
+            $allowedPath = Join-Path $TestDrive 'allowed-plan.txt'
+            $deniedPath = Join-Path $TestDrive 'denied-plan.txt'
+            Set-Content -LiteralPath $allowedPath,$deniedPath -Value 'fixture'
+            InModuleScope $script:moduleName -Parameters @{ AllowedPath = $allowedPath; DeniedPath = $deniedPath } {
+                param($AllowedPath, $DeniedPath)
+                Set-ShpToolPolicy -Rule "Read($AllowedPath)"
+                $original = Get-ShpToolPolicy
+                Mock Invoke-ReadFileTool { '{"text":"allowed"}' }
+                $script:visibilityRequest = [pscustomobject]@{ Id = 'read'; Name = 'read_file'; Arguments = (@{ path = $AllowedPath } | ConvertTo-Json -Compress) }
+                $allowed = Invoke-Shp -Prompt 'inspect' -Mode Plan
+                $allowed.ToolCallsDenied | Should -BeNullOrEmpty
+                Should -Invoke Invoke-ReadFileTool -Times 1 -Exactly
+                $script:visibilityTurn = 0
+                $script:visibilityRequest.Arguments = @{ path = $DeniedPath } | ConvertTo-Json -Compress
+                $denied = Invoke-Shp -Prompt 'inspect' -Mode Plan -History @()
+                $denied.ToolCallsDenied | Should -Not -BeNullOrEmpty
+                [object]::ReferenceEquals($original, (Get-ShpToolPolicy)) | Should -BeTrue
+            }
+        }
+
+        It 'Cannot widen Plan mode with explicit tool inclusion' {
+            InModuleScope $script:moduleName {
+                $null = Invoke-Shp -Prompt 'inspect' -Mode Plan -Tool write_file,run_command,test_clock,mcp_inert_read
+                $script:visibilityOffered | Should -BeNullOrEmpty
+            }
+        }
+
+        It 'Preserves session policy after a Plan mode provider error' {
+            InModuleScope $script:moduleName {
+                Set-ShpToolPolicy -Rule 'Read(./**)'
+                $original = Get-ShpToolPolicy
+                Mock Invoke-CopilotTurn { throw 'plan fixture provider failure' }
+                { Invoke-Shp -Prompt 'inspect' -Mode Plan } | Should -Throw '*plan fixture provider failure*'
+                [object]::ReferenceEquals($original, (Get-ShpToolPolicy)) | Should -BeTrue
+            }
+        }
+
+        It 'Forwards Plan mode to the existing job path' {
+            InModuleScope $script:moduleName {
+                Mock Start-ShpJob { [pscustomobject]@{ Mode = $Parameter.Mode } }
+                (Invoke-Shp -Prompt 'inspect' -Mode Plan -AsJob).Mode | Should -Be 'Plan'
+                Should -Invoke Start-ShpJob -Times 1 -Exactly -ParameterFilter { $Parameter.Mode -eq 'Plan' }
             }
         }
     }

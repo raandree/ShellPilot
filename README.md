@@ -217,6 +217,27 @@ contract. Availability reporting reflects the filtered set. Batch calls and
 jobs retain these per-call filters; batch still does not attach MCP servers.
 Visibility does not replace Tool policy or provide containment.
 
+### Read-only Plan mode
+
+```powershell
+Invoke-Shp -Prompt 'Inspect this project and propose the next changes.' -Mode Plan
+```
+
+Plan keeps `read_file`, `list_directory`, `glob_files`, `grep_files`, `fetch_url`,
+and the in-memory todo tool eligible. It withholds writes, edits, directory
+creation, terminal execution, User tools, MCP tools, and interactive questions.
+Caller filters and category switches may narrow the set further, never widen it.
+
+The preset is per call and intersects the existing session Tool policy. It
+never replaces or mutates that policy, including on failure. Without a session
+policy, reads retain the ordinary unrestricted path scope. `-AsJob` retains
+the preset. `-Mode Default`, or omitting Mode, preserves ordinary behavior.
+
+A preset is a convenience, not an enforcement boundary. MCP tools are not
+covered by Tool policy and are therefore withheld. File reads and fetches
+still use caller privileges and can move sensitive content; Plan is not a
+sandbox or a guarantee that untrusted content cannot cause disclosure.
+
 ### Command environment
 
 `run_command` receives a minimal platform environment: PATH plus the established

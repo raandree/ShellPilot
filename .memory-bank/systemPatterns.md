@@ -52,6 +52,9 @@ See [technical context](techContext.md) for services, authentication, and gates.
   it must not silently reinterpret user input or server capabilities.
 - Use explicit per-call parameters for transient behavior. Session setters
   change durable in-memory policy only when the caller requests that change.
+- Plan intersects a fixed read-only offered set with caller filters and existing
+  Tool policy. Never temporarily replace session state to implement a preset;
+  existing dispatch denials enforce the intersection, including on errors/jobs.
 - Unit fixtures with inert provider mocks snapshot, clear, then restore `CI`,
   `SHELLPILOT_API_BASE`, `SHELLPILOT_API_KEY`, and
   `SHELLPILOT_ALLOW_COPILOT_BACKEND_IN_CI`. Do not bypass the production gate

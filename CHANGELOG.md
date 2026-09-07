@@ -56,6 +56,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Add the per-call `Invoke-Shp -Mode Plan` read-only preset, intersecting caller
+  filters and the unchanged session Tool policy. Withhold mutation, terminal,
+  User, MCP, and interactive-question tools. See
+  [Plan mode and its limits](README.md#read-only-plan-mode).
+
 - Add exact `-Tool` and `-ExcludeTool` visibility filters to `Invoke-Shp` and
   `Invoke-ShpBatch`, covering built-in, User, and MCP names with exclusion
   winning. Withdrawn tools retain the existing denial contract. See

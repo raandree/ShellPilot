@@ -37,6 +37,12 @@ Copilot content exclusions, and enterprise MCP allowlists are not provided.
 
 ## Recent milestones
 
+- 2026-09-07 - Stage 4 / F22 complete: per-call Plan intersects read-only
+  visibility with caller filters and unchanged session Tool policy. Mutation,
+  terminal, User/MCP, and ask_user tools are withheld; todo remains in memory.
+  Denial events, existing-policy intersection, provider errors, and job
+  forwarding are covered. Full gate: 2,001 passed, zero failed, three skips,
+  89.37% coverage, nine clean tasks. Reads/fetches still permit disclosure.
 - 2026-09-07 - Stage 4 / F6 complete: exact inclusion/exclusion across all
   tool classes, category intersection, unknown-name refusal before credentials,
   existing denial shape, and batch forwarding. Nine tests went red to green.

@@ -85,6 +85,17 @@ in-memory token. Full gate: 1,990 passed, zero failed, three skips, 89.28%
 coverage, nine clean tasks. Next: F22, intersect a per-call read-only tool set
 with the caller filters and unchanged session Tool policy.
 
+F22 passes 19 combined Plan/visibility tests. The preset intersects a fixed
+read-only offered set with caller filters and existing session Tool policy,
+without mutating or temporarily replacing session state. User/MCP tools and
+ask_user are withheld; the in-memory todo tool remains. Success, denial events,
+provider failure, and job forwarding are covered. Internal `$mode` became
+`$apiMode` through an AST-scoped rename before adding the public validated Mode
+parameter. Reads and fetches still permit disclosure; this is not containment.
+Full gate: 2,001 passed, zero failed, three skips, 89.37% coverage, nine clean
+tasks. Independent review remains pending. Next slice: F17 explicit Enterprise
+Cloud host routing, with no changes to the bounded child transport allowlist.
+
 Threat model: untrusted model command text can try to read parent credentials
 or alter variables that redirect trusted programs. Minimal inheritance removes
 the ambient-secret path; literal assignment refusal narrows executable setup.
