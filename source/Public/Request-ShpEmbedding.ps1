@@ -4,13 +4,19 @@ function Request-ShpEmbedding {
         Generates embedding vectors for one or more pieces of text.
 
     .DESCRIPTION
-        Obtains a Copilot session token and posts the supplied text to the
-        embeddings endpoint, returning one object per input carrying its vector.
-        Combine the vectors with Get-ShpCosineSimilarity to rank texts by
-        semantic similarity for search or retrieval-augmented prompting. Text
-        can be supplied from the pipeline; all inputs are sent in a single
-        request. If the backend does not expose an embeddings endpoint the call
-        throws with a clear message.
+        Posts the supplied text to the resolved backend's embeddings endpoint
+        and returns one object per input carrying its vector. Combine the
+        vectors with Get-ShpCosineSimilarity to rank texts by semantic
+        similarity for search or retrieval-augmented prompting. Text can be
+        supplied from the pipeline; all inputs are sent in a single request. If
+        the backend does not expose an embeddings endpoint the call throws with
+        a clear message.
+
+        Credentials follow the backend. The default Copilot backend exchanges a
+        Session token as it always has. An Alternative backend (Set-ShpContext
+        -ApiBase / SHELLPILOT_API_BASE) reads no OAuth token and exchanges no
+        Session token, so no Copilot credential can reach it, and an embedding
+        against a local endpoint needs no GitHub sign-in at all.
 
     .PARAMETER Text
         One or more strings to embed. Mandatory. Accepts pipeline input.
@@ -22,12 +28,15 @@ function Request-ShpEmbedding {
         HTTPS GitHub.com or Enterprise Cloud GHE.com authentication origin.
         Explicit value wins over Session context and SHELLPILOT_GITHUB_HOST.
         The service-returned API endpoint is preserved for the embedding request.
+        Accepted and ignored for an Alternative backend, which authenticates
+        nothing through GitHub.
 
     .PARAMETER TokenPath
         Path to an OAuth token file to authenticate with. Omit it to resolve the
         token by the module's precedence: the session context
         (Set-ShpContext -GitHubToken), then $env:SHELLPILOT_GITHUB_TOKEN, then
-        the default token file written by Initialize-Shp.
+        the default token file written by Initialize-Shp. Accepted and ignored
+        for an Alternative backend, which needs no GitHub credential.
 
     .PARAMETER EditorVersion
         Editor-Version header value sent with the request.
@@ -128,9 +137,21 @@ function Request-ShpEmbedding {
 
         $hostParameters = @{}
         if ($PSBoundParameters.ContainsKey('GitHubHost')) { $hostParameters.GitHubHost = $GitHubHost }
-        $resolvedGitHubHost = Resolve-ShpGitHubHost @hostParameters
-        $session = Get-ShpSessionToken -TokenPath $TokenPath -EditorVersion $EditorVersion -UserAgent $UserAgent -GitHubHost $resolvedGitHubHost.Host @connectionParams
         $backend = Resolve-ShpBackend
+        # Credential resolution belongs to the Copilot backend and to nothing
+        # else - the same predicate Invoke-Shp applies (spec 035). An
+        # Alternative backend addresses an endpoint this module does not
+        # authenticate, so it reads no OAuth token and exchanges no Session
+        # token. That is what makes it impossible for one to be SENT there:
+        # there is none to send.
+        $copilotCredentialRequired = -not $backend.IsAlternative
+        $session = $null
+        if ($copilotCredentialRequired) {
+            $resolvedGitHubHost = Resolve-ShpGitHubHost @hostParameters
+            $session = Get-ShpSessionToken -TokenPath $TokenPath -EditorVersion $EditorVersion -UserAgent $UserAgent -GitHubHost $resolvedGitHubHost.Host @connectionParams
+        } else {
+            Write-Verbose 'The resolved backend is not Copilot, so no OAuth token is read and no Session token is exchanged for this embedding request.'
+        }
         $apiBase = if ($backend.IsAlternative) { $backend.ApiBase } else { $session.endpoints.api }
         $safeApiBase = if ($backend.IsAlternative) { $backend.SafeApiBase } else { $apiBase }
         $bearer = if ($backend.IsAlternative) { $backend.ApiKey } else { $session.token }

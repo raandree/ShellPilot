@@ -7,8 +7,9 @@ token, exchange no Session token, and can therefore never be sent one.
 ## Status
 
 Implemented locally on `ai/agent-modernization` as part of modernization
-batch 1. No publication or remote change is implied. Verification evidence
-belongs in the [active context](../.memory-bank/activeContext.md).
+batch 1, and extended to `Request-ShpEmbedding` in batch 2. No publication or
+remote change is implied. Verification evidence belongs in the
+[active context](../.memory-bank/activeContext.md).
 
 ## Problem
 
@@ -84,11 +85,18 @@ without needing a GitHub credential to exist.
   backend, as `-ApiBase` was already ignored for the Copilot default.
 - Rollback is reverting the batch commit; there is no state migration.
 
-## Limits
+## Embeddings
 
-`Request-ShpEmbedding` still resolves a Copilot Session token for every call,
-including one aimed at an Alternative backend. That path is untouched here and
-remains a stated gap.
+`Request-ShpEmbedding` applies the same predicate. For an Alternative backend it
+resolves no GitHub host, reads no OAuth token, and exchanges no Session token;
+the request carries the Alternative backend's own API key, or no `Authorization`
+header when none is configured. `-TokenPath` and `-GitHubHost` are accepted and
+ignored there, so an unparseable `SHELLPILOT_GITHUB_HOST` can no longer fail a
+call that never authenticates. The Copilot path is unchanged: the same exchange,
+the same service-returned endpoint, the same model semantics, and the same
+error when the endpoint exposes no embeddings route.
+
+## Limits
 
 This change removes a credential requirement. It adds no containment, no
 endpoint verification, and no guarantee that an Alternative backend is

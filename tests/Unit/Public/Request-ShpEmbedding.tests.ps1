@@ -4,7 +4,7 @@ BeforeAll {
     Remove-Module -Name $script:moduleName -Force -ErrorAction SilentlyContinue
     Import-Module -Name $script:moduleName -Force -ErrorAction Stop
     $script:savedBackendEnvironment = @{}
-    foreach ($variableName in 'SHELLPILOT_API_BASE', 'SHELLPILOT_API_KEY', 'SHELLPILOT_GITHUB_HOST') {
+    foreach ($variableName in 'SHELLPILOT_API_BASE', 'SHELLPILOT_API_KEY', 'SHELLPILOT_GITHUB_HOST', 'SHELLPILOT_GITHUB_TOKEN') {
         $script:savedBackendEnvironment[$variableName] = [Environment]::GetEnvironmentVariable($variableName)
         Remove-Item -LiteralPath "Env:$variableName" -ErrorAction SilentlyContinue
     }
@@ -77,7 +77,71 @@ Describe 'Request-ShpEmbedding' {
         }
     }
 
-    It 'Returns one object per input carrying its vector' {
+    Context 'Copilot credential separation' {
+        BeforeEach {
+            Clear-ShpContext
+            Remove-Item -LiteralPath 'Env:SHELLPILOT_API_BASE', 'Env:SHELLPILOT_API_KEY', 'Env:SHELLPILOT_GITHUB_HOST', 'Env:SHELLPILOT_GITHUB_TOKEN' -ErrorAction SilentlyContinue
+            InModuleScope $script:moduleName {
+                $script:embeddingRequest = $null
+                Mock Get-ShpSessionToken { [pscustomobject]@{ token = 'copilot-session-fixture'; expires_at = 0; endpoints = @{ api = 'https://session.example' } } }
+                Mock Resolve-ShpOAuthToken { [pscustomobject]@{ Token = 'oauth-fixture'; Source = 'DefaultTokenFile' } }
+                Mock Invoke-ShpWithRetry {
+                    $script:embeddingRequest = $ArgumentList[0]
+                    @{ Content = '{"data":[{"index":0,"embedding":[1,2]}],"model":"fixture"}' }
+                }
+            }
+        }
+        AfterEach {
+            Clear-ShpContext
+            Remove-Item -LiteralPath 'Env:SHELLPILOT_API_BASE', 'Env:SHELLPILOT_API_KEY', 'Env:SHELLPILOT_GITHUB_HOST', 'Env:SHELLPILOT_GITHUB_TOKEN' -ErrorAction SilentlyContinue
+        }
+        It 'Exchanges no Session token and reads no OAuth token for an Alternative backend' {
+            InModuleScope $script:moduleName {
+                Set-ShpContext -ApiBase 'https://alt.example/v1' -ApiKey 'alt-key-fixture'
+                $null = Request-ShpEmbedding -Text 'fixture'
+                Should -Invoke Get-ShpSessionToken -Times 0 -Exactly
+                Should -Invoke Resolve-ShpOAuthToken -Times 0 -Exactly
+                $script:embeddingRequest.Headers.Authorization | Should -Match 'alt-key-fixture'
+                $script:embeddingRequest.Headers.Authorization | Should -Not -Match 'copilot-session-fixture'
+            }
+        }
+        It 'Runs an Alternative backend when no GitHub credential exists at all' {
+            InModuleScope $script:moduleName {
+                Mock Resolve-ShpOAuthToken { throw 'No GitHub OAuth token available.' }
+                Mock Get-ShpSessionToken { throw 'No GitHub OAuth token available.' }
+                Set-ShpContext -ApiBase 'https://keyless.example/v1'
+                $result = Request-ShpEmbedding -Text 'fixture'
+                $result.Model | Should -BeExactly 'fixture'
+                $script:embeddingRequest.Uri | Should -BeExactly 'https://keyless.example/v1/embeddings'
+                $script:embeddingRequest.Headers.ContainsKey('Authorization') | Should -BeFalse
+            }
+        }
+        It 'Ignores an unusable GitHub host for an Alternative backend' {
+            $env:SHELLPILOT_GITHUB_HOST = 'not a host'
+            InModuleScope $script:moduleName {
+                Set-ShpContext -ApiBase 'https://alt.example/v1' -ApiKey 'alt-key-fixture'
+                { Request-ShpEmbedding -Text 'fixture' } | Should -Not -Throw
+                Should -Invoke Get-ShpSessionToken -Times 0 -Exactly
+            }
+        }
+        It 'Ignores TokenPath and GitHubHost for an Alternative backend' {
+            InModuleScope $script:moduleName {
+                Set-ShpContext -ApiBase 'https://alt.example/v1' -ApiKey 'alt-key-fixture'
+                $null = Request-ShpEmbedding -Text 'fixture' -TokenPath 'X:\no\such\token' -GitHubHost 'https://github.com'
+                Should -Invoke Get-ShpSessionToken -Times 0 -Exactly
+                $script:embeddingRequest.Uri | Should -BeExactly 'https://alt.example/v1/embeddings'
+            }
+        }
+        It 'Still exchanges a Session token for the Copilot backend' {
+            InModuleScope $script:moduleName {
+                $null = Request-ShpEmbedding -Text 'fixture'
+                Should -Invoke Get-ShpSessionToken -Times 1 -Exactly
+                $script:embeddingRequest.Uri | Should -BeExactly 'https://session.example/embeddings'
+                $script:embeddingRequest.Headers.Authorization | Should -Match 'copilot-session-fixture'
+            }
+        }
+    }
+    It 'Returns one object per input carrying its vector (Copilot backend)' {
         InModuleScope $script:moduleName {
             Mock Get-ShpSessionToken { [pscustomobject]@{ token = 't'; expires_at = 0; endpoints = [pscustomobject]@{ api = 'https://api.example' } } }
             Mock Invoke-WebRequest {
