@@ -86,6 +86,7 @@ FunctionsToExport = @(
     'Resolve-ShpError'
     'Set-ShpContext'
     'Get-ShpContext'
+    'Get-ShpContextReport'
     'Clear-ShpContext'
     'Test-ShpCiReadiness'
     'ConvertTo-ShpAnnotation'

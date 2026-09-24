@@ -13,7 +13,7 @@ Design and scope documents for ShellPilot. Start with the overview, then the
 open decisions. The numbered specs that follow each describe a single pattern,
 its design, and its source hook points.
 
-> **Status:** the numbered patterns below (002-028 and 030-037) are implemented.
+> **Status:** the numbered patterns below (002-028 and 030-041) are implemented.
 > Each spec's own `## Status` section records the current state, including any
 > backend caveat (for example server-side state, which the Copilot proxy does
 > not support and which falls back to client-side history). The tiers below
@@ -62,6 +62,8 @@ numbered specs below are the implemented ones.
 - [Backend credential separation](035-backend-credential-separation.md)
 - [Tool-call decision controls](036-tool-call-decision-controls.md)
 - [Execution containment contract](037-execution-containment-contract.md)
+- [Context accounting](038-context-accounting.md)
+- [Focused chat compression](039-focused-chat-compression.md)
 
 ### Tier 2
 

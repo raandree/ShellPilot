@@ -179,6 +179,13 @@ function Invoke-ShpBatch {
         remain eager. ExcludeTool still wins. Reduces schema cost; it is not
         authorization, containment, or prompt-injection defense.
 
+    .PARAMETER ContextReport
+        Forward Context accounting to each item, including batches run with
+        AsJob. Every item result then carries its own ContextReport attributing
+        that item's estimated outgoing Context tokens by source. It is local
+        accounting: no extra request, no shared state between workers, and no
+        change to what any item sends.
+
     .PARAMETER DisableUserTools
         Do not offer the tools registered with Register-ShpTool. By default they
         are re-registered inside each worker runspace; a tool backed by a
@@ -447,6 +454,8 @@ function Invoke-ShpBatch {
 
         [switch]$DeferredToolLoading,
 
+        [switch]$ContextReport,
+
         [switch]$AllowPrivateNetwork,
 
         [switch]$DisableFileAccess,
@@ -581,6 +590,7 @@ function Invoke-ShpBatch {
                 'ResponseFormat', 'JsonSchema', 'DisableBrowsing', 'AllowPrivateNetwork',
                 'DisableFileAccess', 'DisableTerminal', 'DisableUserTools', 'DisableTodoList',
                 'DisableRedaction', 'CommandEnvironmentVariable', 'Tool', 'ExcludeTool', 'DeferredToolLoading',
+                'ContextReport',
                 'ToolCallControl', 'ExecutionContract',
                 'MaxToolIterations', 'MaxContextWindowTokens', 'MaxBudgetUSD', 'FailOn',
                 'ApiBase', 'TimeoutSec', 'MaxRetryCount', 'RetryDelaySec', 'NetworkOutageToleranceSec', 'TokenPath', 'GitHubHost')) {

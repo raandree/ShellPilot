@@ -681,6 +681,29 @@ ConvertTo-ShpTokenCount -Text (Get-Content ./prompt.txt -Raw)
 Get-ShpCostEstimate -Text 'A long prompt...' -Model claude-opus-4.8
 ```
 
+### See where the context window goes
+
+A total says a request is large; it never says what made it large. The Context
+report attributes the estimated outgoing tokens to the system content, your
+instructions, the Skill and Instruction catalogs, the offered tool schemas,
+attachments, the conversation, the prompt, and the tool results - under one
+estimator, with the rows adding up to the total. Nothing is sent, no credential
+is read, and anything that cannot be sized locally (an image, an unloaded skill
+body) is reported as unknown rather than as zero.
+
+```powershell
+Get-ShpContextReport -Prompt $prompt -SkillPath ./skills
+(Get-ShpContextReport -Prompt $prompt).Sources | Sort-Object EstimatedTokens -Descending
+
+# What deferred tool loading would save, measured rather than assumed
+$eager    = Get-ShpContextReport -Prompt $prompt
+$deferred = Get-ShpContextReport -Prompt $prompt -DeferredToolLoading
+$deferred.DeferredToolSchemaTokens
+
+# What a call actually carried, including every tool result the loop added
+(Invoke-Shp -Prompt $prompt -ContextReport).ContextReport.Sources
+```
+
 ### Usage and cost tracking
 
 ```powershell
@@ -840,7 +863,7 @@ wrapper's job. See
 | User tools | `Register-ShpTool`, `Get-ShpTool`, `Unregister-ShpTool` |
 | MCP servers | `Register-ShpMcpServer`, `Get-ShpMcpServer`, `Unregister-ShpMcpServer` |
 | Embeddings | `Request-ShpEmbedding`, `Get-ShpCosineSimilarity` |
-| Estimation | `ConvertTo-ShpTokenCount`, `Get-ShpCostEstimate` |
+| Estimation | `ConvertTo-ShpTokenCount`, `Get-ShpCostEstimate`, `Get-ShpContextReport` |
 | Usage | `Get-ShpUsage`, `Clear-ShpUsage` |
 | Context | `Set-ShpContext`, `Get-ShpContext`, `Clear-ShpContext` |
 | Tool policy | `Set-ShpToolPolicy`, `Get-ShpToolPolicy`, `Clear-ShpToolPolicy` |

@@ -375,6 +375,17 @@ $script:ShpDecisionReasonMaxChars = 256
 $script:ShpDecisionPolicyIdMaxChars = 128
 $script:ShpDecisionReceiptMax = 500
 
+# Canonical Context report sources, in the order every report lists them
+# (New-ShpContextReport). The order is part of the contract: two reports are
+# only comparable if their rows line up, and a caller charting where a window
+# went should not have to sort first. A name outside this list is refused
+# rather than appended, because an invented row would silently stop
+# reconciling with the total.
+$script:ShpContextSourceOrder = @(
+    'System', 'Instructions', 'SkillCatalog', 'SkillBodies',
+    'ToolSchemas', 'Attachments', 'SessionChat', 'Prompt', 'ToolResults'
+)
+
 # Shape version of the ShellPilot.EvalReport object (Invoke-ShpEval). Bumped
 # only by a breaking change to that report, so a gate that reads PassAt1 and
 # PassPowK can tell that the contract it was written against still holds.

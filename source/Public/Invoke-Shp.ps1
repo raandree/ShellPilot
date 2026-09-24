@@ -138,6 +138,16 @@ function Invoke-Shp {
         members still describe eligible registrations. Reduces schema cost;
         it is not authorization, containment, or prompt-injection defense.
 
+    .PARAMETER ContextReport
+        Attach a Context report to the result, attributing the estimated
+        outgoing Context tokens of the request this Turn actually made to the
+        system content, the caller's instructions, the Skill and Instruction
+        catalogs, the offered Tool schemas, attachments, the conversation, the
+        prompt and the Tool results, under one documented estimator. Off by
+        default and purely local: it adds no request and no round-trip. The
+        result carries the report on ContextReport, which is $null without the
+        switch. See Get-ShpContextReport for the same accounting before a call.
+
     .PARAMETER DisableBrowsing
         Turn off web browsing. By default the fetch_url tool is exposed to the
         model so it can retrieve web content; this switch disables it.
@@ -983,6 +993,8 @@ function Invoke-Shp {
 
         [switch]$DeferredToolLoading,
 
+        [switch]$ContextReport,
+
         [switch]$AllowPrivateNetwork,
 
         [switch]$DisableFileAccess,
@@ -1412,264 +1424,42 @@ function Invoke-Shp {
     }
     $instructionRootEnabled = $instructionCatalog.Count -gt 0
 
-    $tools = New-Object System.Collections.Generic.List[hashtable]
-    if ($browsingEnabled) {
-        $null = $tools.Add(@{
-            type='function'
-            function=@{
-                name='fetch_url'
-                description='Fetch an HTTP(S) URL and return its visible page text (script/style stripped, HTML tags removed). Large pages are truncated to a bounded length, so do not rely on getting the entire page.'
-                parameters=@{ type='object'; required=@('url'); properties=@{ url=@{ type='string'; description='Absolute URL to fetch (https preferred).' } } }
-            }
-        })
+    $offerParams = @{
+        BrowsingEnabled        = $browsingEnabled
+        FileAccessEnabled      = $fileAccessEnabled
+        TerminalEnabled        = $terminalEnabled
+        UserPromptsEnabled     = $userPromptsEnabled
+        SkillsEnabled          = $skillsEnabled
+        InstructionRootEnabled = $instructionRootEnabled
+        SkillCatalog           = $skillCatalog
+        InstructionCatalog     = $instructionCatalog
+        DisableTodoList        = $DisableTodoList
+        DisableUserTools       = $DisableUserTools
+        DisableMcp             = $DisableMcp
+        Mode                   = $Mode
+        ExcludeTool            = $ExcludeTool
+        DeferredToolLoading    = $DeferredToolLoading
     }
-    if ($fileAccessEnabled) {
-        $null = $tools.Add(@{
-            type='function'
-            function=@{
-                name='read_file'
-                description='Read a bounded window of a local file and return a JSON envelope (path, totalLines, offset, limit, returnedLines, hasMore, text). Use this whenever the user refers to a file by path or asks about local file contents. It returns a bounded first window, NOT the whole file: to read a large file, page through it by passing offset/limit (1-based line numbers) - read the first window, and while hasMore is true request the next window with offset set to the previous offset plus returnedLines. Never try to read an entire large file in one call.'
-                parameters=@{ type='object'; required=@('path'); properties=@{
-                    path=@{ type='string'; description='Path to the file to read (absolute or relative to the current working directory).' }
-                    offset=@{ type='integer'; description='1-based line number to start reading from. Defaults to 1 (the first line).' }
-                    limit=@{ type='integer'; description='Maximum number of lines to return in this window. Defaults to a bounded window; large files must be paged.' }
-                } }
-            }
-        })
-        $null = $tools.Add(@{
-            type='function'
-            function=@{
-                name='list_directory'
-                description='List the entries (files and subdirectories) of a local directory. Use this to discover files before reading them.'
-                parameters=@{ type='object'; required=@('path'); properties=@{ path=@{ type='string'; description='Path to the directory to list (absolute or relative to the current working directory).' } } }
-            }
-        })
-        $null = $tools.Add(@{
-            type='function'
-            function=@{
-                name='glob_files'
-                description='Find files by name pattern under a directory and return a JSON envelope (path, pattern, count, matches, excludedByPolicy, truncated). Use this to locate files instead of running a shell command. In the pattern, * matches within one path segment and ** matches any depth, so use "**/*.ps1" to search the whole tree and "*.ps1" for the directory itself. The result is capped: when truncated is true, narrow the pattern rather than repeating the call.'
-                parameters=@{ type='object'; required=@('path','pattern'); properties=@{
-                    path=@{ type='string'; description='Directory to search (absolute or relative to the current working directory).' }
-                    pattern=@{ type='string'; description='Glob to match, relative to path. Must not be absolute. Example: **/*.tests.ps1' }
-                    maxResult=@{ type='integer'; description='Maximum number of matches to return. Defaults to a bounded set.' }
-                } }
-            }
-        })
-        $null = $tools.Add(@{
-            type='function'
-            function=@{
-                name='grep_files'
-                description='Search file contents under a directory for a regular expression and return a JSON envelope whose matches carry only path, line number and the matching line - not the file. Use this to find where something is defined or used instead of running a shell command, then read_file to read around a hit. Narrow the candidate files with the include glob (* matches within one path segment, ** matches any depth). The result is capped: when truncated is true, narrow the pattern or the include glob rather than repeating the call.'
-                parameters=@{ type='object'; required=@('path','pattern'); properties=@{
-                    path=@{ type='string'; description='Directory to search (absolute or relative to the current working directory).' }
-                    pattern=@{ type='string'; description='Case-insensitive regular expression matched against each line.' }
-                    include=@{ type='string'; description='Optional glob limiting which files are searched, relative to path. Example: **/*.ps1' }
-                    maxResult=@{ type='integer'; description='Maximum number of matching lines to return. Defaults to a bounded set.' }
-                } }
-            }
-        })
-        $null = $tools.Add(@{
-            type='function'
-            function=@{
-                name='write_file'
-                description='Create or overwrite a local file with the given text content. Missing parent directories are created automatically. Use this whenever the user asks you to create, write, save or generate a file. Set append=true to add to an existing file instead of overwriting it.'
-                parameters=@{ type='object'; required=@('path','content'); properties=@{
-                    path=@{ type='string'; description='Path to the file to write (absolute or relative to the current working directory).' }
-                    content=@{ type='string'; description='The full text content to write to the file.' }
-                    append=@{ type='boolean'; description='Append to the file instead of overwriting it. Defaults to false.' }
-                } }
-            }
-        })
-        $null = $tools.Add(@{
-            type='function'
-            function=@{
-                name='edit_file'
-                description='Replace exactly one occurrence of oldString in an existing local file with newString. Matching is literal and case-sensitive, with no newline or Unicode normalization. Zero or multiple matches are refused; include enough surrounding text to identify one occurrence. Preserves encoding, BOM and unchanged line endings. Supports UTF-8 and BOM-marked UTF-16/UTF-32; other encodings are refused. Requires both Read and Write tool rules when a policy is set. Only regular files are supported; input and output must each fit in 8 MiB including the BOM. A conflict is refused: read the current file before retrying.'
-                parameters=@{ type='object'; required=@('path','oldString','newString'); properties=@{
-                    path=@{ type='string'; description='Literal path to an existing file (absolute or relative to the current working directory).' }
-                    oldString=@{ type='string'; minLength=1; description='Exact nonempty text to replace, including case and line endings. CRLF must be supplied as \r\n even if a read_file window used \n.' }
-                    newString=@{ type='string'; description='Replacement text with the intended line endings. Use an empty string to delete oldString.' }
-                } }
-            }
-        })
-        $null = $tools.Add(@{
-            type='function'
-            function=@{
-                name='create_directory'
-                description='Create a local directory (and any missing parent directories). Succeeds quietly if it already exists.'
-                parameters=@{ type='object'; required=@('path'); properties=@{ path=@{ type='string'; description='Path to the directory to create (absolute or relative to the current working directory).' } } }
-            }
-        })
+    if ($PSBoundParameters.ContainsKey('Tool')) {
+        $offerParams.Tool = $Tool
+        $offerParams.ToolSelectionBound = $true
     }
-    if ($terminalEnabled) {
-        $null = $tools.Add(@{
-            type='function'
-            function=@{
-                name='run_command'
-                description='Run a shell command line in a non-interactive PowerShell and return its stdout, stderr and exit code. Use this whenever the user asks you to run something, or you need to inspect or change system state a file tool cannot (git, build tools, package managers, process and service queries). Commands run with the user privileges in the current directory; there is no sandbox.'
-                parameters=@{ type='object'; required=@('command'); properties=@{
-                    command=@{ type='string'; description='The command line to run (interpreted by PowerShell 7).' }
-                    workingDirectory=@{ type='string'; description='Optional directory to run the command in. Defaults to the current directory.' }
-                } }
-            }
-        })
-    }
-    if ($userPromptsEnabled) {
-        $null = $tools.Add(@{
-            type='function'
-            function=@{
-                name='ask_user'
-                description='Ask the user a single clarifying question on the console and wait for their typed answer. Use this when the request is ambiguous or you are missing a decision only the user can make, instead of guessing. Do not use it for information you can obtain with the other tools.'
-                parameters=@{ type='object'; required=@('question'); properties=@{ question=@{ type='string'; description='The question to put to the user.' } } }
-            }
-        })
-    }
-    if ($skillsEnabled) {
-        $null = $tools.Add(@{
-            type='function'
-            function=@{
-                name='load_skill'
-                description='Load the full instructions for one of the available skills by name. Call this when a skill listed in the system prompt is relevant to the user request, then follow the returned instructions.'
-                parameters=@{ type='object'; required=@('name'); properties=@{ name=@{ type='string'; description='Exact skill name from the available-skills list.'; enum=@($skillCatalog.Name) } } }
-            }
-        })
-    }
-    if ($instructionRootEnabled) {
-        $null = $tools.Add(@{
-            type='function'
-            function=@{
-                name='load_instruction'
-                description='Load the full body of one of the available instruction files by name. Call this when an instruction listed in the system prompt is relevant to the user request (match on its description and applyTo glob), then follow the returned guidance.'
-                parameters=@{ type='object'; required=@('name'); properties=@{ name=@{ type='string'; description='Exact instruction name from the available-instructions list.'; enum=@($instructionCatalog.Name) } } }
-            }
-        })
-    }
-    # Todo-list tool (on by default; opt out via -DisableTodoList): let the model
-    # maintain a short ordered checklist of sub-tasks for a multi-step request. It
-    # sends the FULL list on every call (idempotent replace, never a delta) and
-    # keeps exactly one item in-progress; ConvertTo-ShpTodoList enforces those
-    # invariants.
-    if (-not $DisableTodoList) {
-        $null = $tools.Add(@{
-            type='function'
-            function=@{
-                name='manage_todo_list'
-                description='Maintain a short ordered checklist for a multi-step request. Send the FULL list on every call (idempotent replace, not a delta). Keep EXACTLY ONE item in-progress; mark an item completed as soon as it is done, then move the next to in-progress. Skip this tool for trivial single-step requests.'
-                parameters=@{
-                    type='object'; required=@('todoList')
-                    properties=@{
-                        todoList=@{
-                            type='array'
-                            description='The complete current checklist.'
-                            items=@{
-                                type='object'; required=@('id','title','status')
-                                properties=@{
-                                    id=@{ type='integer'; description='Stable id within this turn.' }
-                                    title=@{ type='string'; description='3-7 word action-oriented label.' }
-                                    status=@{ type='string'; enum=@('not-started','in-progress','completed') }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        })
-    }
-    # User-defined tools (Register-ShpTool): offer any registered command to the
-    # model unless this call opted out. Each registered schema is added as-is and
-    # dispatched by name in the tool loop below.
-    $userToolsEnabled = (-not $DisableUserTools) -and ($script:ShpUserTools.Count -gt 0)
-    $userToolCommands = @{}
-    if ($userToolsEnabled) {
-        foreach ($record in $script:ShpUserTools.Values) {
-            $null = $tools.Add($record.Schema)
-            $userToolCommands[$record.Name] = $record.Command
-        }
-    }
-
-    # MCP tools (Register-ShpMcpServer): offer the tool list captured when each
-    # server was attached. Nothing is re-listed here - the frozen list is what
-    # makes a mid-session change to a server's tools impossible, and re-listing
-    # per turn would add network I/O to a loop.
-    $mcpEnabled = (-not $DisableMcp) -and ($script:ShpMcpServers.Count -gt 0)
-    $mcpToolMap = @{}
-    if ($mcpEnabled) {
-        foreach ($server in $script:ShpMcpServers.Values) {
-            if ($server.State -ne 'Ready') {
-                Write-Warning ("Skipping MCP server '{0}': {1}" -f $server.Name, $server.FaultReason)
-                continue
-            }
-            foreach ($mcpTool in $server.Tools) {
-                $null = $tools.Add($mcpTool.Schema)
-                $mcpToolMap[$mcpTool.Name] = @{ Server = $server.Name; Tool = $mcpTool.OriginalName }
-            }
-        }
-    }
-    for ($toolIndex = $tools.Count - 1; $toolIndex -ge 0; $toolIndex--) {
-        $toolName = [string]$tools[$toolIndex].function.name
-        if (($PSBoundParameters.ContainsKey('Tool') -and $toolName -notin $Tool) -or
-            $toolName -in $ExcludeTool -or
-            ($Mode -eq 'Plan' -and $toolName -notin 'read_file','list_directory','glob_files','grep_files','fetch_url','manage_todo_list')) {
-            $tools.RemoveAt($toolIndex)
-        }
-    }
-    $offeredTool = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
-    foreach ($offered in $tools) { $null = $offeredTool.Add([string]$offered.function.name) }
-    foreach ($toolName in @($userToolCommands.Keys)) {
-        if (-not $offeredTool.Contains($toolName)) { $userToolCommands.Remove($toolName) }
-    }
-    foreach ($toolName in @($mcpToolMap.Keys)) {
-        if (-not $offeredTool.Contains($toolName)) { $mcpToolMap.Remove($toolName) }
-    }
-    $browsingEnabled = $offeredTool.Contains('fetch_url')
-    $fileAccessEnabled = @('read_file','list_directory','glob_files','grep_files','write_file','edit_file','create_directory').Where({ $offeredTool.Contains($_) }).Count -gt 0
-    $terminalEnabled = $offeredTool.Contains('run_command')
-    $userPromptsEnabled = $offeredTool.Contains('ask_user')
-    $skillsEnabled = $offeredTool.Contains('load_skill')
-    $instructionRootEnabled = $offeredTool.Contains('load_instruction')
-    $userToolsEnabled = $userToolCommands.Count -gt 0
-    $mcpEnabled = $mcpToolMap.Count -gt 0
-    if ($userToolsEnabled) { Write-Verbose ("Offering {0} user tool(s): {1}" -f $userToolCommands.Count, (($userToolCommands.Keys) -join ', ')) }
-    if ($mcpEnabled) { Write-Verbose ("Offering {0} MCP tool(s): {1}" -f $mcpToolMap.Count, (($mcpToolMap.Keys) -join ', ')) }
-    $deferredTools = [ordered]@{}
+    $toolOffer = New-ShpToolOffer @offerParams
+    $tools = $toolOffer.Tool
+    if ($null -ne $tools -and $tools.Count -eq 0) { $tools = $null }
+    $offeredTool = $toolOffer.OfferedTool
+    $userToolCommands = $toolOffer.UserToolCommand
+    $mcpToolMap = $toolOffer.McpToolMap
+    $deferredTools = $toolOffer.DeferredTool
+    $browsingEnabled = $toolOffer.BrowsingEnabled
+    $fileAccessEnabled = $toolOffer.FileAccessEnabled
+    $terminalEnabled = $toolOffer.TerminalEnabled
+    $userPromptsEnabled = $toolOffer.UserPromptsEnabled
+    $skillsEnabled = $toolOffer.SkillsEnabled
+    $instructionRootEnabled = $toolOffer.InstructionRootEnabled
+    $mcpEnabled = $toolOffer.McpEnabled
     $deferredToolsLoaded = [System.Collections.Generic.List[string]]::new()
     $pendingDeferredTools = [System.Collections.Generic.List[string]]::new()
-    if ($DeferredToolLoading -and -not $PSBoundParameters.ContainsKey('Tool')) {
-        for ($toolIndex = $tools.Count - 1; $toolIndex -ge 0; $toolIndex--) {
-            $schema = $tools[$toolIndex]
-            $toolName = [string]$schema.function.name
-            if ($userToolCommands.ContainsKey($toolName) -or $mcpToolMap.ContainsKey($toolName)) {
-                $deferredTools[$toolName] = @{
-                    Name = $toolName
-                    Origin = $(if ($mcpToolMap.ContainsKey($toolName)) { 'Mcp' } else { 'User' })
-                    Server = $(if ($mcpToolMap.ContainsKey($toolName)) { $mcpToolMap[$toolName].Server } else { '' })
-                    Schema = $schema
-                }
-                $tools.RemoveAt($toolIndex)
-                $null = $offeredTool.Remove($toolName)
-            }
-        }
-        if ($deferredTools.Count -gt 0 -and 'search_tools' -notin $ExcludeTool) {
-            $tools.Add(@{
-                type = 'function'
-                function = @{
-                    name = 'search_tools'
-                    description = 'Search registered User and MCP tools using plain text. Matches become callable on the next request. Use specific tool names or task terms.'
-                    parameters = @{
-                        type = 'object'
-                        required = @('query')
-                        properties = @{
-                            query = @{ type = 'string'; minLength = 1; maxLength = 512; description = 'Plain-text tool name or task terms.' }
-                            maxResult = @{ type = 'integer'; minimum = 1; maximum = 20; default = 5; description = 'Maximum number of matches to load.' }
-                        }
-                    }
-                }
-            })
-            $null = $offeredTool.Add('search_tools')
-        }
-    }
-    if ($tools.Count -eq 0) { $tools = $null }
 
     $apiHeaders = @{
         'Editor-Version'         = $EditorVersion
@@ -1683,44 +1473,12 @@ function Invoke-Shp {
 
     $chatMessages = New-Object System.Collections.Generic.List[hashtable]
     $respInput    = New-Object System.Collections.Generic.List[hashtable]
-    $systemContent = 'You are a research and coding assistant.'
-    if ($browsingEnabled) {
-        $systemContent += ' You have a fetch_url tool - use it whenever the user asks about current web content or a URL. Cite the URLs you fetched.'
-    }
-    if ($fileAccessEnabled) {
-        if ($PSBoundParameters.ContainsKey('Tool') -or $PSBoundParameters.ContainsKey('ExcludeTool') -or $Mode -eq 'Plan') {
-            $fileToolNames = @('read_file','list_directory','glob_files','grep_files','write_file','edit_file','create_directory').Where({ $offeredTool.Contains($_) })
-            $systemContent += ' The available file tools are: ' + ($fileToolNames -join ', ') + '. Read a file before reasoning about its contents; use only the tools actually offered for this call.'
-        } else {
-        $systemContent += ' You have read_file and list_directory tools - use them whenever the user refers to a local file or directory by path. Read a file before reasoning about its contents; never guess. You also have glob_files (find files by name pattern) and grep_files (search file contents) - use them to locate a file or a definition instead of running a shell command, then read_file to read around a hit. You also have write_file and create_directory tools - use write_file whenever the user asks you to create, write, save or generate a file (do not just print the content and claim you cannot write files).'
-        $systemContent += ' For targeted changes to an existing file, prefer edit_file with path, oldString and newString. It requires exactly one literal match, preserving encoding and unchanged line endings. If it refuses zero matches, check the current text, case and literal line endings; for multiple matches, include more surrounding text. An explicitly empty newString deletes the match.'
-        }
-    }
-    if ($terminalEnabled) {
-        $systemContent += ' You have a run_command tool that runs a shell command line in PowerShell and returns its stdout, stderr and exit code - use it to run commands the user asks for and to inspect or change system state the file tools cannot (git, builds, package managers, processes, services). Prefer non-destructive commands and explain any destructive one before running it.'
-    }
-    if ($userPromptsEnabled) {
-        $systemContent += ' You have an ask_user tool that puts a single question to the user on the console and returns their typed answer - use it to resolve genuine ambiguity or a decision only the user can make, rather than guessing; do not use it for anything the other tools can find out.'
-    }
-
-    if ($skillsEnabled) {
-        $catalogText = ($skillCatalog | ForEach-Object {
-            "- {0}: {1}" -f $_.Name, ($_.Description ?? '(no description)')
-        }) -join "`n"
-        $systemContent = $systemContent + "`n`n" +
-            "You have access to the following skills. When one is relevant to the user's request, call the load_skill tool with its exact name to retrieve its full instructions, then follow them. Do not guess a skill's contents - load it first.`n`nAvailable skills:`n" +
-            $catalogText
-    }
-
-    if ($instructionRootEnabled) {
-        $instructionCatalogText = ($instructionCatalog | ForEach-Object {
-            $applyToHint = if ($_.ApplyTo) { " [applies to: $($_.ApplyTo)]" } else { '' }
-            "- {0}: {1}{2}" -f $_.Name, ($_.Description ?? '(no description)'), $applyToHint
-        }) -join "`n"
-        $systemContent = $systemContent + "`n`n" +
-            "You also have access to the following instruction files. When one is relevant to the user's request - match on its description and applyTo glob - call the load_instruction tool with its exact name to retrieve its full body, then follow it. Do not guess an instruction's contents - load it first.`n`nAvailable instructions:`n" +
-            $instructionCatalogText
-    }
+    $systemComposition = New-ShpSystemContent -BrowsingEnabled $browsingEnabled -FileAccessEnabled $fileAccessEnabled `
+        -TerminalEnabled $terminalEnabled -UserPromptsEnabled $userPromptsEnabled `
+        -SkillsEnabled $skillsEnabled -InstructionRootEnabled $instructionRootEnabled `
+        -ExplicitToolSelection:($PSBoundParameters.ContainsKey('Tool') -or $PSBoundParameters.ContainsKey('ExcludeTool') -or $Mode -eq 'Plan') `
+        -OfferedTool $offeredTool -SkillCatalog $skillCatalog -InstructionCatalog $instructionCatalog
+    $systemContent = $systemComposition.Text
 
     # Append custom instructions: explicit -SystemPrompt / -SystemPromptPath
     # first, then the body of each -InstructionPath file (front-matter
@@ -1792,9 +1550,11 @@ function Invoke-Shp {
     $effectiveImages = New-Object System.Collections.Generic.List[string]
     foreach ($i in $Image) { if (-not [string]::IsNullOrWhiteSpace($i)) { $null = $effectiveImages.Add($i) } }
     $attachments = @()
+    $attachmentPromptText = ''
     if ($Attachment) {
         $expanded = ConvertTo-ShpAttachmentContent -Path $Attachment
         $effectivePrompt = $Prompt + $expanded.PromptText
+        $attachmentPromptText = [string]$expanded.PromptText
         foreach ($i in $expanded.Image) { $null = $effectiveImages.Add($i) }
         $attachments = $expanded.Manifest
         $undecoded = @($attachments | Where-Object { $_.Kind -eq 'Binary' })
@@ -2967,9 +2727,74 @@ function Invoke-Shp {
         $script:ShpChatModel = $Model
     }
 
+    # The Context report accounts the request this Turn actually made, not a
+    # second guess at it: the composition pieces are the ones that were sent,
+    # and everything the loop added is read back off the final message list, so
+    # a Tool result from iteration six is attributed as a Tool result rather
+    # than disappearing into a single total.
+    $turnContextReport = $null
+    if ($ContextReport) {
+        $reportMessages = @(if ($apiMode -eq 'responses') { $respInput } else { $chatMessages })
+        $promptIndex = 1 + @($priorHistory).Count
+        $loopChat = [System.Collections.Generic.List[string]]::new()
+        $loopToolResult = [System.Collections.Generic.List[string]]::new()
+        for ($messageIndex = 0; $messageIndex -lt $reportMessages.Count; $messageIndex++) {
+            if ($messageIndex -le $promptIndex) { continue }
+            $message = $reportMessages[$messageIndex]
+            if ($null -eq $message) { continue }
+            if ($message['role'] -eq 'tool' -or $message['type'] -eq 'function_call_output') {
+                $null = $loopToolResult.Add([string]$(if ($message.ContainsKey('output')) { $message['output'] } else { $message['content'] }))
+            } elseif ($message['content'] -is [string]) {
+                $null = $loopChat.Add([string]$message['content'])
+            }
+        }
+        foreach ($h in $priorHistory) { $null = $loopChat.Add([string]$h.content) }
+
+        $reportToolSchemaText = ''
+        $reportToolSchemaCount = 0
+        if ($null -ne $tools -and $tools.Count -gt 0) {
+            $reportToolSchemaCount = $tools.Count
+            $reportToolSchemaText = ConvertTo-Json -InputObject @($tools) -Depth 100 -Compress
+        }
+        $reportDeferredTokens = 0
+        $reportDeferredCount = @($deferredTools.Keys).Count
+        if ($reportDeferredCount -gt 0) {
+            $withheldSchema = @(foreach ($key in $deferredTools.Keys) { $deferredTools[$key].Schema })
+            $reportDeferredTokens = ConvertTo-ShpTokenCount -Text (ConvertTo-Json -InputObject $withheldSchema -Depth 100 -Compress)
+        }
+        $reportInstructions = [System.Collections.Generic.List[string]]::new()
+        foreach ($entry in $extraInstructions) { $null = $reportInstructions.Add([string]$entry) }
+        if (-not [string]::IsNullOrEmpty($systemComposition.InstructionCatalog)) {
+            $null = $reportInstructions.Add($systemComposition.InstructionCatalog)
+        }
+        $reportAttachmentDetail = ''
+        $reportAttachmentKnown = $true
+        if ($effectiveImages.Count -gt 0) {
+            $reportAttachmentKnown = $false
+            $reportAttachmentDetail = ('{0} image(s) rode in the user message and are tokenized by the provider, so this module cannot size them locally.' -f $effectiveImages.Count)
+        }
+        $turnContextReport = New-ShpContextReport -Model $Model -ContextBudget $effectiveContextBudget `
+            -ContextBudgetSource $contextBudget.Source -DeferredToolLoading:$DeferredToolLoading `
+            -DeferredToolCount $reportDeferredCount -DeferredToolSchemaTokens $reportDeferredTokens `
+            -Source @(
+                @{ Name = 'System'; Text = $systemComposition.Base; ItemCount = 1 }
+                @{ Name = 'Instructions'; Text = $reportInstructions.ToArray(); ItemCount = $reportInstructions.Count }
+                @{ Name = 'SkillCatalog'; Text = $systemComposition.SkillCatalog; ItemCount = @($skillCatalog).Count }
+                @{ Name = 'SkillBodies'; Tokens = 0; Chars = 0; ItemCount = $skillsUsed.Count
+                   Detail = 'A Skill body loaded this Turn arrived as a Tool result and is accounted under ToolResults.' }
+                @{ Name = 'ToolSchemas'; Text = $reportToolSchemaText; ItemCount = $reportToolSchemaCount }
+                @{ Name = 'Attachments'; Text = $attachmentPromptText; ItemCount = (@($attachments).Count + $effectiveImages.Count)
+                   Known = $reportAttachmentKnown; Detail = $reportAttachmentDetail }
+                @{ Name = 'SessionChat'; Text = $loopChat.ToArray(); ItemCount = $loopChat.Count }
+                @{ Name = 'Prompt'; Text = $Prompt; ItemCount = 1 }
+                @{ Name = 'ToolResults'; Text = $loopToolResult.ToArray(); ItemCount = $loopToolResult.Count }
+            )
+    }
+
     $result = [pscustomobject]@{
         PSTypeName='ShellPilot.Result'
         Model=$turn.ModelName; RequestedModel=$Model; Prompt=$Prompt
+        ContextReport=$turnContextReport
         Content=$finalContent; FinishReason=$turn.FinishReason
         ContentObject=$contentObject
         ContentSchemaChecked=[bool]$contentSchemaChecked
