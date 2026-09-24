@@ -228,6 +228,39 @@ $script:ShpUserTools = [ordered]@{}
 # the caller names one.
 $script:ShpToolPolicy = $null
 
+# Shape version of the ShellPilot.ToolPolicy object. Bumped only by a breaking
+# change to that object - a removed or renamed member, or one whose meaning
+# changed. A new rule kind or a new member is additive and leaves it alone, so
+# a batch worker or a job runspace can refuse a snapshot it does not recognise
+# instead of guessing at it.
+$script:ShpToolPolicySchemaVersion = 2
+
+# Every rule kind a Tool policy understands, in the order they are reported.# Read, Write and Shell are the original three and are always enforced once any
+# policy exists. Url, Mcp and Tool close the remaining coverage gaps - fetch_url,
+# an attached MCP server's tools, and every other named Tool - and are enforced
+# only when the policy actually uses them or when the caller asked for a
+# restricted trust profile. That staging is what keeps an existing policy
+# working: adding a kind must not retroactively deny a tool the caller's
+# current rules never mentioned.
+$script:ShpToolPolicyKind = @('Read', 'Write', 'Shell', 'Url', 'Mcp', 'Tool')
+
+# The kinds enforced by every policy, whatever it contains. This is the historic
+# contract of Set-ShpToolPolicy and cannot shrink without breaking it.
+$script:ShpToolPolicyBaseCoverage = @('Read', 'Write', 'Shell')
+
+# Trust profiles a caller may name explicitly. Legacy is the historic posture.
+# RestrictedUnattended enforces every kind, so a Tool call runs only when a rule
+# grants it - the posture an unattended run wants and the one no existing caller
+# gets by accident, because it has to be asked for by name.
+$script:ShpTrustProfileName = @('Legacy', 'RestrictedUnattended')
+
+# Rules seeded by the RestrictedUnattended profile before the caller's own. Both
+# tools are bookkeeping: manage_todo_list records a checklist on the result and
+# search_tools reads schema metadata already offered this turn. Neither reads a
+# file, starts a process, or sends a byte anywhere, so denying them would cost a
+# restricted turn its ability to plan while protecting nothing.
+$script:ShpRestrictedProfileRule = @('Tool(manage_todo_list)', 'Tool(search_tools)')
+
 # Custom secret-redaction rules layered on top of the built-in patterns below
 # (see Set-ShpRedactionPolicy). $null means no custom rules; the built-ins
 # still apply regardless - only Invoke-Shp -DisableRedaction turns the whole

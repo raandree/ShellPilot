@@ -68,40 +68,11 @@ function Start-ShpJob {
     # these tables cross the runspace boundary by reference in the same process,
     # so handing over the live ones would let a later Set-ShpContext in the
     # caller's session change what a job already in flight is doing.
-    $context = @{}
-    foreach ($key in @('TimeoutSec', 'MaxRetryCount', 'RetryDelaySec', 'NetworkOutageToleranceSec', 'MaxContextWindowTokens', 'ApiBase', 'ApiKey', 'GitHubToken', 'GitHubHost')) {
-        if ($null -ne $script:ShpContext[$key]) { $context[$key] = $script:ShpContext[$key] }
-    }
-
-    $defaults = @{}
-    foreach ($key in @($script:ShpDefaults.Keys)) { $defaults[$key] = $script:ShpDefaults[$key] }
-
-    $modelLimit = $null
-    if ($null -ne $script:ShpModelLimitCache) {
-        $modelLimit = @{}
-        foreach ($key in $script:ShpModelLimitCache.Keys) { $modelLimit[$key] = $script:ShpModelLimitCache[$key] }
-    }
-
-    $toolCommand = @()
-    if (-not $Parameter['DisableUserTools']) {
-        $toolCommand = @($script:ShpUserTools.Values | ForEach-Object { $_.Command })
-    }
-
     if ($script:ShpMcpServers.Count -gt 0) {
         Write-Warning ('-AsJob does not use attached MCP servers ({0}); a job runspace cannot share their processes. The job runs without MCP tools.' -f (($script:ShpMcpServers.Keys) -join ', '))
     }
 
-    $state = [pscustomobject]@{
-        Command         = $Command
-        Parameter       = $Parameter
-        ModulePath      = $modulePath
-        Context         = $context
-        Defaults        = $defaults
-        ModelLimit      = $modelLimit
-        ToolPolicy      = $script:ShpToolPolicy
-        RedactionPolicy = $script:ShpRedactionPolicy
-        ToolCommand     = $toolCommand
-    }
+    $state = New-ShpJobState -Command $Command -Parameter $Parameter -ModulePath $modulePath
 
     Start-ThreadJob -Name ('ShellPilot.{0}' -f $Command) -ScriptBlock {
         $jobState = $using:state

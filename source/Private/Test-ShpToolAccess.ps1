@@ -10,8 +10,15 @@ function Test-ShpToolAccess {
 
         With no policy set it allows operations except dangerous environment
         assignments in run_command. Once Set-ShpToolPolicy is called the answer is
-        deny-by-default: an operation is permitted only when a rule allows it,
-        and any matching deny rule overrides every allow.
+        deny-by-default for every kind the policy COVERS: an operation is
+        permitted only when a rule allows it, and any matching deny rule
+        overrides every allow.
+
+        Coverage is staged, and the policy carries it. Read, Write and Shell are
+        covered by every policy. Url, Mcp and Tool are covered only when the
+        policy uses that kind or names the RestrictedUnattended trust profile,
+        so a policy written before those kinds existed still permits fetch_url,
+        an attached server's tools and every other named tool exactly as it did.
 
         edit_file requires both Write and Read access to the target because
         its match results reveal file content. Write is checked first so a
@@ -19,7 +26,11 @@ function Test-ShpToolAccess {
 
         Paths are matched on the absolute, link-resolved path from
         Resolve-ShpRealPath, never on the string the model supplied, so a `..`
-        segment or a directory link cannot walk out of an allowed root.
+        segment or a directory link cannot walk out of an allowed root. URLs are
+        matched on the normal form from ConvertTo-ShpNormalizedUrl for the same
+        reason, and an address that cannot be normalised is refused. An MCP call
+        is matched on the server alias and the tool name that will actually
+        dispatch, never on the namespaced name the model emitted.
 
         Commands are matched on whole leading tokens, not on a substring, and a
         command containing a shell metacharacter is refused whatever the rules
@@ -31,14 +42,26 @@ function Test-ShpToolAccess {
         policy, before starting a child. This is not a general code sandbox.
 
     .PARAMETER Tool
-        The tool being dispatched: read_file, list_directory, glob_files,
-        grep_files, write_file, edit_file, create_directory or run_command.
+        The tool being dispatched, by the name the model called: read_file,
+        list_directory, glob_files, grep_files, write_file, edit_file,
+        create_directory, run_command, fetch_url, a namespaced MCP tool, or any
+        other named tool.
 
     .PARAMETER Path
         The path the tool was asked to act on, for the file tools.
 
     .PARAMETER Command
         The command line the model asked to run, for run_command.
+
+    .PARAMETER Url
+        The address the model asked to fetch, for fetch_url.
+
+    .PARAMETER McpServer
+        The alias of the attached server a namespaced MCP call resolves to.
+        Supplying it is what makes the call an Mcp-kind decision.
+
+    .PARAMETER McpTool
+        The tool name as the attached server knows it, not the namespaced name.
 
     .EXAMPLE
         Test-ShpToolAccess -Tool 'write_file' -Path './out/report.md'
@@ -51,11 +74,17 @@ function Test-ShpToolAccess {
         Returns Allowed = $false naming the metacharacter, even though a
         Shell(git status) rule exists.
 
+    .EXAMPLE
+        Test-ShpToolAccess -Tool 'mcp_files_read' -McpServer files -McpTool read
+
+        Returns Allowed = $true when an Mcp rule covers files/read.
+
     .OUTPUTS
         System.Collections.Hashtable
 
         Allowed (bool), Reason (string, empty when allowed) and Target (the
-        resolved path or the command that was matched).
+        resolved path, normalised address, matched command, or resolved tool
+        identity).
     #>
     [CmdletBinding()]
     [OutputType([hashtable])]
@@ -70,7 +99,19 @@ function Test-ShpToolAccess {
 
         [AllowEmptyString()]
         [AllowNull()]
-        [string]$Command
+        [string]$Command,
+
+        [AllowEmptyString()]
+        [AllowNull()]
+        [string]$Url,
+
+        [AllowEmptyString()]
+        [AllowNull()]
+        [string]$McpServer,
+
+        [AllowEmptyString()]
+        [AllowNull()]
+        [string]$McpTool
     )
 
     if ($Tool -eq 'run_command' -and -not [string]::IsNullOrWhiteSpace($Command)) {
@@ -136,10 +177,40 @@ function Test-ShpToolAccess {
         'edit_file'        { 'Write' }
         'create_directory' { 'Write' }
         'run_command'      { 'Shell' }
-        default            { $null }
+        'fetch_url'        { 'Url' }
+        default            { if (-not [string]::IsNullOrWhiteSpace($McpServer)) { 'Mcp' } else { 'Tool' } }
     }
-    if (-not $kind) {
-        return @{ Allowed = $false; Reason = ("Tool '{0}' is not covered by the tool policy." -f $Tool); Target = $null }
+
+    # A kind the policy does not cover is not decided here at all. That is the
+    # staged migration: a policy written before Url, Mcp and Tool existed never
+    # mentioned them, and denying them now would revoke reach its author never
+    # gave up. Coverage is absent on a policy object from an older shape, which
+    # reads as the same three kinds it enforced then.
+    $coverage = @($script:ShpToolPolicy.Coverage)
+    if ($coverage.Count -eq 0) { $coverage = @($script:ShpToolPolicyBaseCoverage) }
+    if ($kind -notin $coverage) {
+        return @{ Allowed = $true; Reason = ''; Target = $(if ($Command) { $Command } elseif ($Url) { $Url } elseif ($Path) { $Path } else { $Tool }) }
+    }
+
+    if ($kind -eq 'Url') {
+        $normalised = ConvertTo-ShpNormalizedUrl -Url $Url
+        if (-not $normalised.Ok) {
+            return @{ Allowed = $false; Target = $null; Reason = ('{0} The tool policy refuses it.' -f $normalised.Reason) }
+        }
+        return Resolve-ShpToolRuleVerdict -Kind 'Url' -Target $normalised.Url -Subject 'address'
+    }
+
+    if ($kind -eq 'Mcp') {
+        if ([string]::IsNullOrWhiteSpace($McpTool)) {
+            return @{ Allowed = $false; Target = $null; Reason = 'The MCP call names no tool, so the tool policy cannot match it.' }
+        }
+        # The alias and tool that will actually dispatch, never the namespaced
+        # name the model emitted - the same rule the path kinds follow.
+        return Resolve-ShpToolRuleVerdict -Kind 'Mcp' -Target ('{0}/{1}' -f $McpServer.Trim(), $McpTool.Trim()) -Subject 'MCP tool'
+    }
+
+    if ($kind -eq 'Tool') {
+        return Resolve-ShpToolRuleVerdict -Kind 'Tool' -Target $Tool -Subject 'tool'
     }
 
     if ($kind -eq 'Shell') {

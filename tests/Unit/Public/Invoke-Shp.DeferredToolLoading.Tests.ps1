@@ -294,7 +294,13 @@ Describe 'Invoke-Shp deferred Tool loading' {
 
     It 'Should retain the Tool policy gate after dynamic loading' {
         InModuleScope $script:moduleName {
-            Mock Test-ShpToolAccess { @{ Allowed = $false; Reason = 'fixture policy refusal' } }
+            # Denies read_file only: search_tools is now a policy-covered Tool
+            # in its own right, and denying it too would test that the search
+            # never ran rather than that the file gate still fires.
+            Mock Test-ShpToolAccess {
+                if ($Tool -eq 'read_file') { @{ Allowed = $false; Reason = 'fixture policy refusal' } }
+                else { @{ Allowed = $true; Reason = ''; Target = $Tool } }
+            }
             Mock Invoke-ReadFileTool { throw 'A policy-denied file read executed.' }
             $script:deferredCalls.Add(@(@{ Id = 'search'; Name = 'search_tools'; Arguments = '{"query":"clock"}' }))
             $script:deferredCalls.Add(@(@{ Id = 'file'; Name = 'read_file'; Arguments = '{"path":"unused"}' }))

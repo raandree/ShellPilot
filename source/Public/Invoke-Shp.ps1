@@ -1747,7 +1747,9 @@ function Invoke-Shp {
     $commandsRun = New-Object System.Collections.Generic.List[string]
     # Every tool call the policy refused. An unattended run has to be auditable
     # afterwards, and a refusal the caller cannot see is indistinguishable from
-    # a model that simply chose not to try.
+    # a model that simply chose not to try. The posture itself travels on the
+    # result too (ToolPolicyProfile / ToolPolicyCoverage), so a harness can
+    # assert what it actually ran under rather than what it configured.
     $toolCallsDenied = New-Object System.Collections.Generic.List[string]
     # Per-pattern egress-redaction match counts, accumulated across every
     # round-trip this turn (Protect-ShpEgressContent below) and surfaced on the
@@ -2331,7 +2333,18 @@ function Invoke-Shp {
                             Test-ShpToolAccess -Tool $tc.Name -Path ([string]$fargs.path)
                         }
                         'run_command' { Test-ShpToolAccess -Tool $tc.Name -Command ([string]$fargs.command) }
-                        default       { @{ Allowed = $true; Reason = '' } }
+                        'fetch_url'   { Test-ShpToolAccess -Tool $tc.Name -Url ([string]$fargs.url) }
+                        default {
+                            # An MCP call is decided on the alias and tool that
+                            # will actually dispatch, so a model cannot reach a
+                            # different server by inventing a namespaced name.
+                            # Everything else is decided on its own tool name.
+                            if ($mcpToolMap.ContainsKey($tc.Name)) {
+                                Test-ShpToolAccess -Tool $tc.Name -McpServer $mcpToolMap[$tc.Name].Server -McpTool $mcpToolMap[$tc.Name].Tool
+                            } else {
+                                Test-ShpToolAccess -Tool $tc.Name
+                            }
+                        }
                     }
                     # A disabled known tool must not run, and not offering it is not
                     # enough on its own: the model can still name it from its own
@@ -2698,6 +2711,8 @@ function Invoke-Shp {
         Attachments=@($attachments)
         CommandsRun=@($commandsRun); QuestionsAsked=@($questionsAsked)
         ToolCallsDenied=@($toolCallsDenied)
+        ToolPolicyProfile=$(if ($script:ShpToolPolicy) { [string]$script:ShpToolPolicy.TrustProfile } else { 'None' })
+        ToolPolicyCoverage=@(if ($script:ShpToolPolicy) { $script:ShpToolPolicy.Coverage })
         Redactions=@($redactionCounts.Keys | ForEach-Object { [pscustomobject]@{ Name=$_; Count=$redactionCounts[$_] } })
         TodoList=@($todoList)
         UserToolsAvailable=@($userToolCommands.Keys); UserToolsCalled=@($userToolsCalled)
