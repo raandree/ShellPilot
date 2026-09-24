@@ -10,35 +10,59 @@ historical present-tense descriptions in the proposals.
 > [Open decision 14](001-open-decisions.md) - module state on disk - was
 > **accepted 2026-09-05**, which unblocks F20 and moves decision 13 to B.
 > See [Selection](#selection).
+>
+> **Authorized 2026-09-24.** The modernization request took tranche 2,
+> tranche 3, the blocked F20 and most of the deferred list in one pass. What
+> landed, and what deliberately did not, is in
+> [Implementation status](#implementation-status-2026-09-24).
 
-## Implementation status 2026-09-07
+## Implementation status 2026-09-24
 
-Tranche one is integrated into verified local `main` at `640769b`. F1 and F2
-were already in the published preview baseline. F9 is a separately authorized
-local tranche-two change; this status does not imply a publication.
+Tranche one was integrated into verified local `main` at `640769b` on
+2026-09-07. The modernization request that produced specs 030-045 authorized
+the later tranches - tranche two, tranche three, the blocked item and most of
+the deferred list - and they are implemented locally on
+`ai/agent-modernization`. No row below implies a publication.
 
-| Feature | Local result |
-| --- | --- |
-| F1 / F2 | Search and exact file edits are in the baseline. |
-| F7 / F8 | Minimal terminal environment, explicit pass-through, protected assignment refusal. |
-| F23 | Named environment values redacted literally at shared egress. |
-| F6 | Exact all-class Tool inclusion/exclusion and unchanged denial shape. |
-| F22 | Per-call Plan intersects read-only visibility and existing Tool policy. |
-| F17 | Validated Enterprise Cloud host routing and host-safe cache behavior. |
-| F9 | Opt-in deferred User/MCP schemas, Turn-local search, and batch/Job model forwarding; see [spec 031](031-deferred-tool-loading.md). |
-| F14 | Blocked: no `SHELLPILOT_GITHUB_TOKEN`; no exchange or prompt sent. |
+| Feature | Status | Local result |
+| --- | --- | --- |
+| F1 / F2 search tools, `edit_file` | Done | Search and exact file edits are in the baseline. |
+| F6 `-Tool` / `-ExcludeTool` | Done | Exact all-class Tool inclusion/exclusion and unchanged denial shape. |
+| F7 / F8 child environment | Done | Minimal terminal environment, explicit pass-through, protected assignment refusal. |
+| F17 enterprise host override | Done | Validated Enterprise Cloud host routing and host-safe cache behavior. |
+| F22 `-Mode Plan` | Done | Per-call Plan intersects read-only visibility and existing Tool policy. |
+| F23 secret environment variable | Done | Named environment values redacted literally at shared egress. |
+| F9 deferred tool loading | Done | Opt-in deferred User/MCP schemas, Turn-local search, and batch/Job model forwarding; see [spec 031](031-deferred-tool-loading.md). |
+| F4 `Url()` rule kind | Done | A rule kind matched against the normalised address, beside `Read`, `Write` and `Shell`; see [spec 033](033-restricted-unattended-tool-policy.md). |
+| F5 `Mcp()` rule kind | Done | `Mcp(alias/tool)` gates the alias and tool name a call will dispatch under. Arguments inside the JSON stay unmatched, as the proposal recommended; see [spec 033](033-restricted-unattended-tool-policy.md). |
+| F10 context report | Done | `Get-ShpContextReport` before a call and `Invoke-Shp -ContextReport` after one; see [spec 038](038-context-accounting.md). |
+| F11 focused compaction | Done | `Compress-ShpChat -Focus` as a drop-order preference; unbound behaviour is byte-identical to oldest-first. See [spec 039](039-focused-chat-compression.md). |
+| F12 output spill | Done | Opt-in `-ToolResultSpillRoot` writes the whole result and hands the model a window plus the path; see [spec 040](040-recoverable-tool-results.md). |
+| F15 MCP over Streamable HTTP | Done, without a grant | Guarded remote attachment with a pinned address set, bounded body and redirects, and caller-supplied credentials. No OAuth grant is implemented and a 401 is refused by name; see [spec 043](043-mcp-remote-transport.md). |
+| F16 per-server MCP timeout | Done | `-ConnectTimeoutSec` and `-RequestTimeoutSec` shipped with [spec 021](021-mcp-server-support.md); the remote transport adds response, event and redirect caps. |
+| F18 hooks | Done | `-ToolCallControl` is consulted before and after a Tool call, and `-ExecutionContract` wraps covered dispatch. Both are scriptblock or command-name controls, neither is discovered from disk, and neither can widen the Tool policy; see [spec 036](036-tool-call-decision-controls.md) and [spec 037](037-execution-containment-contract.md). |
+| F19 subagents | Done | `Invoke-ShpSubagent` returns the child's answer and evidence rather than its transcript, bounded by depth, fan-out, concurrency, duration and a shared budget ledger, and can only narrow what it inherited; see [spec 045](045-bounded-subagents.md). |
+| F20 session persistence | Done | `Save-ShpChat`, `Restore-ShpChat` and `Get-ShpChatCheckpoint` write to a caller-named path, redacted on write; see [spec 041](041-session-chat-persistence.md). |
+| F24 OpenTelemetry | Done as translation | `-TraceParent` correlates a run and `ConvertTo-ShpOtelTrace` converts an Event stream into OpenTelemetry-compatible spans, content off by default. The module emits no spans of its own; see [spec 042](042-trace-identity-and-otel-export.md). |
+| F3 backgroundable `run_command` | Not taken | `run_command` is still one synchronous command with a ceiling. The session model for child processes was not built. |
+| F13 GitHub surface | Not taken | There are still no `github_*` tools and no registration helper. F5 no longer blocks it. |
+| F14 credential sources | Blocked | No `SHELLPILOT_GITHUB_TOKEN`; no exchange or prompt sent. Unchanged from 2026-09-07. |
+| F21 fuller `Start-ShpChat` | Not taken | The interactive session still has its original commands. |
+| F25 instruction discovery | Not taken | Nothing is discovered; every root is still one the caller named. [Spec 044](044-skill-and-instruction-provenance.md) validates, fingerprints and accounts for those roots instead, and reaffirms the no-discovery posture. |
+
+### Tranche-one record, 2026-09-07
 
 Tranche one's independent review produced one Major and one Minor; both were
 reproduced and repaired with regression tests. Final release evidence and
 unavailable checks are in the [release notes for maintainers][readiness].
 
-F9 was separately authorized on 2026-09-07 and is implemented locally on
+F9 was separately authorized on 2026-09-07 and was implemented locally on
 `ai/deferred-tool-loading`, based on verified `main` at `640769b`. The historical
 10,166-token observation is not a current expectation. Deterministic captures
 with 61 synthetic MCP schemas reduce initial Tools from 61 to 1; live provider
 comparison is blocked by the absent MCP attachment. See
 [spec 031](031-deferred-tool-loading.md#measurement). No other tranche-two
-feature is included.
+feature was included at that point.
 
 [readiness]: ../.memory-bank/deployment-notes.md
 
@@ -106,6 +130,11 @@ section.
 
 ### F4 - `Url(...)` policy rule kind
 
+**Status 2026-09-24:** implemented as the `Url` rule kind, matched against the
+normalised address and enforced when a policy uses the kind. See
+[spec 033](033-restricted-unattended-tool-policy.md). The proposal below is
+historical motivation.
+
 `Set-ShpToolPolicy` scopes `Read()`, `Write()` and `Shell()`. It cannot say
 which hosts a run may reach: `fetch_url` is all-or-nothing behind
 `-DisableBrowsing`, with `Test-ShpUrlSafe` blocking private and
@@ -121,6 +150,12 @@ Fits the existing grammar exactly and reuses the resolve-then-match discipline
 already applied to paths.
 
 ### F5 - `Mcp(server/tool)` policy rule kind
+
+**Status 2026-09-24:** implemented as the `Mcp` rule kind. A rule matches the
+server alias and the tool name the dispatch will actually use, so identity is
+gated and the arguments inside the call are not - exactly the line this
+proposal drew. See [spec 033](033-restricted-unattended-tool-policy.md). The
+proposal below is historical motivation.
 
 `Set-ShpToolPolicy` cannot gate an MCP call: its rules match resolved
 filesystem paths and leading command tokens, and a `tools/call` has neither.
@@ -196,6 +231,10 @@ measurement all exist; only the application is missing.
 
 ### F10 - `Get-ShpContextReport`
 
+**Status 2026-09-24:** implemented, with `Invoke-Shp -ContextReport` for the
+same accounting after a call. See [spec 038](038-context-accounting.md). The
+proposal below is historical motivation.
+
 Show where the context window went: system prompt, instructions, skills, tool
 schemas, attachments, history, this turn.
 
@@ -206,6 +245,11 @@ than asserted.
 
 ### F11 - `Compress-ShpChat -Focus`
 
+**Status 2026-09-24:** implemented as a drop-order preference over whole
+Exchanges; an unbound `Focus` keeps the previous oldest-first behaviour
+exactly. See [spec 039](039-focused-chat-compression.md). The proposal below is
+historical motivation.
+
 Steer the compaction summary with an instruction, so a long session can be
 compacted around the part that still matters. Compaction currently takes no
 direction, so it preserves what the summariser thinks is important rather than
@@ -214,6 +258,11 @@ what the caller does.
 Small; the parameter threads straight through to the summarisation prompt.
 
 ### F12 - Spill oversized tool output instead of truncating it
+
+**Status 2026-09-24:** implemented as the opt-in `-ToolResultSpillRoot`, one
+seam for every producer, with the window and the path handed back to the model.
+See [spec 040](040-recoverable-tool-results.md). The proposal below is
+historical motivation.
 
 `run_command` and `read_file` cap their output and append a
 `...[truncated, original N chars]` marker. Truncation is cheap and loses
@@ -226,6 +275,12 @@ path would let the model go back for what it needs, and would compose with
 ## D. GitHub
 
 ### F13 - A GitHub surface
+
+**Status 2026-09-24:** not taken. There is still no GitHub.com tool and no
+registration helper. One sentence below no longer holds: an attached server
+*can* now be gated, by `Mcp(alias/tool)` rules from
+[spec 033](033-restricted-unattended-tool-policy.md), so the stated dependency
+on F5 is satisfied and only the work itself is outstanding.
 
 **ShellPilot has no GitHub.com integration at all.** No issue, pull request,
 commit, workflow or code-search tool. A caller who wants "summarise the open
@@ -317,6 +372,15 @@ is already configured; do not substitute a token file or another variable.
 
 ### F15 - MCP over streamable HTTP, headless grant first
 
+**Status 2026-09-24:** the transport is implemented and the grant is not. A
+remote attachment is guarded at attachment and before every request and
+redirect, pinned to the approved address set, and bounded in body size, event
+count and redirects. Authorization is whatever the caller supplies through
+`-Header` or `-CredentialCallback`; a 401 is parsed and then refused by name
+rather than answered with a token that happens to be in reach. See
+[spec 043](043-mcp-remote-transport.md). The proposal below is historical
+motivation.
+
 [Open decision 12](001-open-decisions.md) defers HTTP transport until stdio has
 shipped and been measured. Stdio has now shipped and been measured against a
 real third-party server, so the decision is ready to revisit.
@@ -330,6 +394,12 @@ interactive convenience, and interactive already has stdio.
 The SSRF surface has the answer `Test-ShpUrlSafe` already gives `fetch_url`.
 
 ### F16 - Per-server MCP timeout
+
+**Status 2026-09-24:** already delivered when this was written -
+`Register-ShpMcpServer -ConnectTimeoutSec` and `-RequestTimeoutSec` are per
+server and shipped with [spec 021](021-mcp-server-support.md). The remote
+transport adds the response-size, stream-event and redirect caps a hosted
+server also needs; see [spec 043](043-mcp-remote-transport.md).
 
 `Register-ShpMcpServer` has no per-server timeout for discovery or for a tool
 call. A slow or wedged third-party server therefore stalls the turn with no
@@ -348,6 +418,17 @@ environment variable, threaded through the device-code and token-exchange URLs.
 ## F. Extensibility
 
 ### F18 - A hook engine
+
+**Status 2026-09-24:** implemented as two separate controls rather than one
+engine. `-ToolCallControl` is consulted before dispatch and after a result
+exists, and can allow, deny with a reason, or modify the arguments or the
+result; `-ExecutionContract` wraps covered dispatch for a caller who supplies
+containment of their own. Both take a scriptblock or a command name, neither is
+discovered from disk, and neither can widen the Tool policy - rewritten
+arguments are re-checked against it. See
+[spec 036](036-tool-call-decision-controls.md) and
+[spec 037](037-execution-containment-contract.md). The proposal below is
+historical motivation.
 
 Let a caller run their own code at defined points in a turn, and let that code
 decide something.
@@ -378,6 +459,15 @@ write there execute code inside the caller's session.
 
 ### F19 - Subagents
 
+**Status 2026-09-24:** implemented as `Invoke-ShpSubagent`, reading an agent
+definition from a Markdown file with front matter and returning the child's
+answer and evidence rather than its transcript. The caps are not optional:
+depth, fan-out, concurrency, duration and one shared budget ledger are all
+checked before any credential work, and a child can only narrow the policy,
+redaction and tool visibility it inherited. See
+[spec 045](045-bounded-subagents.md). The proposal below is historical
+motivation.
+
 Dispatch part of a task to a nested `Invoke-Shp` with its own model, reasoning
 effort, tool set and system prompt, returning **only its final answer** to the
 parent.
@@ -401,6 +491,12 @@ Depth and concurrency caps are mandatory, not optional: a model that can spawn
 a model needs a bound before it ships, not after.
 
 ### F20 - Session persistence and resume
+
+**Status 2026-09-24:** implemented as `Save-ShpChat`, `Restore-ShpChat` and
+`Get-ShpChatCheckpoint`, on the terms decision 14 set: a caller-named path
+only, redaction applied on write, retention the caller's. See
+[spec 041](041-session-chat-persistence.md). The proposal below is historical
+motivation.
 
 Save a session and continue it later; fork it; roll it back to an earlier turn.
 
@@ -467,6 +563,14 @@ the model content nobody reviewed.
 
 ### F24 - OpenTelemetry export
 
+**Status 2026-09-24:** implemented as the translation this proposal expected to
+be the better answer, not as an exporter. `Invoke-Shp -TraceParent` gives a run
+one derived identity that a Subagent and an MCP request inherit, and
+`ConvertTo-ShpOtelTrace` converts an Event stream into OpenTelemetry-compatible
+spans. Content capture stays off by default. The module opens no connection to
+a collector. See [spec 042](042-trace-identity-and-otel-export.md). The
+proposal below is historical motivation.
+
 Emit spans and metrics under the OpenTelemetry GenAI semantic conventions: one
 span per agent invocation, per model request and per tool call, carrying token
 counts, cost, finish reason and duration.
@@ -482,6 +586,14 @@ translating the existing event stream themselves.
 ## I. Customisation discovery
 
 ### F25 - Opt-in repository instruction discovery
+
+**Status 2026-09-24:** not taken, and the posture this proposal said should
+survive did. Nothing is discovered; every root is still one the caller named.
+What was built instead is provenance over those named roots:
+[spec 044](044-skill-and-instruction-provenance.md) validates each Skill and
+Instruction, records a hash and a size, refuses a body whose bytes changed
+between the catalog and the load, and reports what the model actually received.
+The discovery switch and `@path` imports remain unbuilt.
 
 `-InstructionPath`, `-InstructionRoot`, `-SystemPromptPath` and `-SkillPath`
 all require the caller to name the file. **Nothing is discovered, on purpose**,
@@ -531,19 +643,22 @@ would want to know before ShellPilot runs on a managed device.
 
 ## Selection
 
-Decided 2026-09-03; open decision 14 accepted 2026-09-05. Tranche 1 is the
-first cut, the F14 probe runs next, and F20 is no longer blocked.
+Decided 2026-09-03; open decision 14 accepted 2026-09-05; tranches 2 and 3, the
+blocked item and most of the deferred list authorized 2026-09-24 by the
+modernization request that produced specs 030-045. The Status column is the
+current state rather than the original schedule; the grouping and the "why
+together" reasoning are kept as the record of how the work was planned.
 
 <!-- markdownlint-disable MD013 -->
 
 | Tranche | Items | Status | Why together |
 | :--- | :--- | :--- | :--- |
-| **1 - first cut** | F1 search tools, F2 `edit_file`, F6 tool filters, F7 minimal child env, F8 env denylist, F17 host override, F22 plan preset, F23 secret env var | **Accepted** | No new decisions, no new state, no new dependencies. Each is self-contained and independently testable. Together they make a tight `Set-ShpToolPolicy` genuinely usable (F1, F6, F22), close two known credential-adjacent holes (F7, F8, F23), and unblock one group of users entirely (F17). |
-| **2 - finishes work already started** | F4 `Url()` kind, F9 deferred tool loading, F12 output spill, F16 MCP timeout, F11 focused compaction | F9 implemented locally; others not scheduled | F9 was separately authorized for opt-in User/MCP schemas only. The other items remain separate scope. |
-| **3 - needs a decision first** | F5 `Mcp()` kind → F13 GitHub surface, F15 MCP over HTTP, F18 hooks, F19 subagents | Not scheduled | F5 and F15 reopen open decisions 9 and 12, both of which were deferred pending exactly the experience now available. F13 depends on F5. F18 and F19 are new surface and each deserves its own concept document before any code. |
-| **Blocked** | F20 session resume | **Unblocked 2026-09-05** | Decision 14 settled it. Not yet scheduled. |
-| **Measure first** | F14 credential sources | **Accepted, runs next** | The probe decides a design and may change what spec 025 says. Needs a fine-grained token minted by the user. |
-| **Deferred** | F3 background shell, F10 context report, F21 chat commands, F24 OpenTelemetry, F25 instruction discovery | Not scheduled | Real value, no urgency, and F10 and F21 are more useful after F9 and F18 respectively. |
+| **1 - first cut** | F1 search tools, F2 `edit_file`, F6 tool filters, F7 minimal child env, F8 env denylist, F17 host override, F22 plan preset, F23 secret env var | **Delivered** (accepted 2026-09-03) | No new decisions, no new state, no new dependencies. Each is self-contained and independently testable. Together they make a tight `Set-ShpToolPolicy` genuinely usable (F1, F6, F22), close two known credential-adjacent holes (F7, F8, F23), and unblock one group of users entirely (F17). |
+| **2 - finishes work already started** | F4 `Url()` kind, F9 deferred tool loading, F12 output spill, F16 MCP timeout, F11 focused compaction | **Delivered** (F9 authorized 2026-09-07, the rest 2026-09-24) | F9 was separately authorized for opt-in User/MCP schemas only. F16 turned out to be already shipped with spec 021; the remote transport added the caps a hosted server needs. |
+| **3 - needs a decision first** | F5 `Mcp()` kind → F13 GitHub surface, F15 MCP over HTTP, F18 hooks, F19 subagents | **Delivered except F13** (authorized 2026-09-24) | F5 and F15 reopened open decisions 9 and 12; both are now closed by the implementations rather than by a further deferral. F18 and F19 each got their own spec before any code. F13 depended on F5 and is still unbuilt. |
+| **Blocked** | F20 session resume | **Delivered** (unblocked 2026-09-05, built 2026-09-24) | Decision 14 settled the storage question, and the implementation keeps its terms: a caller-named path, redacted on write. |
+| **Measure first** | F14 credential sources | **Still blocked** | The probe decides a design and may change what spec 025 says. It needs a fine-grained token minted by the user, which is still not configured. |
+| **Deferred** | F3 background shell, F10 context report, F21 chat commands, F24 OpenTelemetry, F25 instruction discovery | **F10 and F24 delivered; F3, F21 and F25 not taken** | Real value, no urgency. F10 became useful once F9 existed and was built with the context accounting; F24 was built as a translation rather than an exporter. F3 and F21 remain unscheduled, and F25's no-discovery posture was deliberately kept. |
 
 <!-- markdownlint-enable MD013 -->
 

@@ -6,6 +6,11 @@ output/
 # Local-only agent prompt log (kept out of the repo per "remove prompt history log file")
 .memory-bank/promptHistory.md
 
+# Local changed-file validation store. Written by the local validation helper to
+# track which changed files have been analysed; it is machine-specific state and
+# is never committed.
+/.copilot-atelier/
+
 **.bak
 *.local.*
 !**/README.md

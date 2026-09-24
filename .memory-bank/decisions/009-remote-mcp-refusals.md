@@ -21,10 +21,10 @@ into questions with a wrong answer that looks right:
    agent toward a URL. Over stdio that means nothing; over HTTP it means the
    agent becomes a proxy into its own host's network, with the cloud metadata
    address as the classic target.
-2. **How large is a reply?** stdio replies arrive a line at a time from a
+1. **How large is a reply?** stdio replies arrive a line at a time from a
    process the caller started. An HTTP reply is whatever a third party sends,
    and an event stream can stay open indefinitely without ever answering.
-3. **What does a 401 mean?** The obvious implementation - attach the credential
+1. **What does a 401 mean?** The obvious implementation - attach the credential
    the client already holds - is a credential-exfiltration primitive triggered
    by a server the caller may not control.
 

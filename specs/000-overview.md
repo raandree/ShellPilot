@@ -29,7 +29,7 @@ proof of concept, what is partial, and what is still to be decided.
 | Read / list files | read_file, list_directory tools | Done |
 | Create / edit files | write_file, create_directory tools | Done |
 | Run a command | run_command tool (-DisableTerminal) | Done |
-| Approve / dry-run a tool call | Invoke-Shp -WhatIf / -Confirm (ShouldProcess) | Partial |
+| Approve / dry-run a tool call | Invoke-Shp -WhatIf / -Confirm (ShouldProcess), -ToolCallControl (allow / deny / modify), -ExecutionContract | Done |
 | Spend cap | Invoke-Shp -MaxBudgetUSD, result BudgetExceeded | Done |
 | Ask the user | ask_user tool (-DisableUserPrompts) | Done |
 | User-defined tools | Register-ShpTool, Get-ShpTool, Unregister-ShpTool | Done |
@@ -57,17 +57,22 @@ proof of concept, what is partial, and what is still to be decided.
 | Inline completions | none | Out |
 | Chat participants (@) | none | TBD |
 | Context variables (#) | parameters and instruction files | TBD |
-| MCP server tools | Register-ShpMcpServer, Get-ShpMcpServer, Unregister-ShpMcpServer | Done (stdio; both protocol eras) |
+| MCP server tools | Register-ShpMcpServer, Get-ShpMcpServer, Unregister-ShpMcpServer | Done (stdio and guarded Streamable HTTP; both protocol eras) |
 | Prompt files | none | TBD |
-| Session persistence / resume | none | TBD |
-| Hooks (PreToolUse / PostToolUse) | none | TBD |
-| Subagents | none | TBD |
+| Session persistence / resume | Save-ShpChat, Restore-ShpChat, Get-ShpChatCheckpoint | Done (caller-named path, redacted on write) |
+| Hooks (PreToolUse / PostToolUse) | Invoke-Shp -ToolCallControl (Pre / Post decisions) | Done |
+| Subagents | Invoke-ShpSubagent | Done (bounded; may only narrow what it inherited) |
 | Headless JSONL event stream | Invoke-Shp -EventStream | Done |
 | Job model (-AsJob) | Invoke-Shp -AsJob, Invoke-ShpBatch -AsJob | Done |
+| Behaviour regression suite | Invoke-ShpEval (deterministic, sends no request) | Done |
+| Context usage breakdown | Get-ShpContextReport, Invoke-Shp -ContextReport | Done |
+| Trace export to a standard backend | Invoke-Shp -TraceParent, ConvertTo-ShpOtelTrace | Done (OpenTelemetry-compatible translation; content off by default) |
+| Customisation provenance | ResourceProvenance on the result for every Skill and Instruction load | Done |
 
 Each implemented capability above has a numbered spec under this folder
-(002-028); see [the specs index](README.md). The remaining TBD items depend on
-the open decisions.
+(002-045, where 029 collects proposals rather than describing a pattern); see
+[the specs index](README.md). The remaining TBD items depend on the open
+decisions.
 
 > A 2026-07-28 web gap analysis moved **MCP server tools** from TBD to Planned:
 > the Gallery carries a dozen PowerShell MCP *servers* but no established MCP
@@ -76,19 +81,26 @@ the open decisions.
 > revision 2025-11-25, which was already out of date when the work started:
 > re-verified on 2026-08-12, the current revision is **2026-07-28**, and it
 > replaced the `initialize` handshake with per-request metadata.
-> [Spec 021](021-mcp-server-support.md) implements both eras over stdio.
+> [Spec 021](021-mcp-server-support.md) implements both eras over stdio and
+> [spec 043](043-mcp-remote-transport.md) extends the same protocol code to a
+> guarded Streamable HTTP endpoint.
 > The same analysis added session persistence, hooks, subagents, the headless
 > event stream and the job model as the next tier of gaps.
-> [Spec 027](027-headless-event-stream.md) closes the last two: one JSONL
+> [Spec 027](027-headless-event-stream.md) closed the last two: one JSONL
 > record per observable moment of a turn, and a thread job that returns the
-> same result object the synchronous call does.
+> same result object the synchronous call does. The first three are now closed
+> as well, by [spec 041](041-session-chat-persistence.md),
+> [spec 036](036-tool-call-decision-controls.md) with
+> [spec 037](037-execution-containment-contract.md), and
+> [spec 045](045-bounded-subagents.md).
 
 Twenty-five proposals for what could come next are collected in
 [029-candidate-features.md](029-candidate-features.md), with a recommended
-order and the three questions that have to be answered before it starts. They
-cover the TBD rows above (session persistence, hooks, subagents) and add the
-widest gap of all: ShellPilot has **no GitHub.com surface at all**. That
-document also records two governance non-conformances - content-exclusion
+order and the questions that had to be answered before each tranche started.
+Most of them have since been built - the implementation status in that document
+is the current record - and the widest remaining gap is the one it named:
+ShellPilot still has **no GitHub.com surface at all**. That document also
+records two governance non-conformances that still hold - content-exclusion
 policies and enterprise MCP allowlists are not evaluated.
 
 ## See also

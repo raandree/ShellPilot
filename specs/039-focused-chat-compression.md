@@ -53,7 +53,7 @@ whole, never split into a dangling answer.
 Between the anchors the drop order becomes:
 
 1. Ascending count of distinct Focus tokens the Exchange contains.
-2. Ascending age within a tie.
+1. Ascending age within a tie.
 
 With no Focus every overlap is zero, so rule 2 is the whole rule and the order
 is exactly the oldest-first one this cmdlet has always applied. That is the

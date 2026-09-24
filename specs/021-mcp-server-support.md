@@ -14,6 +14,17 @@ alongside the built-in and user-defined tools.
 - Protocol revision targeted: **2026-07-28** (the current revision), with a
   working fallback to the handshake-based `2025-11-25` era. Both eras were
   negotiated live.
+- **Extended since.** Two later specs changed statements this document makes
+  about what can be reached and what can be gated, and both are load-bearing
+  when reading it:
+  - [Spec 043](043-mcp-remote-transport.md) adds a guarded Streamable HTTP
+    transport beside stdio. The protocol code is shared; the transport
+    decision in section 4 below is the v1 record, not the current limit.
+  - [Spec 033](033-restricted-unattended-tool-policy.md) adds an `Mcp` rule
+    kind to the Tool policy. Everywhere this document says a Tool policy
+    **cannot** gate an MCP call, read it as the v1 observation that motivated
+    that work: a policy now gates the alias and tool name a call dispatches
+    under, and still matches nothing inside the call's JSON arguments.
 
 ## Protocol revision targeted
 
@@ -116,7 +127,7 @@ changes; only the tool list does.
 
 | Control | Why it does not help here |
 | --------- | --------------------------- |
-| `Set-ShpToolPolicy` | **It cannot gate an MCP call at all.** `Test-ShpToolAccess` matches a `Read`/`Write` rule against a resolved filesystem path and a `Shell` rule against leading command tokens. An MCP tool call is a name and a JSON blob: it exposes neither. Worse, the gap is counter-intuitive - a policy that scopes `read_file` to one directory does **nothing** to an attached filesystem server that reads anywhere, so a caller who has locked down the built-ins may believe they are covered when they are not. See decision 12 |
+| `Set-ShpToolPolicy` | **In v1 it could not gate an MCP call at all.** `Test-ShpToolAccess` matched a `Read`/`Write` rule against a resolved filesystem path and a `Shell` rule against leading command tokens. An MCP tool call is a name and a JSON blob: it exposed neither. Worse, the gap was counter-intuitive - a policy that scoped `read_file` to one directory did **nothing** to an attached filesystem server that read anywhere, so a caller who had locked down the built-ins could believe they were covered when they were not. That observation is what open decision 9 was raised over, and it is now answered: an `Mcp(alias/tool)` rule gates which server and which tool a call may dispatch under ([spec 033](033-restricted-unattended-tool-policy.md)), and a remote server's endpoint is gated separately by the `Url` kind and the endpoint guard ([spec 043](043-mcp-remote-transport.md)). Arguments inside the call are still not matched |
 | `-DisableFileAccess` / `-DisableTerminal` | Turn off the *built-in* tools. An attached server can offer file and shell tools of its own, so disabling the built-ins can reduce visibility without reducing reach |
 | `Test-ShpUrlSafe` | Guards `fetch_url` only. An MCP server makes its own network calls in its own process; nothing in this module is on that path |
 | `ShouldProcess` (`-Confirm`) | Interactive only, and `ConfirmImpact` is left at the default - the finding recorded in spec 019. It is still worth wiring up (decision 11) but it is not an unattended control |
@@ -196,13 +207,17 @@ model exhausted its tool-call nudges and gave up rather than calling the tool
 without the "required" context. A hostile description is a denial of service on
 the legitimate function as well as an exfiltration route.
 
-**`Set-ShpToolPolicy` does not gate an MCP call - demonstrated, not asserted.**
-One Turn, one policy (`Read(<repo>/**)`), two tool calls:
+**`Set-ShpToolPolicy` did not gate an MCP call in v1 - demonstrated, not
+asserted.** One Turn, one policy (`Read(<repo>/**)`), two tool calls:
 
 | Tool call | Outcome |
 | --- | --- |
 | `read_file` on a file outside the repository | **denied**: *No Read rule in the tool policy allows '...\decoy.txt'* |
 | `mcp_notes_get_release_notes` | **ran**, and its content reached the answer |
+
+That second row is the v1 result. The same Turn under a policy carrying an
+`Mcp` rule now resolves the call against `notes/get_release_notes` and denies
+it unless a rule allows it; nothing else about the measurement changed.
 
 Everything else that was verified live:
 
@@ -346,6 +361,10 @@ restarts explicitly. This is a stated deviation, not an oversight.
 
 ### 4. Transport: stdio only in v1
 
+**Superseded by [spec 043](043-mcp-remote-transport.md), which added a guarded
+Streamable HTTP transport on the terms this section asked for.** The reasoning
+below is the v1 record.
+
 Streamable HTTP is **out**. It is not "the same thing over HTTP": it brings the
 MCP Authorization framework (OAuth 2.1, protected-resource metadata, token
 audience binding), SSE stream parsing, `MCP-Protocol-Version` header mirroring
@@ -452,7 +471,10 @@ What is enforced at registration, all of it structural rather than semantic:
 - No `$ref` is ever dereferenced. The specification's **MUST NOT** for network
   `$ref` is satisfied by never fetching anything at all.
 - `x-mcp-header` annotations are ignored; the specification permits a stdio
-  client to ignore them, and they are meaningless without HTTP.
+  client to ignore them, and they were meaningless without HTTP. They remain
+  ignored on the remote transport as well: a remote request carries only the
+  protocol headers, the server's session id and whatever `-Header` named, so a
+  server cannot name a header for itself.
 
 **If the Copilot endpoint rejects a schema**, the whole Turn fails with a 400
 and the caller has no way to tell which of forty tools caused it. That is the
@@ -566,13 +588,21 @@ switch off by setting a flag is not a control.
 
 ### 12. What can actually be scoped, and what cannot
 
-`Set-ShpToolPolicy` **cannot** gate an MCP call. Its rule kinds are `Read`,
-`Write` (matched against a resolved filesystem path) and `Shell` (matched
-against leading command tokens). A `tools/call` has no path and no command
-line. Extending the policy language with an `Mcp(server/tool)` kind is
-plausible and is **not** in v1: it is a change to a security language that
-currently means one specific thing, and it deserves its own decision rather
-than being bolted on here (open decision 9).
+**Superseded in part by [spec 033](033-restricted-unattended-tool-policy.md).**
+A Tool policy now has an `Mcp(alias/tool)` kind, so the first paragraph below
+describes v1 rather than the current module. What has not changed is the second
+half of the argument: the rule matches the alias and the tool name a call will
+dispatch under, and nothing matches inside the call's JSON arguments. Reach
+reduction at attachment is still worth doing, and is still the only control
+that works before a tool is ever offered to the model.
+
+In v1, `Set-ShpToolPolicy` **could not** gate an MCP call. Its rule kinds were
+`Read`, `Write` (matched against a resolved filesystem path) and `Shell`
+(matched against leading command tokens). A `tools/call` has no path and no
+command line. Extending the policy language with an `Mcp(server/tool)` kind was
+plausible and deliberately **not** in v1: it is a change to a security language
+that meant one specific thing, and it deserved its own decision rather than
+being bolted on here (open decision 9, closed 2026-09-24).
 
 What v1 does provide is reach reduction at the only point where it is honest -
 attachment:
@@ -592,7 +622,8 @@ attachment:
 
 And the loud part, which belongs in the cmdlet help as well as here: a tool
 policy that scopes `read_file` does **not** scope an attached filesystem
-server.
+server. Scoping that server takes an `Mcp` rule of its own, and even then the
+rule names the tool rather than the paths it may touch.
 
 ### 13. Off switch, default posture, and discoverability
 
@@ -647,10 +678,13 @@ without them. Open decision 10.
 
 ## Deliberately not done in v1
 
+Three rows below were revisited later and carry a note saying what changed; the
+rest still stand.
+
 | Not done | Why |
 | ---------- | ----- |
-| Streamable HTTP transport | Decision 4. Needs the Authorization framework, SSE parsing and an SSRF answer - its own design cycle |
-| OAuth / the MCP Authorization framework | HTTP-only by definition; follows the transport |
+| Streamable HTTP transport | Decision 4. Needs the Authorization framework, SSE parsing and an SSRF answer - its own design cycle. **Done in [spec 043](043-mcp-remote-transport.md)**, with the endpoint guard as the SSRF answer |
+| OAuth / the MCP Authorization framework | HTTP-only by definition; follows the transport. **Still not done**: spec 043 carries caller-supplied credentials and refuses a 401 by name rather than performing a grant |
 | Resources (`resources/list`, `resources/read`) | A context-attachment feature, not a tool feature. It belongs with a design for how external context enters the system prompt |
 | Prompts (`prompts/list`, `prompts/get`) | User-invoked templates. The natural home is `Start-ShpChat` slash commands, which are only Partial today |
 | Sampling | Would let a third-party process spend the caller's Copilot credits through this module. Needs its own budget and consent design |
@@ -659,7 +693,7 @@ without them. Open decision 10.
 | `subscriptions/listen` and `notifications/tools/list_changed` | Not opening a subscription *is* the rug-pull control (decision 8) |
 | Tasks extension, MCP Apps, icons, logging, progress, completion | Optional surface with no consumer in a console module |
 | Auto-restart of a crashed server | Decision 3. A stated deviation from the specification's **SHOULD** |
-| An `Mcp()` tool-policy rule kind | Decision 12, open decision 9 |
+| An `Mcp()` tool-policy rule kind | Decision 12, open decision 9. **Done in [spec 033](033-restricted-unattended-tool-policy.md)**: the rule gates alias and tool identity, not arguments |
 | MCP inside `Invoke-ShpBatch` | Decision 14, open decision 10 |
 | Sandboxing a server process | No portable mechanism here. A configuration entry that asks for one is warned about and flagged as `SandboxRequested` on the server record (decision 2), so the gap stays visible after the warning has scrolled |
 
@@ -685,6 +719,8 @@ without them. Open decision 10.
 
 ## See also
 
+- [Restricted unattended Tool policy](033-restricted-unattended-tool-policy.md)
+- [Remote MCP transport and hardening](043-mcp-remote-transport.md)
 - [Tool access policy for the unsandboxed tools](019-tool-access-policy.md)
 - [User-defined tools](002-user-defined-tools.md)
 - [Open decisions](001-open-decisions.md)

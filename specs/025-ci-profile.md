@@ -12,6 +12,9 @@ before a pipeline spends a person's Copilot entitlement.
   `-NonInteractive`; `Test-ShpCiReadiness` reports the resolved profile without
   making a call; the Copilot backend is refused in CI unless
   `SHELLPILOT_ALLOW_COPILOT_BACKEND_IN_CI` is set.
+- Amended 2026-09-24: this spec's one known limitation - an alternative backend
+  still needing a GitHub OAuth token - is closed. See
+  [Known limitation, closed 2026-09-24](#known-limitation-closed-2026-09-24).
 
 ## Problem
 
@@ -181,19 +184,33 @@ credentials in its userinfo component, and a readiness object or a result's
 or an issue. The userinfo is redacted everywhere the endpoint is displayed; the
 real value is used only to make the request.
 
-## Known limitation
+## Known limitation, closed 2026-09-24
 
-An alternative backend still needs a GitHub OAuth token. `Invoke-Shp` resolves a
-Copilot session token before every turn regardless of where the chat request
-then goes, so the exchange happens even when the answer comes from somewhere
-else. Removing it is a larger change than this spec - `Request-ShpEmbedding`
-has the same shape - and doing it halfway would leave the two cmdlets
-disagreeing about what an alternative backend is.
+**Historical.** v1 of this profile left one requirement in place, stated here
+rather than left to be discovered:
 
-It is stated rather than left to be discovered: `Test-ShpCiReadiness` reports it
-as an issue when a backend is configured and no credential resolves, and the
-CI examples in the README supply `SHELLPILOT_GITHUB_TOKEN` for exactly this
-reason.
+> An alternative backend still needs a GitHub OAuth token. `Invoke-Shp`
+> resolves a Copilot session token before every turn regardless of where the
+> chat request then goes, so the exchange happens even when the answer comes
+> from somewhere else. Removing it is a larger change than this spec -
+> `Request-ShpEmbedding` has the same shape - and doing it halfway would leave
+> the two cmdlets disagreeing about what an alternative backend is.
+
+That is no longer true, and it was closed on both cmdlets at once rather than
+halfway. Credential resolution now belongs to the Copilot backend alone: for an
+Alternative backend - an explicit `-ApiBase`, the session context,
+`$env:SHELLPILOT_API_BASE`, or a caller-owned request transport - `Invoke-Shp`
+and `Request-ShpEmbedding` resolve no GitHub host, read no OAuth token from any
+source, and exchange no Copilot session token. The request carries the
+Alternative backend's own key, or no `Authorization` header when none is
+configured. The Copilot backend is unchanged: it still signs in and still
+exchanges a session token before every turn.
+
+`Test-ShpCiReadiness` follows: it reports `TokenSource` as `NotRequired` for an
+Alternative backend and no longer raises the standing "still exchanges a
+session token" issue. A missing API key is still reported, and the CI gate is
+unchanged. See
+[035-backend-credential-separation.md](035-backend-credential-separation.md).
 
 ## Test-ShpCiReadiness
 
@@ -241,4 +258,5 @@ source only, and the endpoint with any URL credentials redacted.
 - [Non-interactive token](023-non-interactive-token.md)
 - [Pipeline failure semantics](024-pipeline-failure-semantics.md)
 - [Alternative model backends](012-alternative-model-backends.md)
+- [Backend credential separation](035-backend-credential-separation.md)
 - [Tool access policy](019-tool-access-policy.md)

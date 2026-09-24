@@ -9,6 +9,63 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- Gate every tool class from one policy. `Set-ShpToolPolicy` gains `Url`, `Mcp`
+  and `Tool` rule kinds beside `Read`, `Write` and `Shell`, each matched
+  against a resolved form rather than the string the model supplied: a
+  normalised address, the `alias/tool` a call will dispatch under, and an exact
+  tool name. A deny beats every matching allow. Name the
+  `RestrictedUnattended` trust profile to enforce all six kinds at once, so an
+  unattended run may do only what is listed. An `Mcp` rule gates tool identity,
+  not the arguments inside the call.
+
+- Keep a Copilot credential out of a backend that is not Copilot. An
+  alternative backend - `-ApiBase`, the session context,
+  `$env:SHELLPILOT_API_BASE`, or a caller-owned request transport - now
+  resolves no GitHub host, reads no OAuth token from any source, and exchanges
+  no Copilot session token, in `Invoke-Shp` and `Request-ShpEmbedding` alike. A
+  pipeline pointed at its own endpoint therefore needs no GitHub sign-in at
+  all, and `Test-ShpCiReadiness` reports `TokenSource` as `NotRequired`
+  instead of raising a standing issue. The Copilot backend is unchanged.
+
+- Refuse a Skill or Instruction body whose bytes changed after the caller
+  approved it. Every file that shapes the model's behaviour is fingerprinted
+  when it is catalogued and re-checked when it is loaded, so a body swapped
+  between the description the caller read and the content the model receives is
+  denied with a reason instead of injected. The result carries
+  `ResourceProvenance` - source root, relative path, hash, size, trust and
+  validation state - for every load attempt, so it is possible to establish
+  after a surprising answer exactly which bytes the model was given. Nothing is
+  discovered: every root is still one the caller named.
+
+- Bound a Subagent to what dispatched it. `Invoke-ShpSubagent` can only narrow
+  the tool policy, redaction policy, tool visibility and budget it inherited,
+  never widen them, and depth, fan-out, concurrency and duration are capped
+  before any credential work. A child returns its answer and evidence rather
+  than its transcript, so its exploration never enters the parent's context
+  window, and a handed-back capability cannot arrive without the controls it
+  was given.
+
+- Decide a Tool call, or contain it, from outside the model. `-ToolCallControl`
+  is consulted before dispatch and after a result exists and may allow, deny
+  with a reason, or modify the arguments or the result; `-ExecutionContract`
+  wraps covered dispatch for a caller who supplies containment of their own.
+  Each stage can only narrow: a control is asked only about a call the Tool
+  policy already allowed, and arguments a control rewrote are re-checked
+  against the policy before dispatch. Both take a scriptblock or a command
+  name, are validated before the first request, and are never discovered from
+  disk. Neither is a sandbox.
+
+- Reach a remote MCP server only where it was approved to be reached. A
+  Streamable HTTP attachment validates its endpoint at registration and again
+  before every request and every redirect, requires HTTPS unless a loopback
+  opt-in is given, refuses embedded credentials, refuses an address that is not
+  publicly routable, and pins the approved address set so a later answer -
+  redirect target or re-resolution - cannot move the connection. The body,
+  stream events and redirect chain are capped. Authorization is only what the
+  caller supplies through a header or a per-request credential callback: a 401
+  is reported by name rather than answered with whatever token is in reach, and
+  nothing is cached or written to disk.
+
 - Correct embedding backend precedence and prevent a Copilot Session token
   from reaching a keyless alternative backend. Environment-selected backends
   now use the shared resolver. See [embeddings](README.md#embeddings-and-similarity).
@@ -61,6 +118,83 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and at registration time. Choose a distinct `-ToolName`.
 
 ### Added
+
+- Grade agent behaviour without spending anything. `Invoke-ShpEval` runs a case
+  suite through the real Tool-calling loop with the model replaced by a
+  scripted transport, so it sends no request, reads no credential and exchanges
+  no token, and a behaviour regression is caught by the ordinary test gate
+  rather than by a credentialed job. Outcome, trajectory and cost are graded
+  separately, because an agent that reached the right answer by running a
+  forbidden command has still failed. A grader this module does not implement
+  is an error rather than a pass, reliability is reported over repeated trials
+  instead of a single green run, and credentialed live canaries are skipped
+  unless they are explicitly asked for.
+
+- Add `Invoke-ShpSubagent` for dispatching part of a task to a child turn with
+  its own model, reasoning effort, tool set and system prompt, read from an
+  agent definition file the caller names. The child's answer and evidence come
+  back, never its transcript, so a broad exploration costs the parent an answer
+  instead of a conversation. The whole tree shares one budget ledger.
+
+- Add `-ToolCallControl` and `-ExecutionContract` to `Invoke-Shp` and
+  `Invoke-ShpBatch`. A control receives one typed, versioned, independent
+  request per Tool call - identifiers that correlate with the Event stream, the
+  tool and its provenance, the original and effective arguments, and the result
+  in the post phase - and answers with a decision. Every decision is recorded
+  on the result's `ToolCallDecisions` as a receipt and as a `tool.decision`
+  Event, so an unattended run can show afterwards what was approved, what was
+  rewritten and what was refused.
+
+- Add `Get-ShpContextReport` to price a call before sending it, and
+  `Invoke-Shp -ContextReport` / `Invoke-ShpBatch -ContextReport` to attribute a
+  call after it. The report breaks the context window down by source - system
+  prompt, instructions, skills, tool schemas, attachments, history, this turn -
+  so hitting a context limit says what filled it, and the saving from deferred
+  tool loading is measurable rather than asserted. The pre-call report sends no
+  request and needs no credential.
+
+- Add `Compress-ShpChat -Focus` to steer compaction: one short instruction
+  naming what the compression must try to keep, applied as a drop-order
+  preference over whole exchanges. Anchors, the estimator and the default are
+  unchanged, and omitting `-Focus` compacts exactly as before.
+
+- Add `-ToolResultSpillRoot` to `Invoke-Shp` and `Invoke-ShpBatch` so an
+  oversized Tool result is written in full to a caller-named directory and the
+  model receives a window plus the path, instead of a truncated result it
+  cannot ask for the rest of. One seam covers every producer, and the spilled
+  content composes with `read_file`'s existing offset and limit.
+
+- Add `Save-ShpChat`, `Restore-ShpChat` and `Get-ShpChatCheckpoint` to save a
+  conversation, inspect its checkpoints, resume it, and roll it back to an
+  earlier turn, plus `Invoke-Shp -SaveChatPath` to checkpoint a turn as it
+  completes. Content is written only to a path the caller names - never
+  discovered, never defaulted - redaction is applied on write, and retention is
+  the caller's. A resumed session therefore replays redacted history, so the
+  model may answer differently than it did before.
+
+- Add `-TraceParent` to `Invoke-Shp` and `Invoke-ShpBatch`, and
+  `ConvertTo-ShpOtelTrace` beside them. One run carries a derived trace
+  identity that a Subagent and an outgoing MCP request inherit, so nested work
+  lands under the span that dispatched it, and an Event stream converts into
+  OpenTelemetry-compatible spans for an existing dashboard without writing a
+  translator. Content capture is off by default and opts in explicitly; the
+  module itself connects to no collector.
+
+- Attach a remote MCP server over Streamable HTTP with
+  `Register-ShpMcpServer -Url`, alongside the existing stdio attachment and
+  speaking both protocol eras over the same code. Supply fixed headers, or a
+  per-request credential callback for a token that must be minted fresh.
+  `Get-ShpMcpServer` reports the URL, the approved address, whether it is
+  loopback, the header names and whether a callback is configured - never a
+  header value and never the callback. Every stdio attachment behaves exactly
+  as before.
+
+- Report what a structured reply and an MCP tool result actually conformed to.
+  A declared JSON Schema is validated locally against a documented subset, and
+  the outcome is reported as valid, invalid or explicitly unchecked rather than
+  assumed. Every Tool call, result and Event record carries a provenance stamp
+  naming the tool's origin and trust, and a server's own annotations are
+  recorded without ever being treated as a capability claim.
 
 - Add opt-in `-DeferredToolLoading` to `Invoke-Shp` and `Invoke-ShpBatch` for
   Turn-local User/MCP schema search with `search_tools`. Keep fixed built-ins
@@ -277,6 +411,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Fail `-FailOn SchemaMismatch` on a reply that parsed but did not conform.
+  The condition previously fired only when the parse itself failed, so a reply
+  that was valid JSON and wrong shape passed a gate armed against exactly that.
+  It now fires on a failed parse or on an established schema violation, and
+  never on a schema outside the local validator's subset - an unchecked schema
+  is reported as unchecked rather than counted either way. A caller who armed
+  this condition against a non-conforming reply will start seeing it stop.
+
+- Record what a Tool call actually ran with. The executed-call record and the
+  `tool.call` Event now carry the *effective* arguments - the ones in force
+  after a decision control rewrote them - rather than the ones the model first
+  emitted, and each receipt on `ToolCallDecisions` carries a hash of both the
+  original and the effective arguments, so a rewrite is provable without
+  copying the arguments into a second place. Nothing changes for a call no
+  control touched.
+
 - Require explicit `-CommandEnvironmentVariable` names on `Invoke-Shp` and
   `Invoke-ShpBatch` for variables outside the minimal child environment.
   Scripts relying on implicit inheritance must opt in; naming a credential
@@ -380,7 +530,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   model alongside the built-ins and any registered user tools. Opt out for one
   call with `Invoke-Shp -DisableMcp`; nothing is offered until you attach a
   server, so the default posture is unchanged.
-  **Both protocol eras are supported over stdio.** Verified from the
+  **Both protocol eras were supported over stdio from the start, and over the
+  remote transport added in this release.** Verified from the
   specification rather than from memory, which changed the design: the current
   revision **2026-07-28** removed the `initialize` handshake entirely - a modern
   request is stateless and carries its protocol version and client capabilities
@@ -416,8 +567,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Keep explicit enterprise model lookups from replacing shared session limits,
   and ignore cached model limits tagged for a different GitHub host.
 
-- Synchronize the [source manifest](source/ShellPilot.psd1) with all 35 public
-  commands and retain a source-level regression against missing exports.
+- Synchronize the [source manifest](source/ShellPilot.psd1) with every public
+  command and retain a source-level regression against missing exports. The
+  manifest covered 35 commands when this was fixed and covers 42 today; the
+  regression is what keeps the two in step.
 
 - **A failed batch item no longer reports zero cost.** `Invoke-ShpBatchItem`
   built its result from the `ErrorRecord` alone, so a call that threw
@@ -447,13 +600,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     starts from a minimal base plus exactly the variables you name in
     `-Environment`, so an ambient `$env:` credential is not handed to somebody
     else's process.
-- **`Set-ShpToolPolicy` cannot gate an MCP call, and this is stated rather than
-  implied.** Its rules match resolved filesystem paths and leading command
-  tokens; a tool call has neither. Demonstrated in one live Turn under
-  `Read(<repo>/**)`: the built-in `read_file` was denied with a reason and the
-  MCP tool call ran. A policy that scopes `read_file` to one directory does
-  nothing about an attached filesystem server. Reduce reach at attachment
-  instead, with `-ToolName`.
+- **When MCP support first landed, `Set-ShpToolPolicy` could not gate an MCP
+  call, and that was stated rather than implied.** Its rules matched resolved
+  filesystem paths and leading command tokens; a tool call has neither.
+  Demonstrated in one live Turn under `Read(<repo>/**)`: the built-in
+  `read_file` was denied with a reason and the MCP tool call ran. **Superseded
+  in this release by the `Mcp` rule kind**, which gates the alias and tool name
+  a call dispatches under - see the entry above. Two things still hold: a
+  policy that scopes `read_file` to one directory says nothing about an
+  attached filesystem server, and no rule matches inside the call's JSON
+  arguments. Reducing reach at attachment with `-ToolName` remains worthwhile.
 - The injection path was measured, not asserted. With a hostile instruction in a
   tool *description* only, the model read a decoy credentials file and passed
   its contents to the third-party server as a tool argument - the server's own
@@ -470,8 +626,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Known limits
 
-- stdio transport only. Streamable HTTP is deferred with the MCP Authorization
-  framework; a half-authorised HTTP client would be worse than none.
+- stdio was the only transport when MCP support first landed. **Superseded in
+  this release**: a guarded Streamable HTTP attachment now exists, with the
+  endpoint, address set, body, stream events and redirects all bounded. The MCP
+  Authorization framework is still not implemented - a remote attachment
+  carries only the credentials the caller supplies, and a 401 is reported
+  rather than answered.
 - `Invoke-ShpBatch` does not use attached servers and warns once. A worker
   runspace inherits nothing, so replaying an attachment would start one copy of
   every server per worker.

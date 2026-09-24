@@ -8,7 +8,7 @@ Bank and the relevant specs.
 
 | # | Decision | Choice | Delivered |
 | --- | --- | --- | --- |
-| 1 | Scope | Full terminal Copilot (interactive session, streaming, slash commands, MCP) | Session, streaming, and stdio MCP delivered; slash commands partial |
+| 1 | Scope | Full terminal Copilot (interactive session, streaming, slash commands, MCP) | Session, streaming, and MCP over stdio and guarded Streamable HTTP delivered; slash commands partial |
 | 2 | Build framework | Sampler | Yes |
 | 3 | Naming | Renamed to ShellPilot; cmdlet prefix Shp | Yes |
 | 4 | PowerShell support | PowerShell 7+ only | Current preview requires 7.4; Windows PowerShell 5.1 is unsupported |
@@ -119,10 +119,10 @@ recorded choice is what v1 does and what a later version may revisit.
 | # | Decision | Choice |
 | --- | --- | --- |
 | 8 | Copilot function-name constraint | Closed by measurement on 2026-08-12 |
-| 9 | `Mcp()` policy rule kind | Not in v1; revisit as its own decision |
+| 9 | `Mcp()` policy rule kind | Not in v1; **closed 2026-09-24: B, implemented** |
 | 10 | MCP under `Invoke-ShpBatch` | Not available; warn once |
 | 11 | Restart a crashed server | Mark `Faulted`; explicit `-Force` only |
-| 12 | Streamable HTTP | Defer until stdio has shipped and been measured |
+| 12 | Streamable HTTP | Deferred in v1; **closed 2026-09-24 by a guarded implementation** |
 | 13 | Cross-session tool-list pinning | Option B unblocked by decision 14; implementation remains separate |
 
 Two further questions raised at review and answered there rather than here:
@@ -181,6 +181,23 @@ the opposite.
 **Demonstrated 2026-08-12**, in one live Turn under `Read(<repo>/**)`: the
 built-in `read_file` was denied with a reason, and the MCP tool call ran.
 
+**CLOSED 2026-09-24: B.** The `Mcp` rule kind exists. A rule matches the server
+alias and the tool name a call will actually dispatch under, so a model cannot
+reach another server by inventing a namespaced name, and `Mcp(files)` is
+shorthand for `Mcp(files/*)` with `*` never crossing the slash. The kind is
+enforced when a policy uses it, or when the caller names the
+`RestrictedUnattended` trust profile.
+
+C stays refused, for the reason given above: nothing matches inside the tool's
+JSON arguments. Identity is gated and arguments are not - a rule names the
+server alias and the tool as the server knows it, which is what the cmdlet help
+describes.
+A remote server's *endpoint* is a separate question with a separate answer -
+the `Url` kind and the endpoint guard - rather than something the `Mcp` kind
+quietly covers. See
+[033-restricted-unattended-tool-policy.md](033-restricted-unattended-tool-policy.md)
+and [043-mcp-remote-transport.md](043-mcp-remote-transport.md).
+
 ## 10. MCP inside `Invoke-ShpBatch`
 
 A worker runspace inherits no module state, so replaying an MCP registration
@@ -225,6 +242,24 @@ gives `fetch_url`.
 Recommendation: A. A half-authorised HTTP client is worse than none.
 
 **ACCEPTED 2026-08-12: A.**
+
+**CLOSED 2026-09-24 by a guarded implementation.** The deferral held: stdio
+shipped, was measured against a real third-party server, and the HTTP work
+started from that experience. What was built is the *transport*, not the MCP
+Authorization framework, and the difference is the whole reason this is not
+the "half-authorised client" the recommendation refused. Authorization is
+whatever the caller supplies through `-Header` or `-CredentialCallback`; a 401
+is parsed into its scheme, realm, scopes and metadata address and then refused
+by name, because a client that answers a third party's challenge with any
+credential in reach is a confused deputy. No OAuth grant, no browser, no
+redirect listener.
+
+The SSRF surface got the answer this section pointed at and then some: the
+endpoint is validated at attachment and again before every request and every
+redirect, the approved address set is pinned against a rebind, the body, stream
+events and redirects are capped, and a `Url` rule gates the endpoint the same
+way it gates `fetch_url`. See
+[043-mcp-remote-transport.md](043-mcp-remote-transport.md).
 
 ## 13. Pinning a tool list across sessions
 

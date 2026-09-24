@@ -113,8 +113,8 @@ credential work, request, or Tool call**:
   Session chat, so there is nothing for a checkpoint to be of.
 
 `Invoke-ShpBatch` has no persistence parameter at all. A batch item is
-stateless by construction - it neither seeds from nor writes to a Session chat
-- so there is no conversation to persist and no unambiguous semantics to
+stateless by construction - it neither seeds from nor writes to a Session
+chat - so there is no conversation to persist and no unambiguous semantics to
 thread. Refusing beats inventing a meaning.
 
 ## Compatibility

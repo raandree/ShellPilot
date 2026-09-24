@@ -379,6 +379,7 @@ are reported as skipped rather than quietly absent. The repository's own cases
 live in `tests/Eval` and run with `./build.ps1 -Tasks test`.
 
 ### Tool visibility
+
 Select exact names across built-in, User, and namespaced MCP tools:
 
 ```powershell
@@ -744,9 +745,10 @@ Invoke-Shp -Model claude-opus-4.8 -ShowThinking `
 
 Embeddings use Session context backend settings, then `SHELLPILOT_API_BASE`
 and `SHELLPILOT_API_KEY`, then the Copilot endpoint. An alternative backend
-receives only its own key, or no Authorization header when keyless; it never
-receives the Copilot Session token. Native authentication still requires a
-GitHub OAuth token before that request.
+resolves no GitHub OAuth token and exchanges no Copilot Session token: the
+request carries only its own key, or no Authorization header when keyless.
+The Copilot endpoint still signs in and exchanges a Session token, so it still
+needs a GitHub credential.
 
 ```powershell
 $q = (Request-ShpEmbedding -Text 'how do I reset a password?').Embedding
@@ -892,9 +894,11 @@ $env:SHELLPILOT_API_KEY  = $keyFromSecrets      # or: Set-ShpContext -ApiBase -A
 $env:SHELLPILOT_ALLOW_COPILOT_BACKEND_IN_CI = 'true'
 ```
 
-An alternative backend still needs `SHELLPILOT_GITHUB_TOKEN`: ShellPilot
-exchanges a Copilot session token before every turn regardless of where the chat
-request goes. Check the whole profile before the first call:
+An alternative backend needs no GitHub credential at all: `Invoke-Shp` and
+`Request-ShpEmbedding` resolve no OAuth token and exchange no Copilot session
+token when the request is going somewhere else. Supply
+`SHELLPILOT_GITHUB_TOKEN` only for the Copilot backend. Check the whole profile
+before the first call:
 
 ```powershell
 $readiness = Test-ShpCiReadiness
@@ -910,7 +914,6 @@ jobs:
   summarise:
     runs-on: ubuntu-latest
     env:
-      SHELLPILOT_GITHUB_TOKEN: ${{ secrets.SHELLPILOT_GITHUB_TOKEN }}
       SHELLPILOT_API_BASE: ${{ vars.SHELLPILOT_API_BASE }}
       SHELLPILOT_API_KEY: ${{ secrets.SHELLPILOT_API_KEY }}
     steps:
@@ -960,7 +963,6 @@ steps:
     displayName: Summarise the branch
     env:
       CI: 'true'
-      SHELLPILOT_GITHUB_TOKEN: $(SHELLPILOT_GITHUB_TOKEN)
       SHELLPILOT_API_BASE: $(SHELLPILOT_API_BASE)
       SHELLPILOT_API_KEY: $(SHELLPILOT_API_KEY)
     inputs:
@@ -1002,7 +1004,8 @@ wrapper's job. See
 | --- | --- |
 | Auth | `Initialize-Shp` |
 | Models | `Get-ShpModel`, `Get-ShpModelName`, `Select-ShpModel`, `Get-ShpDefault` |
-| Prompt | `Invoke-Shp`, `Start-ShpChat` |
+| Prompt | `Invoke-Shp`, `Invoke-ShpBatch`, `Start-ShpChat` |
+| Errors | `Resolve-ShpError` |
 | Conversation | `Get-ShpChat`, `Clear-ShpChat`, `Compress-ShpChat`, `Save-ShpChat`, `Restore-ShpChat`, `Get-ShpChatCheckpoint` |
 | User tools | `Register-ShpTool`, `Get-ShpTool`, `Unregister-ShpTool` |
 | MCP servers | `Register-ShpMcpServer`, `Get-ShpMcpServer`, `Unregister-ShpMcpServer` |
@@ -1011,10 +1014,11 @@ wrapper's job. See
 | Usage | `Get-ShpUsage`, `Clear-ShpUsage` |
 | Context | `Set-ShpContext`, `Get-ShpContext`, `Clear-ShpContext` |
 | Tool policy | `Set-ShpToolPolicy`, `Get-ShpToolPolicy`, `Clear-ShpToolPolicy` |
+| Redaction policy | `Set-ShpRedactionPolicy`, `Get-ShpRedactionPolicy`, `Clear-ShpRedactionPolicy` |
 | Evaluation | `Invoke-ShpEval` |
 | Subagents | `Invoke-ShpSubagent` |
 | Telemetry | `ConvertTo-ShpOtelTrace` |
-| CI | `Test-ShpCiReadiness` |
+| CI | `Test-ShpCiReadiness`, `ConvertTo-ShpAnnotation` |
 
 <!-- markdownlint-enable MD013 -->
 
@@ -1043,9 +1047,8 @@ Every cmdlet has full comment-based help: `Get-Help Invoke-Shp -Full`.
   token owner's personal entitlement, so it is refused when `$env:CI` is truthy
   unless `SHELLPILOT_ALLOW_COPILOT_BACKEND_IN_CI` is set. An alternative backend
   (`-ApiBase`) resolves no GitHub OAuth token, exchanges no Copilot session
-  token, and can therefore never be sent one. `Request-ShpEmbedding` still
-  exchanges a session token on every call, including against an alternative
-  backend.
+  token, and can therefore never be sent one. `Request-ShpEmbedding` behaves
+  the same way.
 - **Schema conformance.** `-JsonSchema` replies and an MCP tool's
   `structuredContent` are checked locally against a documented subset of JSON
   Schema. A schema using `$ref` or composition is reported as *unchecked*
