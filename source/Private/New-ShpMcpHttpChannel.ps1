@@ -20,6 +20,21 @@ function New-ShpMcpHttpChannel {
         because they have to be validated by this module before being followed,
         not by the stack.
 
+        The built-in transport connects to an APPROVED ADDRESS, not to a name.
+        Before each send it re-checks reach against the address set approved at
+        attachment and hands those addresses to the socket, so the destination
+        that was validated is the destination that is connected to; a name that
+        has started resolving somewhere else fails the request closed instead of
+        moving it. The request still carries the host name, so TLS, SNI,
+        certificate validation and the Host header are exactly what they were.
+
+        The built-in transport also enforces the response cap WHILE READING,
+        stopping one byte past it, rather than materialising the body and
+        measuring it afterwards. A caller-supplied transport returns a string
+        this module did not read, so the protocol layer keeps its own cap on
+        what comes back - that check is the backstop for a custom transport, not
+        the only bound on the built-in one.
+
         A credential callback, when the caller supplies one, is invoked per
         request and its result is attached to that request only. Nothing is
         cached, written to disk or put on the server record: a token this module
@@ -107,15 +122,25 @@ function New-ShpMcpHttpChannel {
         $effectiveTransport = {
             param($Request)
 
-            $handler = [System.Net.Http.SocketsHttpHandler]::new()
-            $handler.AllowAutoRedirect = $false
-            $handler.UseCookies = $false
-            $handler.Credentials = $null
-            $handler.DefaultProxyCredentials = $null
-            $handler.PreAuthenticate = $false
+            # Reach is re-checked HERE, immediately before the socket, and the
+            # answer is what the socket connects to. Validating a name and then
+            # letting the stack resolve it again leaves a gap a rebind fits in.
+            $selectionParams = @{ Url = [string]$Request.Uri }
+            if ($Request['PinnedAddress']) { $selectionParams['PinnedAddress'] = @($Request['PinnedAddress']) }
+            if ($Request['AllowLoopbackHttp']) { $selectionParams['AllowLoopbackHttp'] = $true }
+            $selection = Resolve-ShpMcpSocketAddress @selectionParams
+            if (-not $selection.Ok) { throw $selection.Reason }
+
+            $cap = [int]$Request['MaxResponseBytes']
+            if ($cap -le 0) { $cap = $script:ShpMcpDefaultMaxResponseBytes }
+            $token = [System.Threading.CancellationToken]::None
+            if ($Request['CancellationToken'] -is [System.Threading.CancellationToken]) { $token = $Request['CancellationToken'] }
+
+            $handler = New-ShpMcpHttpHandler -Address $selection.Address -Port $selection.Port
             $client = [System.Net.Http.HttpClient]::new($handler, $true)
             $message = $null
             $reply = $null
+            $content = $null
             try {
                 $client.Timeout = [timespan]::FromSeconds([double]$Request.TimeoutSec)
                 $message = [System.Net.Http.HttpRequestMessage]::new([System.Net.Http.HttpMethod]::Post, [uri]$Request.Uri)
@@ -124,18 +149,33 @@ function New-ShpMcpHttpChannel {
                     if ([string]$key -ieq 'Content-Type') { continue }
                     $null = $message.Headers.TryAddWithoutValidation([string]$key, [string]$Request.Headers[$key])
                 }
-                $reply = $client.SendAsync($message).GetAwaiter().GetResult()
+                # ResponseHeadersRead: the body is read by the bounded reader
+                # below, so an oversized reply is refused while it arrives
+                # instead of after it has all been held.
+                $reply = $client.SendAsync($message, [System.Net.Http.HttpCompletionOption]::ResponseHeadersRead, $token).GetAwaiter().GetResult()
                 $replyHeaders = @{}
                 foreach ($entry in $reply.Headers) { $replyHeaders[$entry.Key] = ($entry.Value -join ', ') }
                 if ($reply.Content) {
                     foreach ($entry in $reply.Content.Headers) { $replyHeaders[$entry.Key] = ($entry.Value -join ', ') }
                 }
+                $body = ''
+                if ($reply.Content) {
+                    $declared = $reply.Content.Headers.ContentLength
+                    if ($null -ne $declared -and [long]$declared -gt $cap) {
+                        throw ("The MCP response declares {0} bytes, larger than the {1}-byte cap; it is refused rather than buffered." -f [long]$declared, $cap)
+                    }
+                    $content = $reply.Content.ReadAsStreamAsync().GetAwaiter().GetResult()
+                    $bounded = Read-ShpBoundedHttpContent -Stream $content -MaxByte $cap -CancellationToken $token
+                    if (-not $bounded.Ok) { throw $bounded.Reason }
+                    $body = $bounded.Body
+                }
                 @{
                     StatusCode = [int]$reply.StatusCode
                     Headers    = $replyHeaders
-                    Body       = $(if ($reply.Content) { $reply.Content.ReadAsStringAsync().GetAwaiter().GetResult() } else { '' })
+                    Body       = $body
                 }
             } finally {
+                if ($content) { $content.Dispose() }
                 if ($reply) { $reply.Dispose() }
                 if ($message) { $message.Dispose() }
                 $client.Dispose()

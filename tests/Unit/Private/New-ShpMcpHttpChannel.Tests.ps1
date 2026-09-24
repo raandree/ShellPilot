@@ -91,6 +91,46 @@ Describe 'New-ShpMcpHttpChannel' {
         }
     }
 
+    Context 'The built-in transport' {
+        It 'Should fail closed when the endpoint now resolves outside the approved address set' {
+            InModuleScope $script:moduleName {
+                Mock Get-ShpBlockedAddressReason { '' }
+                Mock Resolve-ShpMcpEndpointAddress { @('203.0.113.9') }
+                Mock New-ShpMcpHttpHandler { throw 'no socket may be opened' }
+
+                $channel = New-ShpMcpHttpChannel -Uri 'https://mcp.example.com/mcp' -Address @('93.184.216.34')
+
+                $response = & $channel.Invoke @{ Method = 'tools/list'; Id = 'abc' } $channel
+
+                $response.Ok | Should -BeFalse
+                $response.Error.message | Should -Match 'rebind'
+                Should -Invoke New-ShpMcpHttpHandler -Times 0 -Exactly
+            }
+        }
+
+        It 'Should pin the socket to an approved address while the request keeps the host name' {
+            InModuleScope $script:moduleName {
+                Mock Get-ShpBlockedAddressReason { '' }
+                Mock Resolve-ShpMcpEndpointAddress { @('93.184.216.34') }
+                $script:handlerAddress = $null
+                $script:handlerPort = 0
+                Mock New-ShpMcpHttpHandler {
+                    $script:handlerAddress = @($Address)
+                    $script:handlerPort = $Port
+                    throw 'the socket is not opened in this test'
+                }
+
+                $channel = New-ShpMcpHttpChannel -Uri 'https://mcp.example.com/mcp' -Address @('93.184.216.34')
+
+                $response = & $channel.Invoke @{ Method = 'tools/list'; Id = 'abc' } $channel
+
+                $response.Ok | Should -BeFalse
+                @($script:handlerAddress) | Should -Be @('93.184.216.34')
+                $script:handlerPort | Should -Be 443
+            }
+        }
+    }
+
     Context 'The credential callback' {
         It 'Should attach a callback token per request and never keep it on the channel' {
             InModuleScope $script:moduleName {
@@ -130,4 +170,3 @@ Describe 'New-ShpMcpHttpChannel' {
         }
     }
 }
-

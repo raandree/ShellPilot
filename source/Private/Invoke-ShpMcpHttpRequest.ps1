@@ -16,14 +16,19 @@ function Invoke-ShpMcpHttpRequest {
         against a scripted transcript without a socket.
 
         Everything about this function is a bound. A response body larger than
-        the cap is refused rather than buffered. A stream that keeps sending
-        events without answering is abandoned at the event cap. A redirect is
-        re-validated against the endpoint guard - scheme, credentials, reach and
-        the address set approved at attachment - before it is followed, and the
-        chain is bounded. Cancellation is checked before the send and reported
-        as cancellation rather than as a server error. Nothing here retries: a
-        retry policy belongs to the caller that knows whether the request was
-        idempotent.
+        the cap is refused rather than buffered - the built-in transport stops
+        reading one byte past the cap, and the check below is the backstop for a
+        caller-supplied transport that returned a string this module never read.
+        A stream that keeps sending events without answering is abandoned at the
+        event cap. A redirect is re-validated against the endpoint guard -
+        scheme, credentials, reach and the address set approved at attachment -
+        before it is followed, and the chain is bounded. The approved address set
+        travels with every request descriptor, including a redirect's, so the
+        transport can pin the socket to an address that was just validated
+        rather than resolving the name again. Cancellation is checked before the
+        send and reported as cancellation rather than as a server error. Nothing
+        here retries: a retry policy belongs to the caller that knows whether the
+        request was idempotent.
 
         Headers are exactly what this server was registered with, plus the three
         the protocol defines. No ambient credential, proxy credential or cookie
@@ -75,7 +80,9 @@ function Invoke-ShpMcpHttpRequest {
 
     .PARAMETER Transport
         The transport. Receives one request descriptor and returns StatusCode,
-        Headers and Body.
+        Headers and Body. The descriptor carries the approved address set, the
+        loopback opt-in, the response cap and the cancellation signal, so a
+        transport that owns a socket can pin and bound it.
 
     .PARAMETER CancellationToken
         Cancellation signal from the caller.
@@ -249,6 +256,14 @@ function Invoke-ShpMcpHttpRequest {
             Body                  = $requestBody
             TimeoutSec            = $TimeoutSec
             UseDefaultCredentials = $false
+            # The reach decision travels WITH the request, so the transport can
+            # pin the socket to an address this module approved rather than
+            # resolving the name a second time. A custom transport is free to
+            # ignore it; the built-in one is not.
+            PinnedAddress         = @($PinnedAddress)
+            AllowLoopbackHttp     = [bool]$AllowLoopbackHttp
+            MaxResponseBytes      = $MaxResponseBytes
+            CancellationToken     = $CancellationToken
         }
 
         $transportResponse = $null
@@ -309,6 +324,9 @@ function Invoke-ShpMcpHttpRequest {
             return & $fail ("The MCP server answered with status {0}." -f $status) $false $false $status
         }
 
+        # The backstop for a caller-supplied transport: the built-in one already
+        # stopped one byte past the cap, but a transport this module did not
+        # write returns a string it never watched arrive.
         $responseText = [string]$transportResponse.Body
         $byteCount = [System.Text.Encoding]::UTF8.GetByteCount($responseText)
         if ($byteCount -gt $MaxResponseBytes) {

@@ -41,6 +41,49 @@ Describe 'Invoke-ShpMcpHttpRequest' {
             }
         }
 
+        It 'Should hand the transport what it needs to pin the socket and bound the reply' {
+            InModuleScope $script:moduleName {
+                $script:sent = $null
+                $transport = {
+                    param($Request)
+                    $script:sent = $Request
+                    @{ StatusCode = 200; Headers = @{ 'Content-Type' = 'application/json' }; Body = '{"jsonrpc":"2.0","id":"abc","result":{}}' }
+                }
+
+                $null = Invoke-ShpMcpHttpRequest -Uri 'https://mcp.example.com/mcp' -Method 'tools/list' -Id 'abc' `
+                    -PinnedAddress @('93.184.216.34') -MaxResponseBytes 4096 -Transport $transport
+
+                @($script:sent.PinnedAddress) | Should -Be @('93.184.216.34')
+                $script:sent.MaxResponseBytes | Should -Be 4096
+                $script:sent.AllowLoopbackHttp | Should -BeFalse
+                $script:sent.UseDefaultCredentials | Should -BeFalse
+            }
+        }
+
+        It 'Should keep the approved address set on the descriptor across a redirect it followed' {
+            InModuleScope $script:moduleName {
+                Mock Get-ShpBlockedAddressReason { '' }
+                Mock Resolve-ShpMcpEndpointAddress { @('93.184.216.34') }
+                $script:descriptors = @()
+                $transport = {
+                    param($Request)
+                    $script:descriptors += , $Request
+                    if ($script:descriptors.Count -eq 1) {
+                        @{ StatusCode = 307; Headers = @{ 'Location' = 'https://mcp.example.com/v2/mcp' }; Body = '' }
+                    } else {
+                        @{ StatusCode = 200; Headers = @{ 'Content-Type' = 'application/json' }; Body = '{"jsonrpc":"2.0","id":"abc","result":{}}' }
+                    }
+                }
+
+                $response = Invoke-ShpMcpHttpRequest -Uri 'https://mcp.example.com/mcp' -Method 'tools/list' -Id 'abc' `
+                    -PinnedAddress @('93.184.216.34') -Transport $transport
+
+                $response.Ok | Should -BeTrue
+                $script:descriptors[1].Uri | Should -BeExactly 'https://mcp.example.com/v2/mcp'
+                @($script:descriptors[1].PinnedAddress) | Should -Be @('93.184.216.34')
+            }
+        }
+
         It 'Should declare the protocol version as a header and in _meta' {
             InModuleScope $script:moduleName {
                 $script:sent = $null
