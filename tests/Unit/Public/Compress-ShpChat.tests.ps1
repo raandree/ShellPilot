@@ -241,4 +241,114 @@ Describe 'Compress-ShpChat' {
             }
         }
     }
+
+    Context 'Focused compression' {
+        BeforeEach {
+            InModuleScope $script:moduleName {
+                Clear-ShpRedactionPolicy
+                # Four exchanges of roughly 2500 estimated tokens each, each
+                # middle one carrying a distinct subject term.
+                $filler = 'x' * 10000
+                $script:ShpChat = @(
+                    [pscustomobject]@{ role = 'user';      content = "TASK DEFINITION $filler" }
+                    [pscustomobject]@{ role = 'assistant'; content = "answer one $filler" }
+                    [pscustomobject]@{ role = 'user';      content = "question about the widget inventory $filler" }
+                    [pscustomobject]@{ role = 'assistant'; content = "answer two $filler" }
+                    [pscustomobject]@{ role = 'user';      content = "question about the gadget catalogue $filler" }
+                    [pscustomobject]@{ role = 'assistant'; content = "answer three $filler" }
+                    [pscustomobject]@{ role = 'user';      content = "NEWEST QUESTION $filler" }
+                    [pscustomobject]@{ role = 'assistant'; content = "newest answer $filler" }
+                )
+            }
+        }
+        AfterEach {
+            InModuleScope $script:moduleName { Clear-ShpRedactionPolicy }
+        }
+        It 'Reports no Focus and drops the oldest middle exchange when Focus is unbound' {
+            InModuleScope $script:moduleName {
+                $report = Compress-ShpChat -MaxTokens 16000
+
+                $report.Focus | Should -BeNullOrEmpty
+                $report.RemovedExchanges | Should -Be 1
+                ($script:ShpChat.content -join ' ') | Should -Not -Match 'widget inventory'
+                ($script:ShpChat.content -join ' ') | Should -Match 'gadget catalogue'
+            }
+        }
+        It 'Keeps the focused exchange and drops an unrelated older one instead' {
+            InModuleScope $script:moduleName {
+                $report = Compress-ShpChat -MaxTokens 16000 -Focus 'widget inventory'
+
+                $report.RemovedExchanges | Should -Be 1
+                ($script:ShpChat.content -join ' ') | Should -Match 'widget inventory'
+                ($script:ShpChat.content -join ' ') | Should -Not -Match 'gadget catalogue'
+            }
+        }
+        It 'Forwards the Focus and its match count onto the report' {
+            InModuleScope $script:moduleName {
+                $report = Compress-ShpChat -MaxTokens 16000 -Focus 'widget'
+
+                $report.Focus | Should -BeExactly 'widget'
+                $report.FocusMatchedExchanges | Should -Be 1
+                $report.FocusRetainedExchanges | Should -Be 1
+            }
+        }
+        It 'Treats the Focus as data, never as a pattern' {
+            InModuleScope $script:moduleName {
+                $report = Compress-ShpChat -MaxTokens 16000 -Focus '.*'
+
+                $report.FocusMatchedExchanges | Should -Be 0
+                $report.RemovedExchanges | Should -Be 1
+                ($script:ShpChat.content -join ' ') | Should -Not -Match 'widget inventory'
+            }
+        }
+        It 'Redacts a secret-shaped Focus before reporting it' {
+            InModuleScope $script:moduleName {
+                $secret = 'ghp_' + ('a' * 36)
+
+                $report = Compress-ShpChat -MaxTokens 16000 -Focus ("keep the {0} work" -f $secret)
+
+                $report.Focus | Should -Match '\[redacted:github-token\]'
+                $report.Focus | Should -Not -Match $secret
+            }
+        }
+        It 'Never writes the Focus into the Session chat' {
+            InModuleScope $script:moduleName {
+                $null = Compress-ShpChat -MaxTokens 16000 -Focus 'widget inventory zzmarker'
+
+                foreach ($turn in $script:ShpChat) {
+                    [string]$turn.content | Should -Not -Match 'zzmarker'
+                }
+                $script:ShpChat.Count | Should -Be 6
+            }
+        }
+        It 'Refuses a whitespace-only Focus without touching the Session chat' {
+            InModuleScope $script:moduleName {
+                { Compress-ShpChat -MaxTokens 16000 -Focus '   ' } | Should -Throw
+                $script:ShpChat.Count | Should -Be 8
+            }
+        }
+        It 'Refuses a Focus longer than the documented bound' {
+            InModuleScope $script:moduleName {
+                { Compress-ShpChat -MaxTokens 16000 -Focus ('a' * 1025) } | Should -Throw
+                $script:ShpChat.Count | Should -Be 8
+            }
+        }
+        It 'Leaves the Session chat untouched when Focus redaction fails' {
+            InModuleScope $script:moduleName {
+                Mock Protect-ShpEgressContent { throw 'redaction is unavailable' }
+
+                { Compress-ShpChat -MaxTokens 16000 -Focus 'widget' } | Should -Throw '*redaction*'
+                $script:ShpChat.Count | Should -Be 8
+            }
+        }
+        It 'Reports the focused plan under -WhatIf without changing the conversation' {
+            InModuleScope $script:moduleName {
+                $report = Compress-ShpChat -MaxTokens 16000 -Focus 'widget' -WhatIf
+
+                $report.RemovedExchanges | Should -Be 1
+                $report.Focus | Should -BeExactly 'widget'
+                $script:ShpChat.Count | Should -Be 8
+            }
+        }
+    }
 }

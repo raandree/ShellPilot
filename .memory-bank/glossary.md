@@ -81,3 +81,4 @@ propose a new row instead of inventing a synonym.
 | Event record | One line of an Event stream: `schemaVersion`, `sequence`, `timestamp`, `type` and a flat scalar-only `data` object. | event object, log line, event entry |
 | Event schema version | The `schemaVersion` field, bumped only by a breaking change to the record shape; a new `type` or a new `data` field is additive and leaves it alone. | stream version, format version |
 | Job model | `Invoke-Shp -AsJob` / `Invoke-ShpBatch -AsJob`: a thread job started by Start-ShpJob that returns the same result objects the synchronous call does, with the caller's session state replayed into its runspace. | background job, async mode, detached run |
+| Compression focus | The caller-supplied instruction (`Compress-ShpChat -Focus`) naming what a compression must try to keep; token overlap with it reorders which Exchanges are given up, and it never enters the Session chat. | summary hint, keep hint, topic filter |
