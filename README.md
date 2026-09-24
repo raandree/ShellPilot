@@ -432,6 +432,31 @@ or prompt-injection defense.** Schema descriptions remain untrusted. Search can
 add round-trips, so initial savings do not guarantee lower total cost. See the
 [contract, measurements, and limits](specs/031-deferred-tool-loading.md).
 
+### Bounded subagents
+
+`Invoke-ShpSubagent` dispatches a child turn from an explicit agent definition
+file and returns its **answer with evidence** - never its transcript, because
+handing the conversation back would put the context straight into the parent's
+window, which is the only reason to dispatch a child.
+
+```powershell
+Invoke-ShpSubagent -DefinitionPath ./agents/reviewer.agent.md -Prompt 'Review the staged diff.' `
+  -Budget @{ MaxTotalUSD = 0.10; MaxDepth = 1; MaxFanOut = 2 } -EventStream ./run.jsonl
+```
+
+A child is a **strict subset** of its parent: tools are intersected, a switch
+the parent turned off stays off, `AllowPrivateNetwork` and `DisableRedaction`
+are only held if the parent held them, `RestrictedUnattended` cannot be
+loosened, the backend must match, and **no credential travels**. A request to
+widen is refused, not dropped. The whole tree shares **one budget ledger** -
+never a slice, because a split budget is recovered by spawning more children -
+alongside depth, fan-out, concurrency and duration caps that are all checked
+before any credential work or request. There is no `-AsJob` and there will not
+be: a child that outlives the call has a budget nobody is watching. The child
+runs under its own span inside the parent's trace, so its work is auditable
+through `ConvertTo-ShpOtelTrace` rather than through the parent's context. See
+[specs/045-bounded-subagents.md](specs/045-bounded-subagents.md).
+
 ### Read-only Plan mode
 
 ```powershell
@@ -650,6 +675,20 @@ discovers them by name and loads the body on demand (progressive disclosure).
 Invoke-Shp -Prompt 'Refactor this function.' -InstructionRoot ./.github/instructions
 Invoke-Shp -Prompt 'Transcribe this recording.' -SkillPath ./skills
 ```
+
+A skill body and an instruction body are instructions the model obeys, so every
+one is accounted for. The catalog records the source root, the relative path,
+the size and a SHA-256 of each file; the load checks that hash and **refuses a
+body that changed between being advertised and being read**, which is the one
+window where your approval stops covering what reaches the model.
+`$result.ResourceProvenance` says which bytes each load actually got. Bodies,
+referenced resources and descriptions are capped; a reference that leaves the
+root you named is skipped; nothing is executed, nothing remote is fetched, and
+no folder is ever discovered on its own. An experimental front-matter
+`allowed-tools` list may only **narrow** the turn - it is intersected with what
+was already offered and applied after every other gate, so writing a skill file
+can never grant reach. See
+[specs/044-skill-and-instruction-provenance.md](specs/044-skill-and-instruction-provenance.md).
 
 ### Structured output
 
@@ -956,6 +995,7 @@ wrapper's job. See
 | Context | `Set-ShpContext`, `Get-ShpContext`, `Clear-ShpContext` |
 | Tool policy | `Set-ShpToolPolicy`, `Get-ShpToolPolicy`, `Clear-ShpToolPolicy` |
 | Evaluation | `Invoke-ShpEval` |
+| Subagents | `Invoke-ShpSubagent` |
 | Telemetry | `ConvertTo-ShpOtelTrace` |
 | CI | `Test-ShpCiReadiness` |
 

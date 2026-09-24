@@ -13,7 +13,7 @@ Design and scope documents for ShellPilot. Start with the overview, then the
 open decisions. The numbered specs that follow each describe a single pattern,
 its design, and its source hook points.
 
-> **Status:** the numbered patterns below (002-028 and 030-043) are implemented.
+> **Status:** the numbered patterns below (002-028 and 030-045) are implemented.
 > Each spec's own `## Status` section records the current state, including any
 > backend caveat (for example server-side state, which the Copilot proxy does
 > not support and which falls back to client-side history). The tiers below
@@ -68,6 +68,8 @@ numbered specs below are the implemented ones.
 - [Session chat persistence and resume](041-session-chat-persistence.md)
 - [Trace identity and OpenTelemetry-compatible export](042-trace-identity-and-otel-export.md)
 - [Remote MCP transport and hardening](043-mcp-remote-transport.md)
+- [Skill and Instruction provenance](044-skill-and-instruction-provenance.md)
+- [Bounded Subagents](045-bounded-subagents.md)
 
 ### Tier 2
 
