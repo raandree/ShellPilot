@@ -1496,7 +1496,7 @@ function Invoke-Shp {
     $skillMap     = @{}
     if ($SkillPath) {
         $skillCatalog = @(Get-ShpSkillCatalog -Path $SkillPath)
-        foreach ($skill in $skillCatalog) { $skillMap[$skill.Name] = $skill.SkillFile }
+        foreach ($skill in $skillCatalog) { $skillMap[$skill.Name] = $skill }
         Write-Verbose ("Discovered {0} skill(s): {1}" -f $skillCatalog.Count, (($skillCatalog.Name) -join ', '))
     }
     $skillsEnabled = $skillCatalog.Count -gt 0
@@ -1507,10 +1507,19 @@ function Invoke-Shp {
     $instructionMap     = @{}
     if ($InstructionRoot) {
         $instructionCatalog = @(Get-ShpInstructionCatalog -Path $InstructionRoot)
-        foreach ($instruction in $instructionCatalog) { $instructionMap[$instruction.Name] = $instruction.InstructionFile }
+        foreach ($instruction in $instructionCatalog) { $instructionMap[$instruction.Name] = $instruction }
         Write-Verbose ("Discovered {0} instruction(s): {1}" -f $instructionCatalog.Count, (($instructionCatalog.Name) -join ', '))
     }
     $instructionRootEnabled = $instructionCatalog.Count -gt 0
+
+    # What a load actually returned, by identity and fingerprint. A Skill body
+    # shapes everything the model does afterwards, so which bytes it got is a
+    # fact the caller has to be able to read off the result.
+    $resourceProvenance = [System.Collections.Generic.List[object]]::new()
+    # Tool names an experimental allowed-tools list narrowed the turn to. It can
+    # only ever remove: the caller's -Tool selection and Tool policy are the
+    # ceiling, and a file that ships with a Skill is not allowed to raise it.
+    $resourceToolNarrowing = [System.Collections.Generic.List[string]]::new()
 
     $offerParams = @{
         BrowsingEnabled        = $browsingEnabled
@@ -1786,6 +1795,75 @@ function Invoke-Shp {
             $spanParams = & $spanKeyFor $Type $Data
             Write-ShpEvent -State $eventState -Type $Type -Data $eventData @spanParams
         }
+    }
+    # Applied by a loaded resource's allowed-tools list; $null means no
+    # narrowing is in force, which is NOT the same as an empty set.
+    $resourceAllowedTool = $null
+    # One seam for load_skill and load_instruction. Both verify the bytes
+    # against the fingerprint the catalog advertised, both record what they
+    # actually loaded, and both apply an allowed-tools list as a narrowing -
+    # so neither can drift into being the lenient one.
+    $loadResource = {
+        param([string]$Kind, [string]$Name, $Record, $UsedList)
+
+        $path = if ($Kind -eq 'skill') { [string]$Record.SkillFile } else { [string]$Record.InstructionFile }
+        $loaded = $null
+        try {
+            $loaded = Get-ShpInstructionContent -Path $path -Root ([string]$Record.SourceRoot) -ExpectedHash ([string]$Record.Hash) -Provenance
+        } catch {
+            # Visible, not silent. A file that changed between being advertised
+            # and being read is the one case where the caller's approval no
+            # longer covers what would reach the model.
+            Write-Warning ("The {0} '{1}' was refused: {2}" -f $Kind, $Name, $_.Exception.Message)
+            $null = $resourceProvenance.Add([pscustomobject]@{
+                Kind = $Kind; Name = $Name; Path = $path; SourceRoot = [string]$Record.SourceRoot
+                RelativePath = [string]$Record.RelativePath; Hash = [string]$Record.Hash
+                SizeBytes = [int]$Record.SizeBytes; Trust = [string]$Record.Trust
+                Loaded = $false; Changed = $true; Reason = $_.Exception.Message
+            })
+            return (@{ name = $Name; error = $_.Exception.Message } | ConvertTo-Json -Compress)
+        }
+
+        $null = $resourceProvenance.Add([pscustomobject]@{
+            Kind = $Kind; Name = $Name; Path = $loaded.Path; SourceRoot = $loaded.SourceRoot
+            RelativePath = $loaded.RelativePath; Hash = $loaded.Hash
+            SizeBytes = $loaded.SizeBytes; Trust = $loaded.Trust
+            Loaded = $true; Changed = $false; Reason = ''
+        })
+        if (-not $UsedList.Contains($Name)) { $null = $UsedList.Add($Name) }
+
+        if ($Record.DeclaresAllowedTool -and @($Record.AllowedTool).Count -gt 0) {
+            $narrowed = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+            foreach ($toolName in @($Record.AllowedTool)) {
+                # Intersected with what is already offered, never unioned: a
+                # name this turn never had is not granted by declaring it.
+                if ($offeredTool -contains $toolName) { $null = $narrowed.Add($toolName) }
+            }
+            if ($null -eq $resourceAllowedTool) {
+                $resourceAllowedTool = $narrowed
+            } else {
+                # A second declaration can only narrow further.
+                $intersection = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+                foreach ($toolName in $resourceAllowedTool) { if ($narrowed.Contains($toolName)) { $null = $intersection.Add($toolName) } }
+                $resourceAllowedTool = $intersection
+            }
+            Set-Variable -Name 'resourceAllowedTool' -Value $resourceAllowedTool -Scope 1
+            foreach ($toolName in $resourceAllowedTool) {
+                if (-not $resourceToolNarrowing.Contains($toolName)) { $null = $resourceToolNarrowing.Add($toolName) }
+            }
+            if ($null -ne $tools) {
+                for ($index = $tools.Count - 1; $index -ge 0; $index--) {
+                    $schema = $tools[$index]
+                    $schemaName = ''
+                    try { $schemaName = [string]$schema.function.name } catch { $schemaName = '' }
+                    if (-not [string]::IsNullOrWhiteSpace($schemaName) -and -not $resourceAllowedTool.Contains($schemaName)) {
+                        $tools.RemoveAt($index)
+                    }
+                }
+            }
+        }
+
+        @{ name = $Name; instructions = $loaded.Body } | ConvertTo-Json -Compress
     }
     # Circuit breaker: some models (notably claude-haiku-4.5 on /chat/completions)
     # keep returning finish_reason='tool_calls' with no usable tool call even
@@ -2430,6 +2508,17 @@ function Invoke-Shp {
                     }
                 } catch { $preDispatchError = $_ }
 
+                # An experimental allowed-tools list from a loaded Skill or
+                # Instruction narrows what the rest of the turn may call. It is
+                # applied AFTER every other gate and can only refuse: a file the
+                # caller pointed at may take reach away, never add it.
+                if ($null -ne $resourceAllowedTool -and $access.Allowed -and -not $resourceAllowedTool.Contains($tc.Name)) {
+                    $access = @{
+                        Allowed = $false
+                        Reason  = ("A loaded resource narrowed this turn to {0}; '{1}' is outside that list." -f (($resourceAllowedTool | Sort-Object) -join ', '), $tc.Name)
+                    }
+                }
+
                 & $emit 'tool.call' @{
                     iteration = $iteration
                     tool      = $tc.Name
@@ -2600,9 +2689,7 @@ function Invoke-Shp {
                         'load_skill' {
                             $skillName = $fargs.name
                             if ($skillMap.ContainsKey($skillName)) {
-                                $skillBody = Get-ShpInstructionContent -Path $skillMap[$skillName]
-                                $toolResult = @{ name=$skillName; instructions=$skillBody } | ConvertTo-Json -Compress
-                                if (-not $skillsUsed.Contains($skillName)) { $null = $skillsUsed.Add($skillName) }
+                                $toolResult = & $loadResource 'skill' $skillName $skillMap[$skillName] $skillsUsed
                             } else {
                                 $toolResult = @{ error=("Unknown skill '{0}'. Available: {1}" -f $skillName, (($skillCatalog.Name) -join ', ')) } | ConvertTo-Json -Compress
                             }
@@ -2610,9 +2697,7 @@ function Invoke-Shp {
                         'load_instruction' {
                             $instructionName = $fargs.name
                             if ($instructionMap.ContainsKey($instructionName)) {
-                                $instructionBody = Get-ShpInstructionContent -Path $instructionMap[$instructionName]
-                                $toolResult = @{ name=$instructionName; instructions=$instructionBody } | ConvertTo-Json -Compress
-                                if (-not $instructionsLoaded.Contains($instructionName)) { $null = $instructionsLoaded.Add($instructionName) }
+                                $toolResult = & $loadResource 'instruction' $instructionName $instructionMap[$instructionName] $instructionsLoaded
                             } else {
                                 $toolResult = @{ error=("Unknown instruction '{0}'. Available: {1}" -f $instructionName, (($instructionCatalog.Name) -join ', ')) } | ConvertTo-Json -Compress
                             }
@@ -3042,6 +3127,11 @@ function Invoke-Shp {
         InstructionsLoaded=@($instructionsLoaded)
         SkillsAvailable=@($skillCatalog.Name)
         SkillsUsed=@($skillsUsed)
+        # Where every loaded Skill and Instruction body actually came from, by
+        # root, relative path and SHA-256 - and whether it was refused because
+        # it changed after being advertised.
+        ResourceProvenance=@($resourceProvenance)
+        ResourceToolNarrowing=@($resourceToolNarrowing)
         Trace=[pscustomobject]@{
             SchemaVersion = $traceContext.SchemaVersion
             TraceId       = $traceContext.TraceId

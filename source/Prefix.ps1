@@ -478,6 +478,36 @@ $script:ShpMcpDefaultMaxRedirect = 2
 # argument can never raise it; a larger file belongs to another tool.
 $script:ShpEditFileMaxBytes = 8MB
 
+# Bounds and shape version for Skill, Instruction and Agent definition file
+# provenance (spec 044). Each one bounds a file that shapes model behavior and
+# is re-read on every catalog scan: a body is injected into the context window,
+# a description is re-sent on every round-trip, and a reference walk that
+# followed a link out of the caller's root would make a Skill body a way of
+# reading anything on the disk.
+$script:ShpResourceProvenanceSchemaVersion = 1
+$script:ShpResourceMaxBodyBytes = 256KB
+$script:ShpResourceMaxReferenceBytes = 64KB
+$script:ShpResourceMaxReferenceCount = 20
+$script:ShpResourceMaxDescriptionChars = 1024
+
+# A declared name is a lookup key the model supplies back to load_skill, so it
+# is refused rather than sanitised when it is not a plain identifier.
+$script:ShpResourceNamePattern = '^[A-Za-z0-9][A-Za-z0-9 ._-]{0,63}$'
+
+# Shape version and default bounds for a bounded Subagent tree (spec 045).
+# Every default is deliberately small: a Subagent spends the caller's money in
+# a context the caller is not watching, so the interesting question is not how
+# much it CAN do but how little it needs. A caller who wants more states it.
+$script:ShpSubagentSchemaVersion = 1
+$script:ShpSubagentDefaultMaxTotalUSD = 1.0
+$script:ShpSubagentDefaultMaxChildUSD = 0.25
+$script:ShpSubagentDefaultMaxTotalIteration = 50
+$script:ShpSubagentDefaultMaxChildIteration = 10
+$script:ShpSubagentDefaultMaxDepth = 2
+$script:ShpSubagentDefaultMaxFanOut = 4
+$script:ShpSubagentDefaultMaxConcurrency = 2
+$script:ShpSubagentDefaultMaxDurationSec = 300
+
 # Every tool name Invoke-Shp can offer on its own. Registration checks a
 # namespaced MCP name against this list so an attached server can never shadow
 # a built-in - a collision that silently redirected read_file would be the worst

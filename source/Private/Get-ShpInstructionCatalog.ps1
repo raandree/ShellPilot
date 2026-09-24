@@ -15,6 +15,10 @@ function Get-ShpInstructionCatalog {
         front-matter the applyTo glob (or the file name) stands in so the model
         still has a hint about when the instruction applies.
 
+        Each entry also carries its PROVENANCE - source root, relative path,
+        size, SHA-256 and trust - on the same terms as a Skill, so the body a
+        load returns can be checked against the bytes that were advertised.
+
     .PARAMETER Path
         One or more root folders to scan. Each is searched recursively for
         *.instructions.md files. Mandatory.
@@ -23,16 +27,21 @@ function Get-ShpInstructionCatalog {
         Get-ShpInstructionCatalog -Path ./.github/instructions
 
         Discovers every instruction file under the folder and returns one object
-        per instruction with its Name, Description, ApplyTo, and file path.
+        per instruction with its Name, Description, ApplyTo, file path and
+        provenance.
 
     .OUTPUTS
         System.Management.Automation.PSCustomObject
 
         One object per discovered instruction: Name, Description, ApplyTo,
-        InstructionFile.
+        InstructionFile, SourceRoot, RelativePath, Hash, SizeBytes, Trust,
+        AllowedTool, DeclaresAllowedTool, Valid, ValidationReason and Warning.
 
     .LINK
         Invoke-Shp
+
+    .LINK
+        Get-ShpResourceRecord
     #>
     [CmdletBinding()]
     [OutputType([pscustomobject])]
@@ -46,24 +55,28 @@ function Get-ShpInstructionCatalog {
         $resolved = Resolve-Path -LiteralPath $parent -ErrorAction Stop
         $files = Get-ChildItem -LiteralPath $resolved.ProviderPath -Filter '*.instructions.md' -Recurse -File -ErrorAction SilentlyContinue
         foreach ($file in $files) {
-            $raw = Get-Content -LiteralPath $file.FullName -Raw -ErrorAction Stop
+            $record = Get-ShpResourceRecord -Path $file.FullName -Root $resolved.ProviderPath -Kind Instruction
 
-            $description = $null
-            $applyTo = $null
-            $fm = [regex]::Match($raw, '(?s)\A\uFEFF?\s*---\r?\n(.*?)\r?\n---\r?\n')
-            if ($fm.Success) {
-                $frontMatter = $fm.Groups[1].Value
-                $descMatch = [regex]::Match($frontMatter, '(?m)^\s*description\s*:\s*(.+?)\s*$')
-                if ($descMatch.Success) { $description = $descMatch.Groups[1].Value.Trim().Trim('"', "'") }
-                $applyMatch = [regex]::Match($frontMatter, '(?m)^\s*applyTo\s*:\s*(.+?)\s*$')
-                if ($applyMatch.Success) { $applyTo = $applyMatch.Groups[1].Value.Trim().Trim('"', "'") }
+            if ([string]::IsNullOrWhiteSpace($record.Hash)) {
+                Write-Warning ("Skipping instruction '{0}': {1}" -f $file.FullName, $record.Reason)
+                continue
             }
 
             [pscustomobject]@{
-                Name            = $file.BaseName
-                Description     = $description
-                ApplyTo         = $applyTo
-                InstructionFile = $file.FullName
+                Name                = $file.BaseName
+                Description         = $(if ([string]::IsNullOrWhiteSpace($record.Description)) { $null } else { $record.Description })
+                ApplyTo             = $(if ([string]::IsNullOrWhiteSpace($record.ApplyTo)) { $null } else { $record.ApplyTo })
+                InstructionFile     = $file.FullName
+                SourceRoot          = $record.SourceRoot
+                RelativePath        = $record.RelativePath
+                Hash                = $record.Hash
+                SizeBytes           = $record.SizeBytes
+                Trust               = $record.Trust
+                AllowedTool         = @($record.AllowedTool)
+                DeclaresAllowedTool = [bool]$record.DeclaresAllowedTool
+                Valid               = [bool]$record.Ok
+                ValidationReason    = $record.Reason
+                Warning             = @($record.Warning)
             }
         }
     }
