@@ -386,6 +386,22 @@ $script:ShpContextSourceOrder = @(
     'ToolSchemas', 'Attachments', 'SessionChat', 'Prompt', 'ToolResults'
 )
 
+# Shape version of a Tool-result spill envelope and of the handle the model is
+# handed in place of an oversized result (Invoke-Shp -ToolResultSpillRoot).
+# Bumped only by a breaking change to either shape, because a caller reading a
+# stored result months later has only this field to tell them what they have.
+$script:ShpToolResultSpillSchemaVersion = 1
+
+# Length at which an opted-in Tool result is spilled rather than sent whole.
+# Deliberately the same figure as the built-in Tool result cap, so turning the
+# option on changes WHERE an oversized result goes without changing WHEN a
+# result counts as oversized.
+$script:ShpToolResultSpillThresholdChars = 100000
+
+# How much of a spilled result rides inline in the handle. Enough for the model
+# to tell whether it needs the rest; small enough that a spill is a saving.
+$script:ShpToolResultSpillPreviewChars = 2000
+
 # Shape version of the ShellPilot.EvalReport object (Invoke-ShpEval). Bumped
 # only by a breaking change to that report, so a gate that reads PassAt1 and
 # PassPowK can tell that the contract it was written against still holds.

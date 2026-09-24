@@ -64,6 +64,7 @@ numbered specs below are the implemented ones.
 - [Execution containment contract](037-execution-containment-contract.md)
 - [Context accounting](038-context-accounting.md)
 - [Focused chat compression](039-focused-chat-compression.md)
+- [Recoverable oversized Tool results](040-recoverable-tool-results.md)
 
 ### Tier 2
 

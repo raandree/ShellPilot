@@ -704,6 +704,24 @@ $deferred.DeferredToolSchemaTokens
 (Invoke-Shp -Prompt $prompt -ContextReport).ContextReport.Sources
 ```
 
+### Keep an oversized tool result instead of losing it
+
+A tool result over the cap is truncated, and the discarded bytes are gone -
+the model cannot ask for the rest and neither can you. Name a directory you own
+and the full result is written there instead, redacted, with a SHA-256 and a
+schema version, and the model is handed a short handle carrying the path, the
+length, the digest and a preview.
+
+```powershell
+Invoke-Shp -Prompt 'Run the build and explain the failure.' `
+  -ToolResultSpillRoot ./.shp-results
+```
+
+Off by default; nothing is discovered, defaulted, or created, and the directory
+is never pruned - retention is yours. A failed write raises an error rather
+than quietly truncating, because quietly truncating is the behaviour you turned
+off.
+
 ### Usage and cost tracking
 
 ```powershell

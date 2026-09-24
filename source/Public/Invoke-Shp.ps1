@@ -148,6 +148,27 @@ function Invoke-Shp {
         result carries the report on ContextReport, which is $null without the
         switch. See Get-ShpContextReport for the same accounting before a call.
 
+    .PARAMETER ToolResultSpillRoot
+        An existing, caller-owned directory to write oversized Tool results to
+        instead of truncating them. Off by default; nothing is discovered,
+        defaulted, or created, and the default cap and its
+        "...[truncated, original N chars]" marker are unchanged when the
+        parameter is unbound.
+
+        Bound, an oversized result from any producer - a file read, a fetched
+        page, the Terminal tool, a User tool, an MCP tool, or an execution
+        contract - is redacted, written atomically with a schema version and
+        private permissions where the platform supports them, and replaced in
+        the conversation by a handle carrying the path, the SHA-256, the full
+        length and a bounded preview. Nothing is ever pruned: retention is
+        yours. A failed write raises a terminating error rather than quietly
+        truncating, and the message says the Tool already ran.
+
+    .PARAMETER ToolResultSpillThresholdChars
+        The length at which a result is spilled rather than sent whole.
+        Defaults to the same figure as the built-in Tool result cap. Ignored
+        without ToolResultSpillRoot.
+
     .PARAMETER DisableBrowsing
         Turn off web browsing. By default the fetch_url tool is exposed to the
         model so it can retrieve web content; this switch disables it.
@@ -995,6 +1016,12 @@ function Invoke-Shp {
 
         [switch]$ContextReport,
 
+        [ValidateNotNullOrEmpty()]
+        [string]$ToolResultSpillRoot,
+
+        [ValidateRange(1, [int]::MaxValue)]
+        [int]$ToolResultSpillThresholdChars,
+
         [switch]$AllowPrivateNetwork,
 
         [switch]$DisableFileAccess,
@@ -1460,6 +1487,32 @@ function Invoke-Shp {
     $mcpEnabled = $toolOffer.McpEnabled
     $deferredToolsLoaded = [System.Collections.Generic.List[string]]::new()
     $pendingDeferredTools = [System.Collections.Generic.List[string]]::new()
+
+    # An opted-in Tool-result spill root is resolved and checked BEFORE the
+    # first request. A missing root discovered on the fourth Tool call has
+    # already let three oversized results be truncated - the exact outcome the
+    # caller opted out of - and no amount of later error reporting gets those
+    # bytes back. Nothing is created here: naming a directory that does not
+    # exist is a mistake, not an instruction to make one.
+    $spillRoot = $null
+    $spillThreshold = 0
+    if ($PSBoundParameters.ContainsKey('ToolResultSpillRoot')) {
+        $spillRoot = Resolve-ShpRealPath -Path $ToolResultSpillRoot
+        if ([string]::IsNullOrWhiteSpace($spillRoot) -or -not (Test-Path -LiteralPath $spillRoot)) {
+            throw "The Tool-result spill root does not exist: $ToolResultSpillRoot. Create the directory you want results written to; this module never creates or discovers one."
+        }
+        if (-not (Test-Path -LiteralPath $spillRoot -PathType Container)) {
+            throw "The Tool-result spill root is not a directory: $ToolResultSpillRoot. Name a directory this call may write result files into."
+        }
+        $spillThreshold = if ($PSBoundParameters.ContainsKey('ToolResultSpillThresholdChars')) { $ToolResultSpillThresholdChars } else { $script:ShpToolResultSpillThresholdChars }
+        Write-Verbose ('Oversized Tool results will be written to {0} instead of being truncated, above {1} characters.' -f $spillRoot, $spillThreshold)
+    }
+    # Splatted onto the three producers that truncate a final string. Spilling
+    # only helps if the bytes still exist when the seam sees them, so opting in
+    # lifts their cap rather than asking them to truncate and then storing the
+    # truncation. Unbound, the table is empty and every default cap stands.
+    $spillUncapped = @{}
+    if ($null -ne $spillRoot) { $spillUncapped['MaxChars'] = 0 }
 
     $apiHeaders = @{
         'Editor-Version'         = $EditorVersion
@@ -2312,7 +2365,8 @@ function Invoke-Shp {
                         Invoke-ShpExecutionContract -Contract $ExecutionContract -Kind $Kind `
                             -RunId $runId -TurnId $turnId -RequestId $iterationRequestId -ToolCallId $tc.Id -Iteration $iteration `
                             -Tool $tc.Name -Origin $callOrigin -Trust $callTrust -Server $callServer `
-                            -Target ([string]$Target) -Arguments $effectiveArguments
+                            -Target ([string]$Target) -Arguments $effectiveArguments `
+                            -SpillRoot ([string]$spillRoot) -SpillThresholdChars $spillThreshold
                     }
                     switch ($tc.Name) {
                         'search_tools' {
@@ -2332,14 +2386,14 @@ function Invoke-Shp {
                             }
                             $toolResult = ConvertTo-Json -InputObject $search -Depth 5 -Compress
                         }
-                        'fetch_url' { $toolResult = Invoke-FetchUrlTool -Url ([string]$fargs.url) -AllowPrivateNetwork:$AllowPrivateNetwork }
+                        'fetch_url' { $toolResult = Invoke-FetchUrlTool -Url ([string]$fargs.url) -AllowPrivateNetwork:$AllowPrivateNetwork @spillUncapped }
                         'read_file' {
                             # path-only stays a bounded first window; offset/limit
                             # (1-based) let the model page through a large file.
                             $readFileArgs = @{ Path = [string]$fargs.path }
                             if ($fargs.PSObject.Properties['offset'] -and [int]$fargs.offset -ge 1) { $readFileArgs['Offset'] = [int]$fargs.offset }
                             if ($fargs.PSObject.Properties['limit']  -and [int]$fargs.limit  -ge 1) { $readFileArgs['Limit']  = [int]$fargs.limit }
-                            $toolResult = Invoke-ReadFileTool @readFileArgs
+                            $toolResult = Invoke-ReadFileTool @readFileArgs @spillUncapped
                             if (-not $filesRead.Contains($fargs.path)) { $null = $filesRead.Add($fargs.path) }
                         }
                         'list_directory' { $toolResult = Invoke-ListDirectoryTool -Path $fargs.path }
@@ -2432,7 +2486,7 @@ function Invoke-Shp {
                                     if ($CommandEnvironmentVariable) {
                                         $commandParameters.EnvironmentVariable = $CommandEnvironmentVariable
                                     }
-                                    $toolResult = Invoke-RunCommandTool @commandParameters
+                                    $toolResult = Invoke-RunCommandTool @commandParameters @spillUncapped
                                 }
                                 if ($callExecution -ne 'ContractDenied' -and -not $commandsRun.Contains([string]$fargs.command)) {
                                     $null = $commandsRun.Add([string]$fargs.command)
@@ -2559,6 +2613,22 @@ function Invoke-Shp {
                         $toolResult = @{ denied = $postDecision.Reason } | ConvertTo-Json -Compress
                     } elseif ($postDecision.Decision -eq 'modify') {
                         $toolResult = $postDecision.Result
+                    }
+                }
+
+                # One seam for every producer. A file read, a fetched page, a
+                # Terminal result, a User tool's output, an MCP reply and a
+                # result an execution contract produced all arrive here as one
+                # string, so "oversized" cannot mean something different
+                # depending on which tool was called.
+                if ($null -ne $spillRoot) {
+                    $spill = Write-ShpToolResultSpill -Root $spillRoot -Result $toolResult -Tool $tc.Name `
+                        -CallId $tc.Id -RunId $runId -TurnId $turnId -Iteration $iteration `
+                        -Origin $callOrigin -Server $callServer `
+                        -ThresholdChars $spillThreshold -PreviewChars $script:ShpToolResultSpillPreviewChars
+                    if ($spill.Spilled) {
+                        $toolResult = $spill.Result
+                        Write-Verbose ("Tool result for '{0}' ({1} characters) was written to {2} and replaced with a handle." -f $tc.Name, $spill.Length, $spill.Path)
                     }
                 }
 

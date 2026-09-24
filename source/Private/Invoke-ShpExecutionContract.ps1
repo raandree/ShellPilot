@@ -77,6 +77,16 @@ function Invoke-ShpExecutionContract {
         The effective arguments, as JSON, after any decision control rewrote
         them.
 
+    .PARAMETER SpillRoot
+        The resolved Tool-result spill root for this call, or empty when the
+        caller named none. Additive: it tells a broker where an oversized
+        result it returns will be written, so it can size its own reply
+        knowingly rather than discovering the policy afterwards.
+
+    .PARAMETER SpillThresholdChars
+        The length at which a result will be spilled, or 0 when no spill root
+        was named.
+
     .EXAMPLE
         Invoke-ShpExecutionContract -Contract $contract -Kind Terminal -RunId $runId -TurnId $turnId -RequestId $requestId -ToolCallId $id -Tool run_command -Target 'git status' -Arguments $json
 
@@ -138,7 +148,14 @@ function Invoke-ShpExecutionContract {
 
         [AllowEmptyString()]
         [AllowNull()]
-        [string]$Arguments
+        [string]$Arguments,
+
+        [AllowEmptyString()]
+        [AllowNull()]
+        [string]$SpillRoot,
+
+        [ValidateRange(0, [int]::MaxValue)]
+        [int]$SpillThresholdChars
     )
 
     $bound = {
@@ -162,6 +179,8 @@ function Invoke-ShpExecutionContract {
         Server        = [string]$Server
         Target        = [string]$Target
         Arguments     = [string]$Arguments
+        SpillRoot     = [string]$SpillRoot
+        SpillThresholdChars = $SpillThresholdChars
     }
     $requestCopy = ConvertTo-ShpStableJson -InputObject $request -Depth 8 | ConvertFrom-Json
 

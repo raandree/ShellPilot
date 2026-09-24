@@ -186,6 +186,18 @@ function Invoke-ShpBatch {
         accounting: no extra request, no shared state between workers, and no
         change to what any item sends.
 
+    .PARAMETER ToolResultSpillRoot
+        Forward a caller-owned Tool-result spill root to each item, including
+        batches run with AsJob. Every worker writes into the same directory;
+        file names carry each item's own run, turn and call identifiers, so
+        concurrent workers do not collide and no worker overwrites another's
+        result. Unbound, every item truncates oversized results exactly as
+        before. Retention of the directory is yours; nothing is pruned.
+
+    .PARAMETER ToolResultSpillThresholdChars
+        Forward the spill threshold to each item. Ignored without
+        ToolResultSpillRoot.
+
     .PARAMETER DisableUserTools
         Do not offer the tools registered with Register-ShpTool. By default they
         are re-registered inside each worker runspace; a tool backed by a
@@ -456,6 +468,12 @@ function Invoke-ShpBatch {
 
         [switch]$ContextReport,
 
+        [ValidateNotNullOrEmpty()]
+        [string]$ToolResultSpillRoot,
+
+        [ValidateRange(1, [int]::MaxValue)]
+        [int]$ToolResultSpillThresholdChars,
+
         [switch]$AllowPrivateNetwork,
 
         [switch]$DisableFileAccess,
@@ -590,7 +608,7 @@ function Invoke-ShpBatch {
                 'ResponseFormat', 'JsonSchema', 'DisableBrowsing', 'AllowPrivateNetwork',
                 'DisableFileAccess', 'DisableTerminal', 'DisableUserTools', 'DisableTodoList',
                 'DisableRedaction', 'CommandEnvironmentVariable', 'Tool', 'ExcludeTool', 'DeferredToolLoading',
-                'ContextReport',
+                'ContextReport', 'ToolResultSpillRoot', 'ToolResultSpillThresholdChars',
                 'ToolCallControl', 'ExecutionContract',
                 'MaxToolIterations', 'MaxContextWindowTokens', 'MaxBudgetUSD', 'FailOn',
                 'ApiBase', 'TimeoutSec', 'MaxRetryCount', 'RetryDelaySec', 'NetworkOutageToleranceSec', 'TokenPath', 'GitHubHost')) {
