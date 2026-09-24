@@ -28,13 +28,37 @@ function ConvertFrom-ShpMcpToolResult {
         treated as 'complete', which the specification requires for servers on
         earlier revisions.
 
+        structuredContent is checked LOCALLY against the tool's declared
+        outputSchema when one was retained at registration. The envelope always
+        says which of three things happened - 'valid', 'invalid' or 'unchecked'
+        - because "the server sent a structured member" and "the structured
+        member is the shape the server promised" are different claims. A
+        structured member that definitely contradicts the declared shape is
+        WITHHELD from the envelope rather than handed to the model as if it
+        conformed; the text content still travels, so the model keeps whatever
+        the tool actually said. A schema outside the local validator's subset
+        leaves the member in place and reports 'unchecked', because refusing
+        data over a check that was never made would be a worse answer than
+        saying the check did not happen.
+
     .PARAMETER Response
         The hashtable returned by Invoke-ShpMcpRequest for a tools/call.
+
+    .PARAMETER OutputSchema
+        The reply shape the server declared for this tool, as retained at
+        registration. Omit it when the server declared none; the structured
+        member is then reported as unchecked.
 
     .EXAMPLE
         ConvertFrom-ShpMcpToolResult -Response $response
 
         Returns a compact JSON string for the tool loop.
+
+    .EXAMPLE
+        ConvertFrom-ShpMcpToolResult -Response $response -OutputSchema $tool.OutputSchema
+
+        Returns the same envelope with its structuredContent checked against
+        the shape the server declared.
 
     .OUTPUTS
         System.String
@@ -46,7 +70,10 @@ function ConvertFrom-ShpMcpToolResult {
     [OutputType([string])]
     param(
         [Parameter(Mandatory)]
-        [hashtable]$Response
+        [hashtable]$Response,
+
+        [AllowNull()]
+        $OutputSchema
     )
 
     if (-not $Response.Ok) {
@@ -123,7 +150,25 @@ function ConvertFrom-ShpMcpToolResult {
 
     $envelope = [ordered]@{ output = $output }
     if ($result.PSObject.Properties['structuredContent'] -and $null -ne $result.structuredContent) {
-        $envelope['structured'] = $result.structuredContent
+        $validation = 'unchecked'
+        $validationError = @()
+        if ($null -ne $OutputSchema) {
+            $verdict = Test-ShpJsonSchema -Schema $OutputSchema -InputObject $result.structuredContent
+            if ($verdict.Supported) {
+                $validation = if ($verdict.Valid) { 'valid' } else { 'invalid' }
+                $validationError = @($verdict.Error)
+            }
+        }
+        $envelope['structuredValidation'] = $validation
+        if ($validation -eq 'invalid') {
+            # Withheld, not passed through. A structured member that
+            # contradicts the shape the server itself declared is not the
+            # structured data the contract promised, and offering it anyway
+            # would invite the model to act on it as though it were.
+            $envelope['structuredError'] = $validationError
+        } else {
+            $envelope['structured'] = $result.structuredContent
+        }
     }
     $envelope | ConvertTo-Json -Depth 24 -Compress
 }

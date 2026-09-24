@@ -290,10 +290,14 @@ function Invoke-Shp {
         - NoContent - the reply is empty. Error id ShpNoContent. Tested on the
           Content member you receive, so a turn that wrote files and returned no
           message does NOT trip it: the file-work summary counts as content.
-        - SchemaMismatch - -JsonSchema was supplied and the reply did not parse,
-          leaving ContentObject null. Error id ShpSchemaMismatch. Armed by
-          -JsonSchema only; -ResponseFormat json_object on its own has no schema
-          to mismatch.
+        - SchemaMismatch - -JsonSchema was supplied and the reply either did not
+          parse, leaving ContentObject null, or parsed and then broke the
+          schema. Error id ShpSchemaMismatch. Armed by -JsonSchema only;
+          -ResponseFormat json_object on its own has no schema to mismatch.
+          Conformance is checked locally against a documented subset of JSON
+          Schema. A schema using keywords outside that subset is reported as
+          unchecked on ContentSchemaChecked and never trips this condition,
+          because no mismatch was established.
 
         Conditions are tested in the order listed and the first match throws, so
         an empty reply under -FailOn NoContent, SchemaMismatch reports
@@ -464,6 +468,13 @@ function Invoke-Shp {
         A JSON Schema (as a JSON string) that the reply must conform to. Implies
         a structured reply (parsed onto ContentObject) and takes precedence over
         -ResponseFormat. Uses the chat API shape.
+
+        The reply is checked LOCALLY against the schema, because a reply that
+        parses as JSON is not the same thing as a reply that matches what was
+        asked for. The result reports ContentSchemaChecked, ContentSchemaValid
+        and ContentSchemaError. A schema using keywords outside the local
+        validator's subset - $ref, composition, conditional - is reported as
+        unchecked rather than as conforming.
 
     .PARAMETER DisableUserTools
         Do not offer the user-defined tools registered with Register-ShpTool for
@@ -2296,6 +2307,9 @@ function Invoke-Shp {
                         tool      = $tc.Name
                         callId    = $tc.Id
                         arguments = $tc.Arguments
+                        origin    = 'BuiltIn'
+                        trust     = 'ModuleAuthored'
+                        server    = $null
                         policy    = 'denied'
                         reason    = $userPromptReason
                     }
@@ -2313,6 +2327,29 @@ function Invoke-Shp {
                     $PSCmdlet.ThrowTerminatingError($userPromptError)
                 }
                 $toolResult = '{"error":"unknown tool"}'
+                # Where this call came from, decided from the module's own
+                # registries rather than from anything the model or a server
+                # said. An MCP tool is third-party code the caller attached; a
+                # user tool is a command the caller registered; everything else
+                # is this module's own. A server's annotations are deliberately
+                # not consulted: they are self-reported by the party the
+                # controls exist to bound.
+                $callOrigin = 'BuiltIn'
+                $callServer = $null
+                if ($mcpToolMap.ContainsKey($tc.Name)) {
+                    $callOrigin = 'Mcp'
+                    $callServer = [string]$mcpToolMap[$tc.Name].Server
+                } elseif ($userToolCommands.ContainsKey($tc.Name)) {
+                    $callOrigin = 'User'
+                } elseif (-not $knownToolName.Contains($tc.Name)) {
+                    $callOrigin = 'Unknown'
+                }
+                $callTrust = switch ($callOrigin) {
+                    'Mcp'  { 'ThirdParty' }
+                    'User' { 'CallerRegistered' }
+                    'BuiltIn' { 'ModuleAuthored' }
+                    default { 'Unknown' }
+                }
                 # Parsed and policy-checked BEFORE the event is emitted, so a
                 # tool.call event carries the DECISION rather than only the
                 # intent - a reader must not have to correlate two lines to
@@ -2365,9 +2402,13 @@ function Invoke-Shp {
                     tool      = $tc.Name
                     callId    = $tc.Id
                     arguments = $tc.Arguments
+                    origin    = $callOrigin
+                    trust     = $callTrust
+                    server    = $callServer
                     policy    = $(if ($preDispatchError) { 'error' } elseif ($access.Allowed) { 'allowed' } else { 'denied' })
                     reason    = [string]$access.Reason
                 }
+                $callPolicy = $(if ($preDispatchError) { 'error' } elseif ($access.Allowed) { 'allowed' } else { 'denied' })
 
                 try {
                     if ($preDispatchError) { throw $preDispatchError }
@@ -2553,15 +2594,24 @@ function Invoke-Shp {
                     }
                     }
                 } catch { $toolResult = (@{ error=$_.Exception.Message } | ConvertTo-Json -Compress) }
-                $toolCallsExecuted += [pscustomobject]@{ Name=$tc.Name; Arguments=$tc.Arguments; ResultPreview=$toolResult.Substring(0,[Math]::Min(200,$toolResult.Length)) }
+                $toolCallsExecuted += [pscustomobject]@{
+                    Name=$tc.Name; Arguments=$tc.Arguments
+                    Origin=$callOrigin; Trust=$callTrust; Server=$callServer; Policy=$callPolicy
+                    ResultPreview=$toolResult.Substring(0,[Math]::Min(200,$toolResult.Length))
+                }
                 # A preview, not the transcript. A tool result is capped at
                 # 100,000 characters and a log collector reading a line per
                 # event should not be handed a file dump; the whole result is
-                # still on the call's own ToolCalls member.
+                # still on the call's own ToolCalls member. The provenance
+                # travels with it so a reader can tell third-party output from
+                # this module's own without correlating two lines.
                 & $emit 'tool.result' @{
                     iteration = $iteration
                     tool      = $tc.Name
                     callId    = $tc.Id
+                    origin    = $callOrigin
+                    trust     = $callTrust
+                    server    = $callServer
                     preview   = $toolResult.Substring(0, [Math]::Min(200, $toolResult.Length))
                     length    = $toolResult.Length
                     truncated = ($toolResult.Length -gt 200)
@@ -2644,6 +2694,9 @@ function Invoke-Shp {
     # ContentObject. Left $null when not requested, or when the reply could not
     # be parsed (the raw text is always available on Content).
     $contentObject = $null
+    $contentSchemaChecked = $false
+    $contentSchemaValid = $null
+    $contentSchemaError = @()
     if ($structured -and -not [string]::IsNullOrWhiteSpace($finalContent)) {
         # Models frequently wrap JSON in a Markdown code fence even when asked
         # not to; strip a surrounding ```json ... ``` (or bare ``` ... ```)
@@ -2653,6 +2706,25 @@ function Invoke-Shp {
         if ($fence.Success) { $jsonText = $fence.Groups[1].Value.Trim() }
         try { $contentObject = $jsonText | ConvertFrom-Json -ErrorAction Stop }
         catch { Write-Warning 'Structured output was requested but the reply was not valid JSON; ContentObject is null.' }
+    }
+
+    # Parsing is not conformance. A reply that parses can still be missing every
+    # member the caller asked for, and reporting that as a match is the failure
+    # this check exists to stop. The verdict has three states, because a schema
+    # the local validator cannot fully evaluate must not be reported as either
+    # a match or a mismatch.
+    if (-not [string]::IsNullOrWhiteSpace($JsonSchema) -and $null -ne $contentObject) {
+        $schemaVerdict = Test-ShpJsonSchema -Schema $JsonSchema -InputObject $contentObject
+        $contentSchemaChecked = [bool]$schemaVerdict.Supported
+        if ($contentSchemaChecked) {
+            $contentSchemaValid = [bool]$schemaVerdict.Valid
+            $contentSchemaError = @($schemaVerdict.Error)
+            if (-not $contentSchemaValid) {
+                Write-Warning ('Structured output parsed but does not match the requested -JsonSchema: {0}' -f ($contentSchemaError -join '; '))
+            }
+        } else {
+            Write-Verbose ('The requested -JsonSchema uses keywords outside the local validator ({0}), so the reply is reported as unchecked rather than conforming.' -f (@($schemaVerdict.Unsupported) -join ', '))
+        }
     }
 
     # Persist the server-side response id (or clear it) so the next
@@ -2691,6 +2763,9 @@ function Invoke-Shp {
         Model=$turn.ModelName; RequestedModel=$Model; Prompt=$Prompt
         Content=$finalContent; FinishReason=$turn.FinishReason
         ContentObject=$contentObject
+        ContentSchemaChecked=[bool]$contentSchemaChecked
+        ContentSchemaValid=$contentSchemaValid
+        ContentSchemaError=@($contentSchemaError)
         Reasoning=($reasoningLog -join "`n`n")
         Usage = [pscustomobject]@{ PromptTokens=$totalPrompt; CompletionTokens=$totalCompletion; TotalTokens=$totalPrompt+$totalCompletion; ContextTokens=$peakPromptTokens }
         Credits=$credits; CostUSD=$costUSD; CostBreakdown=$breakdown
@@ -2806,6 +2881,13 @@ function Invoke-Shp {
         } elseif ($failOnCondition -contains 'SchemaMismatch' -and -not [string]::IsNullOrWhiteSpace($JsonSchema) -and $null -eq $contentObject) {
             $failOnError = New-ShpFailureError -Condition 'SchemaMismatch' -Result $result -Message (
                 '-FailOn SchemaMismatch: -JsonSchema was supplied but the {0}-character reply did not parse into an object, so ContentObject is null.' -f $contentLength)
+        } elseif ($failOnCondition -contains 'SchemaMismatch' -and $contentSchemaChecked -and -not $contentSchemaValid) {
+            # Parsing is not conformance. A reply that parsed and then broke the
+            # schema it was asked for is exactly the case this condition is
+            # armed for; an UNCHECKED schema is deliberately not a failure,
+            # because no mismatch was established.
+            $failOnError = New-ShpFailureError -Condition 'SchemaMismatch' -Result $result -Message (
+                '-FailOn SchemaMismatch: the reply parsed but does not match the requested -JsonSchema: {0}' -f (@($contentSchemaError) -join '; '))
         }
 
         if ($failOnError) {

@@ -304,7 +304,12 @@ function Register-ShpMcpServer {
                 OriginalName = $converted.OriginalName
                 Description  = $converted.Description
                 Schema       = $converted.Schema
+                OutputSchema = $converted.OutputSchema
             })
+            if ($converted.OutputSchemaDropped) {
+                Write-Verbose ("MCP server '{0}': the outputSchema of '{1}' was not retained - {2}. Its results are not checked against a declared shape." -f
+                    $alias, $converted.OriginalName, $converted.OutputSchemaDropped)
+            }
         }
 
         $record.Tools = $accepted.ToArray()

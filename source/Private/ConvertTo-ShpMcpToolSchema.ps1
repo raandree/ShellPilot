@@ -26,6 +26,19 @@ function ConvertTo-ShpMcpToolSchema {
         - No $ref is ever dereferenced. The specification's MUST NOT for
           network $ref is satisfied by fetching nothing at all.
 
+        A declared outputSchema is RETAINED, under the same bounds, but is
+        never offered to the model. It is the server's claim about the shape of
+        its own replies, so it belongs to the local check of a result, not to
+        the call shape the model composes. A schema that is not an object or
+        that exceeds the bounds is dropped with a reason and the tool is still
+        offered: the reply shape is an extra check, and losing it must not cost
+        the caller the tool.
+
+        Annotations are read for nothing. A server's readOnlyHint,
+        destructiveHint and friends are self-reported by the same party the
+        controls exist to bound, so they are neither offered to the model nor
+        retained as a capability claim.
+
         The description is treated as untrusted input, because it is: the model
         reads it on every round-trip before any tool has been called. Control
         characters are stripped and the length is capped. That is a BOUND, not
@@ -43,21 +56,29 @@ function ConvertTo-ShpMcpToolSchema {
         Description cap. Default 1024.
 
     .PARAMETER MaxSchemaDepth
-        Maximum nesting depth accepted in inputSchema. Default 12.
+        Maximum nesting depth accepted in inputSchema and outputSchema.
+        Default 12.
 
     .PARAMETER MaxSchemaNode
-        Maximum number of nodes accepted in inputSchema. Default 2000.
+        Maximum number of nodes accepted in inputSchema and outputSchema.
+        Default 2000.
 
     .EXAMPLE
         ConvertTo-ShpMcpToolSchema -Tool $tool -Alias files
 
         Returns a tool record whose Schema can be added to the tool list.
 
+    .EXAMPLE
+        (ConvertTo-ShpMcpToolSchema -Tool $tool -Alias files).OutputSchema
+
+        Returns the bounded reply shape the server declared, or nothing.
+
     .OUTPUTS
         System.Collections.Hashtable
 
-        Ok (bool), Name, OriginalName, Description, Schema and Reason. Ok is
-        false when the tool must be dropped, with Reason saying why.
+        Ok (bool), Name, OriginalName, Description, Schema, OutputSchema,
+        OutputSchemaDropped and Reason. Ok is false when the tool must be
+        dropped, with Reason saying why.
 
     .LINK
         ConvertTo-ShpMcpToolName
@@ -86,7 +107,7 @@ function ConvertTo-ShpMcpToolSchema {
         [int]$MaxSchemaNode = 2000
     )
 
-    $drop = { param($reason, $name) @{ Ok = $false; Name = ''; OriginalName = $name; Description = ''; Schema = $null; Reason = $reason } }
+    $drop = { param($reason, $name) @{ Ok = $false; Name = ''; OriginalName = $name; Description = ''; Schema = $null; OutputSchema = $null; OutputSchemaDropped = ''; Reason = $reason } }
 
     if ($null -eq $Tool -or -not $Tool.PSObject.Properties['name'] -or [string]::IsNullOrWhiteSpace([string]$Tool.name)) {
         return & $drop 'the tool has no name' ''
@@ -116,13 +137,30 @@ function ConvertTo-ShpMcpToolSchema {
 
     $name = ConvertTo-ShpMcpToolName -Alias $Alias -ToolName $originalName
 
+    # The declared reply shape, bounded the same way the call shape is. It is
+    # kept for the LOCAL check of a result and never offered to the model.
+    $outputSchema = $null
+    $outputSchemaDropped = ''
+    if ($Tool.PSObject.Properties['outputSchema'] -and $null -ne $Tool.outputSchema) {
+        $declaredOutput = $Tool.outputSchema
+        if ($declaredOutput -isnot [psobject] -or $declaredOutput -is [array] -or $declaredOutput -is [string] -or $declaredOutput -is [valuetype]) {
+            $outputSchemaDropped = 'outputSchema is not a JSON object'
+        } else {
+            $outputMeasure = Measure-ShpMcpSchema -Schema $declaredOutput -MaxDepth $MaxSchemaDepth -MaxNode $MaxSchemaNode
+            if ($outputMeasure.Ok) { $outputSchema = $declaredOutput }
+            else { $outputSchemaDropped = $outputMeasure.Reason }
+        }
+    }
+
     @{
-        Ok           = $true
-        Name         = $name
-        OriginalName = $originalName
-        Description  = $description
-        Reason       = ''
-        Schema       = @{
+        Ok                  = $true
+        Name                = $name
+        OriginalName        = $originalName
+        Description         = $description
+        Reason              = ''
+        OutputSchema        = $outputSchema
+        OutputSchemaDropped = $outputSchemaDropped
+        Schema              = @{
             type     = 'function'
             function = @{
                 name        = $name

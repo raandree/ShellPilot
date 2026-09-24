@@ -92,5 +92,13 @@ function Invoke-ShpMcpTool {
         Write-Warning ("MCP server '{0}' is now faulted: {1} Re-attach with Register-ShpMcpServer -Force." -f $ServerName, $record.FaultReason)
     }
 
-    ConvertFrom-ShpMcpToolResult -Response $response
+    # The reply shape frozen at registration, not one read from this reply: a
+    # server that could name its own schema per call could always name one its
+    # answer happens to satisfy.
+    $outputSchema = $null
+    foreach ($registeredTool in $record.Tools) {
+        if ($registeredTool.OriginalName -eq $ToolName) { $outputSchema = $registeredTool.OutputSchema; break }
+    }
+
+    ConvertFrom-ShpMcpToolResult -Response $response -OutputSchema $outputSchema
 }
