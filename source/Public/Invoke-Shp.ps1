@@ -546,7 +546,10 @@ function Invoke-Shp {
     .PARAMETER ApiBase
         Override the API base URL for this call (opt-in alternative backend).
         Falls back to the session context (Set-ShpContext) and then to the
-        Copilot session endpoint.
+        Copilot session endpoint. An alternative backend resolves no GitHub
+        OAuth token and exchanges no Copilot Session token, so it needs no
+        GitHub sign-in and can never be sent a Session token; supply its own
+        credential with Set-ShpContext -ApiKey or $env:SHELLPILOT_API_KEY.
 
     .PARAMETER TimeoutSec
         Per-request HTTP timeout in seconds. Falls back to the session context
@@ -1251,20 +1254,31 @@ function Invoke-Shp {
         return Start-ShpJob -Command 'Invoke-Shp' -Parameter $jobParams
     }
 
+    # Credential resolution belongs to the Copilot backend and to nothing else.
+    # An Alternative backend addresses an endpoint this module does not
+    # authenticate, and a caller-owned RequestTransport carries no endpoint at
+    # all, so neither reads the OAuth token nor exchanges a Session token. That
+    # separation is what makes it impossible for either to RECEIVE a Session
+    # token: there is none to send. It also means a pipeline pointed at its own
+    # OpenAI-compatible endpoint no longer needs a GitHub sign-in to start.
+    $copilotCredentialRequired = -not $backend.IsAlternative
+
     # Kept whole so the tool loop can re-resolve the Session token on the same
     # terms the turn started on - a Turn is a loop that can outlive its own
     # credential, so resolving it only here is not enough.
     $sessionTokenParams = @{ TokenPath = $TokenPath; EditorVersion = $EditorVersion; UserAgent = $UserAgent }
-    if (-not $ownedTransport) {
+    if ($copilotCredentialRequired) {
         $hostParameters = @{}
         if ($PSBoundParameters.ContainsKey('GitHubHost')) { $hostParameters.GitHubHost = $GitHubHost }
         $sessionTokenParams.GitHubHost = (Resolve-ShpGitHubHost @hostParameters).Host
     }
     foreach ($name in $connectionParams.Keys) { $sessionTokenParams[$name] = $connectionParams[$name] }
     $session = $null
-    if (-not $ownedTransport) {
+    if ($copilotCredentialRequired) {
         $session = Get-ShpSessionToken @sessionTokenParams
         Write-Verbose ("Session token valid until {0}" -f [DateTimeOffset]::FromUnixTimeSeconds($session.expires_at).LocalDateTime)
+    } else {
+        Write-Verbose 'The resolved backend is not Copilot, so no OAuth token is read and no Session token is exchanged for this call.'
     }
 
     # An alternative backend was already resolved above (explicit -ApiBase, the
@@ -1288,7 +1302,7 @@ function Invoke-Shp {
     # so its whole order lives in one documented resolver. 0 disables the guard,
     # so binding, not truthiness, is what gets passed through.
     $budgetParams = @{ Model = $Model; AlternativeBackend = $usingAltBackend }
-    if (-not $ownedTransport) { $budgetParams.GitHubHost = $sessionTokenParams.GitHubHost }
+    if ($copilotCredentialRequired) { $budgetParams.GitHubHost = $sessionTokenParams.GitHubHost }
     if ($PSBoundParameters.ContainsKey('MaxContextWindowTokens')) { $budgetParams.RequestedTokens = $MaxContextWindowTokens }
     $contextBudget = Resolve-ShpContextBudget @budgetParams
     $effectiveContextBudget = $contextBudget.MaxTokens

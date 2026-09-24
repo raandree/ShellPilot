@@ -149,7 +149,7 @@ Describe 'Test-ShpCiReadiness' {
             }
         }
 
-        It 'Warns that an alternative backend still needs a GitHub OAuth token' {
+        It 'Reports that an alternative backend needs no GitHub OAuth token' {
             $absentToken = Join-Path $TestDrive 'no-such.token'
 
             InModuleScope $script:moduleName -Parameters @{ AbsentToken = $absentToken } {
@@ -158,7 +158,8 @@ Describe 'Test-ShpCiReadiness' {
                 try {
                     $script:DefaultTokenPath = $AbsentToken
                     $readiness = Test-ShpCiReadiness -ApiBase 'https://models.example/v1'
-                    ($readiness.Issue -join ' ') | Should -BeLike '*still exchanges a GitHub Copilot session token*'
+                    $readiness.TokenSource | Should -Be 'NotRequired'
+                    ($readiness.Issue -join ' ') | Should -Not -BeLike '*OAuth token*'
                 } finally {
                     $script:DefaultTokenPath = $saved
                 }

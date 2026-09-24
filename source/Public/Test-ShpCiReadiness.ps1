@@ -19,10 +19,12 @@ function Test-ShpCiReadiness {
         readiness check with named issues.
 
         Ready is true when a credential resolves AND the backend gate lets the
-        call through. It is not a promise that the endpoint answers or that the
-        credential is still valid - only a network call can establish either,
-        and this cmdlet deliberately makes none. Issue carries one line per
-        problem found, in the words the fix is written in.
+        call through. An Alternative backend needs no GitHub credential at all,
+        so its TokenSource is reported as NotRequired and readiness turns only
+        on the backend gate. Ready is not a promise that the endpoint answers or
+        that the credential is still valid - only a network call can establish
+        either, and this cmdlet deliberately makes none. Issue carries one line
+        per problem found, in the words the fix is written in.
 
         No secret is returned. The credential is reported by SOURCE only, the API
         key by source only, and the endpoint has any URL credentials redacted -
@@ -63,7 +65,8 @@ function Test-ShpCiReadiness {
     .OUTPUTS
         System.Management.Automation.PSCustomObject
 
-        IsCI, TokenSource, Backend, ApiBase (redacted), BackendSource,
+        IsCI, TokenSource (a resolved source, None, or NotRequired for an
+        Alternative backend), Backend, ApiBase (redacted), BackendSource,
         ApiKeySource, NonInteractive, NonInteractiveSource, CanPrompt,
         CopilotBackendAllowedInCI, Ready and Issue.
 
@@ -108,29 +111,32 @@ function Test-ShpCiReadiness {
 
     # The resolver throws when no credential is available anywhere, and its
     # message already names every remedy - so the throw IS the finding here,
-    # rather than something to translate.
-    $tokenSource = 'None'
-    try {
-        $tokenParams = @{}
-        if ($PSBoundParameters.ContainsKey('TokenPath')) { $tokenParams['TokenPath'] = $TokenPath }
-        $tokenSource = (Resolve-ShpOAuthToken @tokenParams).Source
-    } catch {
-        $issue.Add($_.Exception.Message)
+    # rather than something to translate. It is asked only for the Copilot
+    # backend: an Alternative backend resolves no OAuth token and exchanges no
+    # Session token, so demanding a GitHub sign-in there would report a
+    # requirement that no longer exists.
+    $copilotCredentialRequired = -not $backend.IsAlternative
+    $tokenSource = 'NotRequired'
+    if ($copilotCredentialRequired) {
+        $tokenSource = 'None'
+        try {
+            $tokenParams = @{}
+            if ($PSBoundParameters.ContainsKey('TokenPath')) { $tokenParams['TokenPath'] = $TokenPath }
+            $tokenSource = (Resolve-ShpOAuthToken @tokenParams).Source
+        } catch {
+            $issue.Add($_.Exception.Message)
+        }
     }
 
     if ($ciProfile.BackendGateError) {
         $issue.Add($ciProfile.BackendGateError.Exception.Message)
     }
 
+    # Stated rather than left to be discovered: an Alternative backend resolves
+    # no GitHub credential at all, so the only thing left to report is the API
+    # key it may still need for its own endpoint.
     if ($backend.IsAlternative -and $backend.ApiKeySource -eq 'None') {
         $issue.Add(('No API key is configured for the alternative backend {0}, so requests will carry no Authorization header. Set $env:SHELLPILOT_API_KEY or call Set-ShpContext -ApiKey if the endpoint expects one.' -f $backend.SafeApiBase))
-    }
-
-    # Stated rather than left to be discovered: an alternative backend still
-    # exchanges a Copilot session token today, because Invoke-Shp resolves one
-    # before every turn regardless of where the chat request then goes.
-    if ($backend.IsAlternative -and $tokenSource -eq 'None') {
-        $issue.Add('An alternative backend is configured, but ShellPilot still exchanges a GitHub Copilot session token on every turn, so a GitHub OAuth token is required as well.')
     }
 
     $canPrompt = (-not $ciProfile.NonInteractive) -and [System.Environment]::UserInteractive -and (-not [System.Console]::IsInputRedirected)
@@ -149,7 +155,8 @@ function Test-ShpCiReadiness {
         NonInteractiveSource      = $ciProfile.NonInteractiveSource
         CanPrompt                 = $canPrompt
         CopilotBackendAllowedInCI = $ciProfile.CopilotBackendAllowedInCI
-        Ready                     = ($null -ne $resolvedGitHubHost) -and ($tokenSource -ne 'None') -and $ciProfile.CopilotBackendAllowedInCI
+        Ready                     = ($tokenSource -ne 'None') -and $ciProfile.CopilotBackendAllowedInCI -and
+                                    ((-not $copilotCredentialRequired) -or ($null -ne $resolvedGitHubHost))
         Issue                     = $issue.ToArray()
     }
 }
