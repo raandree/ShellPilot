@@ -3,7 +3,7 @@ schema-version: 1
 loading-mode: routed
 status: accepted
 owner: shared
-last-verified: 2026-09-07
+last-verified: 2026-09-24
 source: repository evidence
 ---
 

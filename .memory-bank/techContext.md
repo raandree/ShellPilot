@@ -1,6 +1,6 @@
 ---
 status: current
-last-verified: 2026-09-07
+last-verified: 2026-09-24
 owner: shared
 source: repository source and retained build evidence
 ---
@@ -101,18 +101,26 @@ transport remains GitHub.com-only; no enterprise entitlement is live-verified.
   SHELLPILOT_ALLOW_COPILOT_BACKEND_IN_CI is set (spec 025). The gate covers
   Invoke-Shp, Invoke-ShpBatch and Initialize-Shp; Get-ShpModel and
   Request-ShpEmbedding are NOT gated, which is a stated gap.
-- An alternative backend (ApiBase) still needs a GitHub OAuth token, because
-  Invoke-Shp resolves a Copilot session token before every turn regardless of
-  where the chat request then goes. Request-ShpEmbedding has the same shape.
-  Test-ShpCiReadiness reports this rather than letting a pipeline discover it.
+- An alternative backend (ApiBase, the session context,
+  `$env:SHELLPILOT_API_BASE`, or a caller-owned request transport) needs no
+  GitHub credential at all. `Invoke-Shp` and `Request-ShpEmbedding` resolve no
+  GitHub host, read no OAuth token, and exchange no Copilot session token when
+  the resolved backend is Alternative, and `Test-ShpCiReadiness` reports
+  `TokenSource` as `NotRequired` instead of raising a standing OAuth issue.
+  The Copilot backend and its CI gate are unchanged and still run first.
 - The token file protects against another principal on the machine, not against
   code running as the same user - no scheme available here changes that.
 - State on disk is split by sensitivity (decision 002, 2026-09-05). Non-content
   state - currently only MCP tool-set fingerprints - may live in a default
   location beside the token file. Content is written only to a path the caller
   names, never discovered and never defaulted, and is redacted on write, so a
-  resumed session replays redacted history. Retention is the caller's. Both
-  tiers carry a schema version that is refused, not migrated, when
+  resumed session replays redacted history. That tier now also covers the chat
+  checkpoint store (`Save-ShpChat`, `Restore-ShpChat`,
+  `Get-ShpChatCheckpoint`) and the Tool-result spill root
+  (`Invoke-Shp -ToolResultSpillRoot`). A named root that does not exist is
+  refused rather than created, a failed write is raised rather than degraded,
+  and nothing is pruned, rotated, or reclaimed: retention is the caller's.
+  Both tiers carry a schema version that is refused, not migrated, when
   unrecognised, and writes are atomic (write temp, rename over). The token file
   is no longer the only file the module may write.
 - No path sandboxing on the file tools by default, and the run_command terminal
@@ -125,13 +133,50 @@ transport remains GitHub.com-only; no enterprise entitlement is live-verified.
   default. Literal assignments to execution-sensitive variables are refused
   before startup even without a Tool policy. Indirect code and caller privileges
   remain; these controls do not provide containment.
-- An attached MCP server (spec 021) is a third-party process with the caller's
-  privileges and no sandbox. Set-ShpToolPolicy CANNOT gate an MCP call - its
-  rules match resolved paths and leading command tokens, and a tools/call has
-  neither - so a policy scoping read_file says nothing about an attached
-  filesystem server. Reach is reduced at attachment instead
-  (Register-ShpMcpServer -ToolName). Unlike run_command, the MCP child does NOT
-  inherit the environment block.
+- An attached MCP server (spec 021) is a third-party process or endpoint with
+  the caller's reach and no sandbox. `Set-ShpToolPolicy` now gates MCP calls
+  through `Mcp(alias/tool)` rules, which match the alias and tool name a
+  dispatch will actually use; the arguments inside a `tools/call` are still not
+  matched, so a rule scopes tool identity rather than what the call asks for.
+  Reach is also reduced at attachment (`Register-ShpMcpServer -ToolName`).
+  Unlike run_command, the MCP child does NOT inherit the environment block.
+- A remote MCP attachment (spec 043) speaks Streamable HTTP and requires HTTPS
+  unless `-AllowLoopbackHttp` is given and every resolved address is loopback.
+  The endpoint is validated at registration, before every request, and on every
+  redirect: no embedded credentials, no fragment, and every resolved address
+  publicly routable. The approved address set is pinned to the socket, so a
+  redirect target or a re-resolution outside it is refused as a DNS rebind
+  while TLS, SNI, certificate validation, and `Host` keep the original name.
+  Response body, stream events, redirect chain, and time are capped, and
+  nothing retries. Authorization is only what the caller supplies through a
+  header or a per-request credential callback: no OAuth grant is implemented,
+  a 401 is reported by name rather than answered, and nothing is cached to
+  disk. The socket pin binds the destination, not the peer; there is no
+  resumable stream, no server-initiated request, and no sampling or
+  elicitation. An attachment does not travel into a worker runspace.
+- Trace support (spec 042) is a translation, not an exporter. `-TraceParent`
+  correlates a run and `ConvertTo-ShpOtelTrace` produces an OTLP-shaped
+  document; the module opens no socket, starts no thread, and posts nothing.
+  Content is off by default and redacted through the existing egress seam when
+  opted in, a malformed inbound traceparent is refused before any credential
+  work, and there is no metrics or logs signal and no propagation into a
+  run_command child.
+- A Subagent (spec 045) is an attenuation boundary, not a sandbox. The child
+  runs in the same process with the same operating-system identity, can only
+  narrow the policies and visibility it inherited, and spends from a ledger the
+  whole tree shares. Cancellation and the deadline bound what a child starts,
+  not what is already in flight; children run one at a time; an owned request
+  transport does not travel into a child; and there is no retry, resumption, or
+  partial result.
+- A Skill or Instruction fingerprint (spec 044) proves the bytes did not change
+  between catalog and load. It is not a signature: there is no publisher
+  identity and no revocation, front matter is parsed line by line rather than
+  with a YAML parser, and nothing is discovered - every root is one the caller
+  named.
+- ShellPilot provides no native containment. A Tool policy, a decision control,
+  an execution contract, a Plan preset, and a Subagent narrow what is offered
+  and what is allowed; none of them isolates execution, and Copilot content
+  exclusions and enterprise MCP allowlists are not enforced.
 - The Copilot endpoint enforces ^[a-zA-Z0-9_-]{1,128}$ on a tool (function)
   name, measured 2026-08-12. A violation returns invalid_request_body naming
   the tool only by its index, and Invoke-Shp's chat-to-responses fallback then

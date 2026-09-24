@@ -1,13 +1,87 @@
 ---
 status: current
-last-verified: 2026-09-07
+last-verified: 2026-09-24
 owner: software-engineer
 source: repository, service APIs, build logs, and independent review
 ---
 
 # Release readiness
 
-## Scope recommendation
+## Modernization readiness - 2026-09-24
+
+The complete agent modernization is implemented and validated locally on
+`ai/agent-modernization`, branched from `main` at `10a5ca3`. The module exports
+42 public commands and implements specifications 002-045. Nothing has been
+pushed, and no release, tag, or PowerShell Gallery publication is authorized.
+
+### Local evidence
+
+| Gate | Result |
+| --- | --- |
+| Full test, detached, post-remediation | 3,002 passed, 0 failed, 3 existing skips, 0 not run, 90.66% coverage, nine tasks, zero errors or warnings |
+| Focused remediation suite | 1,902 passed, 0 failed |
+| Pack, detached | 22 tasks, zero errors or warnings |
+
+The commands are `./build.ps1 -AutoRestore -Tasks test` and
+`./build.ps1 -AutoRestore -Tasks pack`, both run detached with retained TEMP
+logs. The retained final test log is
+`%TEMP%/shp-modernization-finaltest-24faead3d16040fb9e7dd7e27e04536a.log`.
+All three batches carried explicit red-to-green evidence, recorded in the
+commit history and in the specifications they implement.
+
+`output/ShellPilot.0.0.1.nupkg` contains the exact repository LICENSE, and an
+isolated import of the built module exports 42 of 42 expected commands.
+
+Package SHA-256:
+
+```text
+A57CA732130564EE9ABE408215E9D9670D14E7195AFFD7034DD94C7E466542B0
+```
+
+`0.0.1` is Sampler's local fallback because GitVersion is unavailable here. It
+is a validation artifact, not a proposed release version.
+
+### Review disposition
+
+The complete diff was self-reviewed. That review found and fixed the remote MCP
+transport connecting without pinning the actual socket to the approved address
+set and reading a response without bounding it, and a Subagent losing an
+explicitly empty Tool set, an inherited control, and a cancellation check. The
+repairs are commits `ed40fd7`, `61baceb`, `cc25564`, and `a1fae4d`, and the
+gates above are post-remediation. No independent review was requested for this
+work, and none is claimed.
+
+### Limits before any publication
+
+- No hosted CI job has run for this branch. The Linux, macOS, and
+  minimum-runtime legs are unexecuted for the modernization; the next step is
+  to push, fast-forward `main`, watch every job, and repair until green.
+- Stable `0.4.0`, a tag, and a Gallery upload remain maintainer decisions. The
+  published baseline is still preview `0.4.0-preview0014`.
+- No containment is supplied: a Tool policy, a decision control, an execution
+  contract, and a Subagent narrow reach, but the work runs with the caller's
+  identity. Copilot content exclusions and enterprise MCP allowlists are still
+  not enforced.
+- The remote MCP socket pin binds the destination, not the peer; no OAuth grant
+  is implemented and a 401 is reported rather than answered. Trace support is a
+  translation that posts nothing. A provenance fingerprint is not a signature.
+- F14 remains blocked with no configured `SHELLPILOT_GITHUB_TOKEN`, and no
+  enterprise credential is available for a live host-routing proof.
+
+### Modernization rollback
+
+Revert the batch commits in reverse order, or reset the branch to `10a5ca3`.
+No data migration is required: the Tool-result spill root and the chat
+checkpoint path are opt-in and named by the caller, so an unbound run writes
+nothing new and behaves as it did before.
+
+## Tranche-one record - 2026-09-07
+
+The sections below are the retained release-readiness evidence for tranche one
+at `0cebbcd`. They describe published artifacts and earlier gates, and they do
+not authorize a new release.
+
+### Scope recommendation
 
 Recommend stable `0.4.0` include the completed tranche-one scope rather than
 promoting preview `0.4.0-preview0013` unchanged. The additions reduce inherited
@@ -22,7 +96,7 @@ release decision. Live enterprise routing/entitlement remains unverified.
 The F14 credential research is blocked but is not a prerequisite for shipping
 the existing supported credential path; no speculative exemption was added.
 
-## Baseline truth
+### Baseline truth
 
 - Base `6318225`: `main` and `origin/main` matched; initial worktree clean.
 - [Run 34105577285](https://github.com/raandree/ShellPilot/actions/runs/34105577285)
@@ -33,7 +107,7 @@ the existing supported credential path; no speculative exemption was added.
 - The maintainer selected MIT. The local license is included verbatim in the
   built module and nupkg; existing published packages have not been modified.
 
-## Verification
+### Verification
 
 Final gates passed on Windows under `CI=true`:
 
@@ -94,7 +168,7 @@ calls, USD 0.000885 combined. This used the existing cached sign-in and is not
 F14 evidence. F23 mutation disabled only the new named-value rules: four F23
 egress cases failed, 29 other cases passed; restoration passed all 33.
 
-## Review disposition
+### Review disposition
 
 One independent security review ran against `92d8a86`, returning Request
 Changes: zero Blockers, one Major, one Minor. Both findings were accepted.
@@ -113,7 +187,7 @@ Changes: zero Blockers, one Major, one Minor. Both findings were accepted.
 Report and execution ledger: `%TEMP%/shp-release-review-20260907/`.
 No second independent approval of the repairs is claimed.
 
-## Local commits
+### Local commits
 
 | Commit | Stage |
 | --- | --- |
@@ -135,7 +209,7 @@ local `ai/*` branches were deleted after containment checks. `origin/main`
 remains `6318225`; no push, remote branch deletion, PR, publication, or release
 tag was performed.
 
-## Remaining limits
+### Remaining limits
 
 - No new hosted CI run was dispatched because remote writes are forbidden.
   Linux/macOS and their minimum-runtime legs remain unexecuted for this branch.
@@ -149,7 +223,7 @@ tag was performed.
 - Bounded child transport keeps its existing GitHub.com routing allowlist and
   refuses enterprise authentication. RequestTransport remains credentialless.
 
-## Rollback and migration
+### Rollback and migration
 
 Use the local stage commits as rollback boundaries; revert dependent slices
 in reverse order. Do not remove the MIT license notice from redistributed

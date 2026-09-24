@@ -1,6 +1,6 @@
 ---
 status: current
-last-verified: 2026-09-07
+last-verified: 2026-09-24
 owner: shared
 source: repository and release APIs
 ---
@@ -52,17 +52,27 @@ pipeline.
 
 ## Status
 
-ShellPilot is a Sampler-built module with 35 public commands, Pester and QA
-gates, and GitHub Actions packaging and cross-platform tests. PowerShell Gallery
-and GitHub Releases carry stable `0.3.1` and preview `0.4.0-preview0013`, verified
-on 2026-09-07. The preview requires PowerShell 7.4 or later.
+ShellPilot is a Sampler-built module with 42 public commands, Pester and QA
+gates, and GitHub Actions packaging and cross-platform tests. The published
+baseline is preview `0.4.0-preview0014`; stable `0.3.1` remains the latest
+non-prerelease, verified on 2026-09-07. The preview requires PowerShell 7.4
+or later.
+
+The complete agent modernization - specifications 002-045, including the
+complete Tool policy, backend credential separation, decision controls and the
+execution contract, context accounting, caller-owned chat and Tool-result
+stores, trace identity, guarded remote MCP, Skill provenance, and bounded
+Subagents - is implemented and validated locally on `ai/agent-modernization`.
+It has not been pushed, no hosted CI job has run for it, and no stable `0.4.0`
+exists or is claimed. Publication remains a maintainer decision.
 
 Distribution decision 7 is closed. The maintainer selected MIT on 2026-09-07;
-the new license is local pending merge and publication. The current work is
-release readiness and the remaining accepted tranche-one features, not an
-initial proof of concept. Stable `0.4.0` remains a release decision.
+the license is merged into `main` and ships inside the built module and the
+local package.
 
 ShellPilot does not enforce Copilot content exclusions or enterprise MCP
-allowlists and provides no native containment. The module license does not
-grant Copilot service access. See [activeContext.md](activeContext.md) for
-current validation and outstanding work.
+allowlists and provides no native containment. A Tool policy, decision
+control, execution contract, or Subagent narrows what a run may reach; none of
+them isolates execution. The module license does not grant Copilot service
+access. See [activeContext.md](activeContext.md) for current validation and
+outstanding work.
