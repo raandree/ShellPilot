@@ -580,6 +580,7 @@ function Invoke-Shp {
         retries. The first failure is returned to the caller.
 
     .PARAMETER RequestTransport
+
         Caller-owned synchronous transport for a credentialless Tool-calling
         loop. Receives one detached, versioned request containing Model,
         messages, Tool schemas and generation options, never credentials,
@@ -590,6 +591,50 @@ function Invoke-Shp {
         requests through a supported Engine transport implementation. This
         callback is a trusted host capability, not a Model-callable Tool or
         a filesystem or network containment mechanism.
+
+    .PARAMETER ToolCallControl
+        Caller-supplied pre and post Tool-call decision controls. A hashtable
+        with optional SchemaVersion, PreToolCall, PostToolCall, FailPosture and
+        PolicyId; at least one hook is required. A hook is a scriptblock or the
+        name of a command, never a file this module discovers.
+
+        The hook receives one typed, versioned, detached request carrying the
+        phase, the run, turn, request and Tool-call identifiers, the Tool name
+        with its origin and trust stamp, the original and effective arguments,
+        and - in the post phase - the Tool result. It returns one record:
+        @{ Decision = 'allow' }, @{ Decision = 'deny'; Reason = ... }, or
+        @{ Decision = 'modify'; Arguments = ... } in the pre phase and
+        @{ Decision = 'modify'; Result = ... } in the post phase.
+
+        A pre-call control is consulted only for a call the Tool policy has
+        ALREADY allowed, so it can narrow what runs and never widen it.
+        Rewritten arguments are re-checked against the Tool policy before
+        dispatch. Anything the control cannot answer cleanly - a throw, no
+        reply, several replies, an unknown decision, a modify with no payload -
+        is a control failure and resolves by FailPosture: Closed (the default)
+        denies the call, Open lets it proceed unchanged. Either way it is
+        recorded. Every decision produces a bounded receipt on the result's
+        ToolCallDecisions and a tool.decision Event record; receipts carry
+        identities, the decision and argument hashes, never argument values.
+
+    .PARAMETER ExecutionContract
+        Caller-supplied execution and containment contract for the four
+        dispatch paths that act outside this process: the Terminal tool, a file
+        mutation (write_file, edit_file, create_directory), a User tool and an
+        MCP tool. Read-only tools stay on the native path.
+
+        The scriptblock receives one typed, versioned, detached request naming
+        the kind of work, the resolved target and the effective arguments, and
+        returns either @{ Executed = $true; Result = '<string>' } or
+        @{ Denied = $true; Reason = '...' }. It sees only work the Tool policy
+        and any decision control already allowed, so it cannot widen either.
+
+        THIS IS A SEAM, NOT A SANDBOX. ShellPilot provides no process, file
+        system or network isolation of its own; the contract is where a caller
+        connects their own containment - a container, a constrained runspace, a
+        broker process, a jump host. Unbound, dispatch stays exactly the native
+        path it has always been. Bound, a contract that fails is a refused
+        dispatch: there is deliberately no fallback to native execution.
 
     .PARAMETER RequestLimits
         Opt-in owned-transport admission limits: MaxInputTokens per request,
@@ -1027,6 +1072,12 @@ function Invoke-Shp {
         [ValidateNotNull()]
         [scriptblock]$RequestTransport,
 
+        [Parameter()]
+        [hashtable]$ToolCallControl,
+
+        [Parameter()]
+        [scriptblock]$ExecutionContract,
+
         [ValidateNotNull()]
         [hashtable]$RequestLimits,
 
@@ -1066,6 +1117,21 @@ function Invoke-Shp {
             throw "Unknown tool '$requestedName'. Use an exact built-in or registered tool name."
         }
     }
+
+    # A decision control is an authorization boundary, so it is validated here -
+    # before the first request, before the token exchange - rather than at the
+    # first Tool call. A control whose typo is found on the fourth call has
+    # already let three through.
+    $resolvedToolControl = $null
+    if ($PSBoundParameters.ContainsKey('ToolCallControl')) {
+        $resolvedToolControl = Resolve-ShpToolCallControl -Control $ToolCallControl
+    }
+    $executionContractBound = $PSBoundParameters.ContainsKey('ExecutionContract')
+    # One identity per call, so every decision receipt, execution request and
+    # Event record from this invocation correlates without the caller having to
+    # stitch timestamps together.
+    $runId = [guid]::NewGuid().ToString('N')
+    $toolCallDecisions = [System.Collections.Generic.List[object]]::new()
 
     $ownedTransport = $PSBoundParameters.ContainsKey('RequestTransport')
     if ($ownedTransport) {
@@ -1914,6 +1980,11 @@ function Invoke-Shp {
             }
         }
         $pendingDeferredTools.Clear()
+        # Fresh identities for this iteration. A Tool call belongs to the model
+        # response it came in, and a decision or an execution request has to
+        # name that response to be correlatable afterwards.
+        $turnId = [guid]::NewGuid().ToString('N')
+        $iterationRequestId = [guid]::NewGuid().ToString('N')
         if ($ShowThinking) { Write-Host ("`n=== iteration {0} ({1}) ===" -f $iteration, $apiMode) -ForegroundColor DarkCyan }
         try {
             # Re-resolve the Session token for THIS iteration. It is short-lived
@@ -2043,7 +2114,7 @@ function Invoke-Shp {
             if ($ownedTransport) {
                 $requestData = @{
                     SchemaVersion = 1
-                    RequestId = [guid]::NewGuid().ToString('N')
+                    RequestId = $iterationRequestId
                     Iteration = $iteration
                     Model = $Model
                     Mode = $apiMode
@@ -2359,6 +2430,8 @@ function Invoke-Shp {
                 $fargs = $null
                 $access = @{ Allowed = $true; Reason = '' }
                 $preDispatchError = $null
+                $effectiveArguments = [string]$tc.Arguments
+                $callExecution = 'Native'
                 try {
                     $fargs = $tc.Arguments | ConvertFrom-Json -ErrorAction Stop
                     # Tool access policy (Set-ShpToolPolicy): one gate for every
@@ -2395,6 +2468,55 @@ function Invoke-Shp {
                             Reason  = ("The '{0}' tool is disabled for this call and was not run." -f $tc.Name)
                         }
                     }
+
+                    # The caller's pre-call decision control, consulted ONLY for
+                    # a call the Tool policy has already allowed. A control that
+                    # could be asked about a denied call could be written to
+                    # allow it, which would make it a way to widen the policy
+                    # rather than a second gate in front of it.
+                    if ($access.Allowed -and $resolvedToolControl -and $resolvedToolControl.HasPre) {
+                        $preDecision = Invoke-ShpToolCallDecision -Control $resolvedToolControl -Phase 'Pre' `
+                            -RunId $runId -TurnId $turnId -RequestId $iterationRequestId -ToolCallId $tc.Id -Iteration $iteration `
+                            -Tool $tc.Name -Origin $callOrigin -Trust $callTrust -Server $callServer `
+                            -OriginalArguments $tc.Arguments -EffectiveArguments $effectiveArguments
+                        if ($toolCallDecisions.Count -lt $script:ShpDecisionReceiptMax) { $null = $toolCallDecisions.Add($preDecision.Receipt) }
+                        & $emit 'tool.decision' @{
+                            iteration = $iteration
+                            phase     = 'Pre'
+                            tool      = $tc.Name
+                            callId    = $tc.Id
+                            runId     = $runId
+                            turnId    = $turnId
+                            requestId = $iterationRequestId
+                            decision  = $preDecision.Decision
+                            policyId  = $preDecision.Receipt.PolicyId
+                            failed    = [bool]$preDecision.Receipt.ControlFailed
+                            reason    = $preDecision.Reason
+                        }
+                        if ($preDecision.Decision -eq 'deny') {
+                            $access = @{ Allowed = $false; Reason = $(if ($preDecision.Reason) { $preDecision.Reason } else { 'The pre-call decision control refused this call.' }) }
+                        } elseif ($preDecision.Decision -eq 'modify') {
+                            # Re-parsed and re-gated: arguments the control
+                            # rewrote are new arguments, and the policy decided
+                            # the old ones.
+                            $effectiveArguments = $preDecision.Arguments
+                            $fargs = $effectiveArguments | ConvertFrom-Json -ErrorAction Stop
+                            $access = switch ($tc.Name) {
+                                { $_ -in 'read_file', 'list_directory', 'glob_files', 'grep_files', 'write_file', 'edit_file', 'create_directory' } {
+                                    Test-ShpToolAccess -Tool $tc.Name -Path ([string]$fargs.path)
+                                }
+                                'run_command' { Test-ShpToolAccess -Tool $tc.Name -Command ([string]$fargs.command) }
+                                'fetch_url'   { Test-ShpToolAccess -Tool $tc.Name -Url ([string]$fargs.url) }
+                                default {
+                                    if ($mcpToolMap.ContainsKey($tc.Name)) {
+                                        Test-ShpToolAccess -Tool $tc.Name -McpServer $mcpToolMap[$tc.Name].Server -McpTool $mcpToolMap[$tc.Name].Tool
+                                    } else {
+                                        Test-ShpToolAccess -Tool $tc.Name
+                                    }
+                                }
+                            }
+                        }
+                    }
                 } catch { $preDispatchError = $_ }
 
                 & $emit 'tool.call' @{
@@ -2418,6 +2540,20 @@ function Invoke-Shp {
                         Write-Verbose ('Tool policy denied {0}' -f $denial)
                         $toolResult = @{ denied = $access.Reason } | ConvertTo-Json -Compress
                     } else {
+                    # The caller's containment boundary, for the four dispatch
+                    # paths that do something outside this process. It sees only
+                    # work the Tool policy and any decision control already
+                    # allowed, so it can narrow and never widen. There is no
+                    # outcome that runs the work natively instead: a boundary
+                    # that reverts to local execution when the broker is down is
+                    # a boundary with a hole in it nobody configured.
+                    $contractDispatch = {
+                        param($Kind, $Target)
+                        Invoke-ShpExecutionContract -Contract $ExecutionContract -Kind $Kind `
+                            -RunId $runId -TurnId $turnId -RequestId $iterationRequestId -ToolCallId $tc.Id -Iteration $iteration `
+                            -Tool $tc.Name -Origin $callOrigin -Trust $callTrust -Server $callServer `
+                            -Target ([string]$Target) -Arguments $effectiveArguments
+                    }
                     switch ($tc.Name) {
                         'search_tools' {
                             if ($fargs.query -isnot [string]) { throw 'search_tools requires query as plain text.' }
@@ -2464,8 +2600,16 @@ function Invoke-Shp {
                         }
                         'write_file' {
                             if ($PSCmdlet.ShouldProcess([string]$fargs.path, 'write_file')) {
-                                $toolResult = Invoke-WriteFileTool -Path $fargs.path -Content ([string]$fargs.content) -Append:([bool]$fargs.append)
-                                if (-not $filesWritten.Contains($fargs.path)) { $null = $filesWritten.Add($fargs.path) }
+                                if ($executionContractBound) {
+                                    $contractOutcome = & $contractDispatch 'FileMutation' $(if ($access.Target) { $access.Target } else { $fargs.path })
+                                    $callExecution = $(if ($contractOutcome.Outcome -eq 'Executed') { 'Contract' } else { 'ContractDenied' })
+                                    $toolResult = $(if ($contractOutcome.Outcome -eq 'Executed') { $contractOutcome.Result } else { @{ denied = $contractOutcome.Reason } | ConvertTo-Json -Compress })
+                                } else {
+                                    $toolResult = Invoke-WriteFileTool -Path $fargs.path -Content ([string]$fargs.content) -Append:([bool]$fargs.append)
+                                }
+                                if ($callExecution -ne 'ContractDenied' -and -not $filesWritten.Contains($fargs.path)) {
+                                    $null = $filesWritten.Add($fargs.path)
+                                }
                             } else {
                                 $toolResult = @{ skipped = 'The user did not approve this write_file call.' } | ConvertTo-Json -Compress
                             }
@@ -2482,13 +2626,19 @@ function Invoke-Shp {
                             # the policy never authorized.
                             $editTarget = [string]$access.Target
                             if ($PSCmdlet.ShouldProcess($editTarget, 'edit_file')) {
-                                $editFileArgs = @{
-                                    Path = $editTarget
-                                    OldString = $fargs.oldString
-                                    NewString = $fargs.newString
+                                if ($executionContractBound) {
+                                    $contractOutcome = & $contractDispatch 'FileMutation' $editTarget
+                                    $callExecution = $(if ($contractOutcome.Outcome -eq 'Executed') { 'Contract' } else { 'ContractDenied' })
+                                    $toolResult = $(if ($contractOutcome.Outcome -eq 'Executed') { $contractOutcome.Result } else { @{ denied = $contractOutcome.Reason } | ConvertTo-Json -Compress })
+                                } else {
+                                    $editFileArgs = @{
+                                        Path = $editTarget
+                                        OldString = $fargs.oldString
+                                        NewString = $fargs.newString
+                                    }
+                                    $toolResult = Invoke-EditFileTool @editFileArgs
                                 }
-                                $toolResult = Invoke-EditFileTool @editFileArgs
-                                if (($toolResult | ConvertFrom-Json).replacements -eq 1 -and -not $filesWritten.Contains($fargs.path)) {
+                                if ($callExecution -ne 'ContractDenied' -and ($toolResult | ConvertFrom-Json).replacements -eq 1 -and -not $filesWritten.Contains($fargs.path)) {
                                     $null = $filesWritten.Add($fargs.path)
                                 }
                             } else {
@@ -2497,22 +2647,36 @@ function Invoke-Shp {
                         }
                         'create_directory' {
                             if ($PSCmdlet.ShouldProcess([string]$fargs.path, 'create_directory')) {
-                                $toolResult = New-DirectoryTool -Path $fargs.path
+                                if ($executionContractBound) {
+                                    $contractOutcome = & $contractDispatch 'FileMutation' $(if ($access.Target) { $access.Target } else { $fargs.path })
+                                    $callExecution = $(if ($contractOutcome.Outcome -eq 'Executed') { 'Contract' } else { 'ContractDenied' })
+                                    $toolResult = $(if ($contractOutcome.Outcome -eq 'Executed') { $contractOutcome.Result } else { @{ denied = $contractOutcome.Reason } | ConvertTo-Json -Compress })
+                                } else {
+                                    $toolResult = New-DirectoryTool -Path $fargs.path
+                                }
                             } else {
                                 $toolResult = @{ skipped = 'The user did not approve this create_directory call.' } | ConvertTo-Json -Compress
                             }
                         }
                         'run_command' {
                             if ($PSCmdlet.ShouldProcess([string]$fargs.command, 'run_command')) {
-                                $commandParameters = @{
-                                    Command = [string]$fargs.command
-                                    WorkingDirectory = [string]$fargs.workingDirectory
+                                if ($executionContractBound) {
+                                    $contractOutcome = & $contractDispatch 'Terminal' ([string]$fargs.command)
+                                    $callExecution = $(if ($contractOutcome.Outcome -eq 'Executed') { 'Contract' } else { 'ContractDenied' })
+                                    $toolResult = $(if ($contractOutcome.Outcome -eq 'Executed') { $contractOutcome.Result } else { @{ denied = $contractOutcome.Reason } | ConvertTo-Json -Compress })
+                                } else {
+                                    $commandParameters = @{
+                                        Command = [string]$fargs.command
+                                        WorkingDirectory = [string]$fargs.workingDirectory
+                                    }
+                                    if ($CommandEnvironmentVariable) {
+                                        $commandParameters.EnvironmentVariable = $CommandEnvironmentVariable
+                                    }
+                                    $toolResult = Invoke-RunCommandTool @commandParameters
                                 }
-                                if ($CommandEnvironmentVariable) {
-                                    $commandParameters.EnvironmentVariable = $CommandEnvironmentVariable
+                                if ($callExecution -ne 'ContractDenied' -and -not $commandsRun.Contains([string]$fargs.command)) {
+                                    $null = $commandsRun.Add([string]$fargs.command)
                                 }
-                                $toolResult = Invoke-RunCommandTool @commandParameters
-                                if (-not $commandsRun.Contains([string]$fargs.command)) { $null = $commandsRun.Add([string]$fargs.command) }
                             } else {
                                 $toolResult = @{ skipped = 'The user did not approve this run_command call.' } | ConvertTo-Json -Compress
                             }
@@ -2565,9 +2729,15 @@ function Invoke-Shp {
                             # only gate, and it is interactive only.
                             if ($mcpToolMap.ContainsKey($tc.Name)) {
                                 $mcpTarget = $mcpToolMap[$tc.Name]
-                                if ($PSCmdlet.ShouldProcess(('{0}/{1} {2}' -f $mcpTarget.Server, $mcpTarget.Tool, $tc.Arguments), 'MCP tool')) {
-                                    $toolResult = Invoke-ShpMcpTool -ServerName $mcpTarget.Server -ToolName $mcpTarget.Tool -Argument $fargs
-                                    if (-not $mcpToolsCalled.Contains($tc.Name)) { $null = $mcpToolsCalled.Add($tc.Name) }
+                                if ($PSCmdlet.ShouldProcess(('{0}/{1} {2}' -f $mcpTarget.Server, $mcpTarget.Tool, $effectiveArguments), 'MCP tool')) {
+                                    if ($executionContractBound) {
+                                        $contractOutcome = & $contractDispatch 'McpTool' ('{0}/{1}' -f $mcpTarget.Server, $mcpTarget.Tool)
+                                        $callExecution = $(if ($contractOutcome.Outcome -eq 'Executed') { 'Contract' } else { 'ContractDenied' })
+                                        $toolResult = $(if ($contractOutcome.Outcome -eq 'Executed') { $contractOutcome.Result } else { @{ denied = $contractOutcome.Reason } | ConvertTo-Json -Compress })
+                                    } else {
+                                        $toolResult = Invoke-ShpMcpTool -ServerName $mcpTarget.Server -ToolName $mcpTarget.Tool -Argument $fargs
+                                    }
+                                    if ($callExecution -ne 'ContractDenied' -and -not $mcpToolsCalled.Contains($tc.Name)) { $null = $mcpToolsCalled.Add($tc.Name) }
                                 } else {
                                     $toolResult = @{ skipped = ("The user did not approve calling '{0}'." -f $tc.Name) } | ConvertTo-Json -Compress
                                 }
@@ -2578,14 +2748,20 @@ function Invoke-Shp {
                             # the caller's privileges - registration is the
                             # opt-in. Unknown names keep the default error.
                             elseif ($userToolCommands.ContainsKey($tc.Name)) {
-                                if ($PSCmdlet.ShouldProcess(('{0} {1}' -f $userToolCommands[$tc.Name], $tc.Arguments), 'user tool')) {
-                                    $splat = @{}
-                                    if ($fargs) {
-                                        foreach ($prop in $fargs.PSObject.Properties) { $splat[$prop.Name] = $prop.Value }
+                                if ($PSCmdlet.ShouldProcess(('{0} {1}' -f $userToolCommands[$tc.Name], $effectiveArguments), 'user tool')) {
+                                    if ($executionContractBound) {
+                                        $contractOutcome = & $contractDispatch 'UserTool' ([string]$userToolCommands[$tc.Name])
+                                        $callExecution = $(if ($contractOutcome.Outcome -eq 'Executed') { 'Contract' } else { 'ContractDenied' })
+                                        $toolResult = $(if ($contractOutcome.Outcome -eq 'Executed') { $contractOutcome.Result } else { @{ denied = $contractOutcome.Reason } | ConvertTo-Json -Compress })
+                                    } else {
+                                        $splat = @{}
+                                        if ($fargs) {
+                                            foreach ($prop in $fargs.PSObject.Properties) { $splat[$prop.Name] = $prop.Value }
+                                        }
+                                        $output = (& $userToolCommands[$tc.Name] @splat 2>&1 | Out-String).Trim()
+                                        $toolResult = @{ output = $output } | ConvertTo-Json -Compress
                                     }
-                                    $output = (& $userToolCommands[$tc.Name] @splat 2>&1 | Out-String).Trim()
-                                    $toolResult = @{ output = $output } | ConvertTo-Json -Compress
-                                    if (-not $userToolsCalled.Contains($tc.Name)) { $null = $userToolsCalled.Add($tc.Name) }
+                                    if ($callExecution -ne 'ContractDenied' -and -not $userToolsCalled.Contains($tc.Name)) { $null = $userToolsCalled.Add($tc.Name) }
                                 } else {
                                     $toolResult = @{ skipped = ("The user did not approve calling '{0}'." -f $tc.Name) } | ConvertTo-Json -Compress
                                 }
@@ -2594,9 +2770,42 @@ function Invoke-Shp {
                     }
                     }
                 } catch { $toolResult = (@{ error=$_.Exception.Message } | ConvertTo-Json -Compress) }
+
+                # The caller's post-call decision control. It sees the result
+                # this dispatch produced and may replace or withhold it before
+                # the model ever reads it.
+                if ($resolvedToolControl -and $resolvedToolControl.HasPost) {
+                    $postDecision = Invoke-ShpToolCallDecision -Control $resolvedToolControl -Phase 'Post' `
+                        -RunId $runId -TurnId $turnId -RequestId $iterationRequestId -ToolCallId $tc.Id -Iteration $iteration `
+                        -Tool $tc.Name -Origin $callOrigin -Trust $callTrust -Server $callServer `
+                        -OriginalArguments $tc.Arguments -EffectiveArguments $effectiveArguments -Result $toolResult
+                    if ($toolCallDecisions.Count -lt $script:ShpDecisionReceiptMax) { $null = $toolCallDecisions.Add($postDecision.Receipt) }
+                    & $emit 'tool.decision' @{
+                        iteration = $iteration
+                        phase     = 'Post'
+                        tool      = $tc.Name
+                        callId    = $tc.Id
+                        runId     = $runId
+                        turnId    = $turnId
+                        requestId = $iterationRequestId
+                        decision  = $postDecision.Decision
+                        policyId  = $postDecision.Receipt.PolicyId
+                        failed    = [bool]$postDecision.Receipt.ControlFailed
+                        reason    = $postDecision.Reason
+                    }
+                    if ($postDecision.Decision -eq 'deny') {
+                        $denial = '{0}: {1}' -f $tc.Name, $postDecision.Reason
+                        if (-not $toolCallsDenied.Contains($denial)) { $null = $toolCallsDenied.Add($denial) }
+                        $toolResult = @{ denied = $postDecision.Reason } | ConvertTo-Json -Compress
+                    } elseif ($postDecision.Decision -eq 'modify') {
+                        $toolResult = $postDecision.Result
+                    }
+                }
+
                 $toolCallsExecuted += [pscustomobject]@{
-                    Name=$tc.Name; Arguments=$tc.Arguments
+                    Name=$tc.Name; Arguments=$effectiveArguments
                     Origin=$callOrigin; Trust=$callTrust; Server=$callServer; Policy=$callPolicy
+                    Execution=$callExecution
                     ResultPreview=$toolResult.Substring(0,[Math]::Min(200,$toolResult.Length))
                 }
                 # A preview, not the transcript. A tool result is capped at
@@ -2786,6 +2995,8 @@ function Invoke-Shp {
         Attachments=@($attachments)
         CommandsRun=@($commandsRun); QuestionsAsked=@($questionsAsked)
         ToolCallsDenied=@($toolCallsDenied)
+        ToolCallDecisions=@($toolCallDecisions)
+        ExecutionContractBound=[bool]$executionContractBound
         ToolPolicyProfile=$(if ($script:ShpToolPolicy) { [string]$script:ShpToolPolicy.TrustProfile } else { 'None' })
         ToolPolicyCoverage=@(if ($script:ShpToolPolicy) { $script:ShpToolPolicy.Coverage })
         Redactions=@($redactionCounts.Keys | ForEach-Object { [pscustomobject]@{ Name=$_; Count=$redactionCounts[$_] } })

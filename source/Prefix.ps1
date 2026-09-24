@@ -356,6 +356,25 @@ $script:ShpMcpBaseEnvironmentVariable = if ($IsWindows -or $null -eq $IsWindows)
 
 $script:ShpCommandDeniedEnvironmentPattern = '^(?:PATH|LD_.*|DYLD_.*|GIT_CONFIG.*|GIT_EXTERNAL_DIFF|GIT_PROXY_COMMAND|GIT_SSH_COMMAND|GIT_ASKPASS|BASH_ENV|ENV|PAGER|GIT_PAGER|EDITOR|VISUAL|BROWSER)$'
 
+# Contract version of the typed pre/post Tool-call decision request
+# (Invoke-Shp -ToolCallControl) and of the caller's reply. Bumped only by a
+# breaking change to either shape. A control may state the version it was
+# written against; one this module does not implement is refused rather than
+# guessed at, because a control that silently ran under a different contract
+# would be an authorization decision made on a misunderstanding.
+$script:ShpToolCallControlSchemaVersion = 1
+
+# Contract version of the typed execution request handed to a caller-supplied
+# containment contract (Invoke-Shp -ExecutionContract). Same rule as above.
+$script:ShpExecutionContractSchemaVersion = 1
+
+# Bounds on what a decision receipt retains. A receipt is audit data that rides
+# on a result and may be written to a log, so it carries identities, hashes and
+# a short reason - never an argument value, a command line or a Tool result.
+$script:ShpDecisionReasonMaxChars = 256
+$script:ShpDecisionPolicyIdMaxChars = 128
+$script:ShpDecisionReceiptMax = 500
+
 # Built-in bounds for an attached MCP server. Every one of them bounds input the
 # module did not author: the endpoint refuses a tool name outside
 # ^[a-zA-Z0-9_-]{1,128}$ (measured, not assumed), a tool description is read by

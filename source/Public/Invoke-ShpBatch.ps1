@@ -148,6 +148,20 @@ function Invoke-ShpBatch {
         every item. The minimal platform base is always available; credentials
         and other variables require explicit names. This is not containment.
 
+    .PARAMETER ToolCallControl
+        Forward a caller-supplied pre/post Tool-call decision control to every
+        item. Same contract as Invoke-Shp -ToolCallControl, including the
+        fail-closed default. The control runs inside the worker runspace and is
+        invoked concurrently by as many workers as the throttle allows, so it
+        must be safe to call from several runspaces at once and must not rely
+        on state private to the calling session.
+
+    .PARAMETER ExecutionContract
+        Forward a caller-supplied execution and containment contract to every
+        item. Same contract as Invoke-Shp -ExecutionContract, with the same
+        concurrency requirement as ToolCallControl. ShellPilot supplies no
+        sandbox of its own; this is where a caller connects theirs.
+
     .PARAMETER Tool
         Exact tool names to offer in every item, intersected with enabled
         categories. An empty array offers none. MCP remains unavailable in batch
@@ -442,6 +456,12 @@ function Invoke-ShpBatch {
         [ValidatePattern('^[A-Za-z_][A-Za-z0-9_]*$')]
         [string[]]$CommandEnvironmentVariable,
 
+        [Parameter()]
+        [hashtable]$ToolCallControl,
+
+        [Parameter()]
+        [scriptblock]$ExecutionContract,
+
         [switch]$DisableUserTools,
 
         [switch]$DisableTodoList,
@@ -561,6 +581,7 @@ function Invoke-ShpBatch {
                 'ResponseFormat', 'JsonSchema', 'DisableBrowsing', 'AllowPrivateNetwork',
                 'DisableFileAccess', 'DisableTerminal', 'DisableUserTools', 'DisableTodoList',
                 'DisableRedaction', 'CommandEnvironmentVariable', 'Tool', 'ExcludeTool', 'DeferredToolLoading',
+                'ToolCallControl', 'ExecutionContract',
                 'MaxToolIterations', 'MaxContextWindowTokens', 'MaxBudgetUSD', 'FailOn',
                 'ApiBase', 'TimeoutSec', 'MaxRetryCount', 'RetryDelaySec', 'NetworkOutageToleranceSec', 'TokenPath', 'GitHubHost')) {
             if ($PSBoundParameters.ContainsKey($name)) { $invokeParams[$name] = $PSBoundParameters[$name] }
