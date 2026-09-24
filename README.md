@@ -239,8 +239,146 @@ and replacement are not a filesystem compare-and-swap guarantee. An
 unsupported replacement fails rather than falling back to truncating the
 original file.
 
-### Tool visibility
+### Tool policy and trust profiles
 
+`Set-ShpToolPolicy` scopes what the tools may reach. Until it is called every
+tool call is permitted; once it is called the model is denied by default for
+every rule kind the policy covers.
+
+```powershell
+Set-ShpToolPolicy -Rule @(
+    'Read(./**)', '!Read(./.git/**)', 'Write(./out/**)', 'Shell(git status)'
+    'Url(https://docs.example.com/**)', 'Mcp(files/read_text_file)', 'Tool(manage_todo_list)'
+)
+```
+
+| Kind | Covers | Matched against |
+| --- | --- | --- |
+| `Read` | `read_file`, `list_directory`, `glob_files`, `grep_files`, `edit_file` | Resolved path |
+| `Write` | `write_file`, `edit_file`, `create_directory` | Resolved path |
+| `Shell` | `run_command` | Whole leading command tokens |
+| `Url` | `fetch_url` | Normalised address |
+| `Mcp` | Tools of an attached MCP server | `alias/tool` as it will dispatch |
+| `Tool` | Every other named tool, including user tools | Exact tool name |
+
+A leading `!` makes a rule a deny, and a matching deny beats every matching
+allow, in every kind. Coverage is staged: `Read`, `Write` and `Shell` are
+always enforced, and `Url`, `Mcp` and `Tool` only once the policy uses them, so
+an existing policy keeps working unchanged. `Get-ShpToolPolicy` reports the
+resolved `Coverage` and `TrustProfile`, and a result carries
+`ToolPolicyProfile` and `ToolPolicyCoverage`.
+
+For restricted unattended work, ask for the profile by name. It covers every
+kind, grants only `manage_todo_list` and `search_tools`, and denies everything
+else until you add rules. It is never applied implicitly.
+
+```powershell
+Set-ShpToolPolicy -TrustProfile RestrictedUnattended -Rule @(
+    'Read(./src/**)'
+    'Url(https://docs.example.com/**)'
+)
+```
+
+Every tool call is decided before dispatch, so a denied or withdrawn
+`fetch_url`, MCP tool or user tool cannot execute. The policy travels whole
+into `Invoke-ShpBatch` workers and `-AsJob` runspaces.
+
+### Decision controls and containment
+
+`-ToolCallControl` adds caller-supplied pre and post decisions around every
+tool call, for hosts that need more than a static policy. A hook is a
+scriptblock or the name of a command; nothing is discovered from disk.
+
+```powershell
+Invoke-Shp -Prompt $prompt -ToolCallControl @{
+    PreToolCall = {
+        param($Request)
+        if ($Request.Tool -eq 'run_command') { @{ Decision = 'deny'; Reason = 'no shell today' } }
+        else { @{ Decision = 'allow' } }
+    }
+    FailPosture = 'Closed'
+    PolicyId    = 'contoso-v3'
+}
+```
+
+The hook receives a typed, versioned request carrying the run, turn, request
+and tool-call identifiers, the tool with its origin and trust stamp, and the
+original and effective arguments. It returns `allow`, `deny`, or `modify` with
+new arguments (pre) or a new result (post). A pre-call control is consulted
+only for calls the Tool policy already allowed, so it can narrow and never
+widen, and rewritten arguments are re-checked against the policy.
+
+A control that throws, returns nothing, returns several replies or returns a
+decision ShellPilot does not implement has FAILED rather than decided.
+`FailPosture` resolves that: `Closed` (the default) denies the call, `Open`
+lets it proceed unchanged. Either way it is recorded. Every decision leaves a
+bounded receipt on `ToolCallDecisions` and a `tool.decision` event; receipts
+carry identities and SHA-256 argument hashes, never argument values.
+
+`-ExecutionContract` is the seam where a caller connects their own
+containment. It is invoked for the terminal tool, file mutations, user tools
+and MCP tools, and either performs the work or refuses it.
+
+```powershell
+Invoke-Shp -Prompt $prompt -ExecutionContract {
+    param($Request)
+    switch ($Request.Kind) {
+        'Terminal' { @{ Executed = $true; Result = (Invoke-InMyContainer $Request.Target) } }
+        default    { @{ Denied = $true; Reason = 'only the terminal is brokered here' } }
+    }
+}
+```
+
+> **ShellPilot provides no sandbox.** This is the boundary at which you can put
+> one - a container, a constrained runspace, a broker process, a jump host.
+> Unbound, dispatch is exactly the native path it has always been. Bound, a
+> contract that fails is a refused dispatch: there is deliberately no fallback
+> to native execution. Read-only tools stay native. The contract sees only work
+> the Tool policy and any decision control already allowed, so it cannot widen
+> either. `ToolCalls[].Execution` reports `Native`, `Contract` or
+> `ContractDenied`.
+
+Both options forward to every `Invoke-ShpBatch` item and travel into `-AsJob`
+runspaces, where they are invoked concurrently and must be safe to call from
+several runspaces at once.
+
+### Deterministic agent evals
+
+`Invoke-ShpEval` grades agent behavior as data. It calls no model, reads no
+credential and sends no request - a case supplies its own body, which in
+practice drives the real tool-calling loop through a scripted
+`-RequestTransport` - so the whole surface runs in the ordinary test gate.
+
+```powershell
+$report = Invoke-ShpEval -Case $cases -Trial 5
+$report.PassAt1     # fraction of trials that passed
+$report.PassPowK    # 1 only when every trial of every case passed
+```
+
+A case grades the observable **outcome** and the tool-call **trajectory**
+separately, because an agent that reaches the right answer by running a command
+it was forbidden has failed. Cost ceilings are graded too.
+
+```powershell
+@{
+    Name = 'policy-denial/refuses-an-ungranted-tool'
+    Tag  = @('policy-denial')
+    Setup    = { param($Trial) Set-ShpToolPolicy -TrustProfile RestrictedUnattended }
+    Teardown = { param($Trial) Clear-ShpToolPolicy }
+    Invoke   = { param($Trial) Invoke-Shp -Prompt 'Check the branch.' -RequestTransport $scripted @common }
+    ExpectOutcome    = @{ NoError = $true }
+    ExpectTrajectory = @{ DeniedMatch = 'run_command'; DeniedCount = 1 }
+    MaxCostUSD       = 0.05
+}
+```
+
+A grader ShellPilot does not implement is an error, not a pass. Credentialed
+live canaries are marked `Mode = 'LiveCanary'` and are skipped unless
+`-IncludeLiveCanary` is passed, so they stay out of the deterministic gate and
+are reported as skipped rather than quietly absent. The repository's own cases
+live in `tests/Eval` and run with `./build.ps1 -Tasks test`.
+
+### Tool visibility
 Select exact names across built-in, User, and namespaced MCP tools:
 
 ```powershell
@@ -705,6 +843,8 @@ wrapper's job. See
 | Estimation | `ConvertTo-ShpTokenCount`, `Get-ShpCostEstimate` |
 | Usage | `Get-ShpUsage`, `Clear-ShpUsage` |
 | Context | `Set-ShpContext`, `Get-ShpContext`, `Clear-ShpContext` |
+| Tool policy | `Set-ShpToolPolicy`, `Get-ShpToolPolicy`, `Clear-ShpToolPolicy` |
+| Evaluation | `Invoke-ShpEval` |
 | CI | `Test-ShpCiReadiness` |
 
 <!-- markdownlint-enable MD013 -->
@@ -727,11 +867,20 @@ Every cmdlet has full comment-based help: `Get-Help Invoke-Shp -Full`.
 - **Unsandboxed tools.** `run_command` and the file tools run with your full
   privileges and no path sandboxing; user tools run arbitrary commands. They are
   opt-out (`-DisableTerminal`, `-DisableFileAccess`, `-DisableUserTools`).
-  Disable them for untrusted prompts.
+  Disable them for untrusted prompts. `Set-ShpToolPolicy` scopes what they may
+  reach and `-ExecutionContract` is where you connect containment of your own;
+  neither is a sandbox supplied by this module.
 - **Copilot backend in CI.** Unattended use of the default backend spends the
   token owner's personal entitlement, so it is refused when `$env:CI` is truthy
   unless `SHELLPILOT_ALLOW_COPILOT_BACKEND_IN_CI` is set. An alternative backend
-  (`-ApiBase`) never carries the Copilot session token.
+  (`-ApiBase`) resolves no GitHub OAuth token, exchanges no Copilot session
+  token, and can therefore never be sent one. `Request-ShpEmbedding` still
+  exchanges a session token on every call, including against an alternative
+  backend.
+- **Schema conformance.** `-JsonSchema` replies and an MCP tool's
+  `structuredContent` are checked locally against a documented subset of JSON
+  Schema. A schema using `$ref` or composition is reported as *unchecked*
+  rather than as conforming, and never trips `-FailOn SchemaMismatch`.
 - **Server-side state.** `-UseServerSideState` is not supported by the Copilot
   backend (it is stateless) and falls back automatically to client-side history.
 - **Streaming.** Live streaming is the default on the chat shape only.

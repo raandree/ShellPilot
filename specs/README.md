@@ -13,7 +13,7 @@ Design and scope documents for ShellPilot. Start with the overview, then the
 open decisions. The numbered specs that follow each describe a single pattern,
 its design, and its source hook points.
 
-> **Status:** the numbered patterns below (002-028 and 030-031) are implemented.
+> **Status:** the numbered patterns below (002-028 and 030-037) are implemented.
 > Each spec's own `## Status` section records the current state, including any
 > backend caveat (for example server-side state, which the Copilot proxy does
 > not support and which falls back to client-side history). The tiers below
@@ -56,6 +56,12 @@ numbered specs below are the implemented ones.
 - [CI annotation formatter](028-ci-annotations.md)
 - [Host request transport and conditional admission](030-host-request-transport.md)
 - [Deferred Tool schema loading](031-deferred-tool-loading.md)
+- [Deterministic agent evals](032-deterministic-agent-evals.md)
+- [Restricted unattended Tool policy](033-restricted-unattended-tool-policy.md)
+- [Output contract validation](034-output-contract-validation.md)
+- [Backend credential separation](035-backend-credential-separation.md)
+- [Tool-call decision controls](036-tool-call-decision-controls.md)
+- [Execution containment contract](037-execution-containment-contract.md)
 
 ### Tier 2
 

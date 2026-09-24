@@ -375,6 +375,11 @@ $script:ShpDecisionReasonMaxChars = 256
 $script:ShpDecisionPolicyIdMaxChars = 128
 $script:ShpDecisionReceiptMax = 500
 
+# Shape version of the ShellPilot.EvalReport object (Invoke-ShpEval). Bumped
+# only by a breaking change to that report, so a gate that reads PassAt1 and
+# PassPowK can tell that the contract it was written against still holds.
+$script:ShpEvalSchemaVersion = 1
+
 # Built-in bounds for an attached MCP server. Every one of them bounds input the
 # module did not author: the endpoint refuses a tool name outside
 # ^[a-zA-Z0-9_-]{1,128}$ (measured, not assumed), a tool description is read by

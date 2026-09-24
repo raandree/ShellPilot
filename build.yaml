@@ -112,6 +112,12 @@ Pester:
   Script:
     - tests/QA
     - tests/Unit
+    # Deterministic agent-behavior evals. They call no model, read no
+    # credential and send no request - a scripted transport drives the real
+    # Tool-calling loop - so they belong in the ordinary gate beside the unit
+    # suite. Credentialed live canaries are marked LiveCanary and are skipped
+    # by Invoke-ShpEval unless a caller explicitly opts in.
+    - tests/Eval
   ExcludeTag:
   Tag:
   CodeCoverageThreshold: 85
