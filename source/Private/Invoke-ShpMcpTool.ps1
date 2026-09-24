@@ -28,6 +28,11 @@ function Invoke-ShpMcpTool {
     .PARAMETER Argument
         The arguments object the model supplied.
 
+    .PARAMETER TraceContext
+        Trace identity to propagate into the request's _meta, so a server that
+        emits its own telemetry lands under this call's span. Modern era only,
+        and never over a key the caller already set.
+
     .EXAMPLE
         Invoke-ShpMcpTool -ServerName files -ToolName read_text_file -Argument $fargs
 
@@ -54,7 +59,9 @@ function Invoke-ShpMcpTool {
         [string]$ToolName,
 
         [AllowNull()]
-        $Argument
+        $Argument,
+
+        [hashtable]$TraceContext
     )
 
     if (-not $script:ShpMcpServers.Contains($ServerName)) {
@@ -83,6 +90,7 @@ function Invoke-ShpMcpTool {
         TimeoutSec = $record.RequestTimeoutSec
     }
     if ($record.Era -eq 'modern') { $call['ProtocolVersion'] = $record.ProtocolVersion }
+    if ($TraceContext) { $call['TraceContext'] = $TraceContext }
 
     $response = Invoke-ShpMcpRequest @call
 

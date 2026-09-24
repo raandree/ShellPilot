@@ -31,7 +31,8 @@ function Write-ShpEvent {
     .PARAMETER State
         The stream state table, mutated in place: Enabled (false stops every
         further write), Path (a full file path, or '-' for the Information
-        stream), Sequence (the last number issued) and Redact.
+        stream), Sequence (the last number issued), Redact, and an optional
+        Trace table carrying TraceId, ParentSpanId, SpanKey, RunId and TurnId.
 
     .PARAMETER Type
         The event type, for example 'tool.call' or 'final'. See spec 027 for the
@@ -39,6 +40,15 @@ function Write-ShpEvent {
 
     .PARAMETER Data
         The type-specific payload. Scalar values only; anything else is dropped.
+
+    .PARAMETER SpanKey
+        The span this record belongs to, within the state's trace. Defaults to
+        the state's own span.
+
+    .PARAMETER ParentSpanKey
+        The span that owns this record's span. Defaults to the state's own span
+        when -SpanKey names a different one, and to the state's parent
+        otherwise.
 
     .EXAMPLE
         Write-ShpEvent -State $eventState -Type 'final' -Data @{ finishReason = 'stop' }
@@ -58,7 +68,13 @@ function Write-ShpEvent {
         [ValidateNotNullOrEmpty()]
         [string]$Type,
 
-        [System.Collections.IDictionary]$Data
+        [System.Collections.IDictionary]$Data,
+
+        [AllowEmptyString()]
+        [string]$SpanKey,
+
+        [AllowEmptyString()]
+        [string]$ParentSpanKey
     )
 
     if (-not $State['Enabled']) { return }
@@ -97,8 +113,33 @@ function Write-ShpEvent {
         sequence      = $State['Sequence']
         timestamp     = [datetime]::UtcNow.ToString('o', [cultureinfo]::InvariantCulture)
         type          = $Type
-        data          = $payloadData
     }
+
+    # Trace identity, stamped only when the caller supplied one. A stream
+    # written by an older caller keeps exactly the shape it had, which is what
+    # makes this additive rather than a schema break.
+    $trace = $State['Trace']
+    if ($trace -and -not [string]::IsNullOrWhiteSpace([string]$trace['TraceId'])) {
+        $traceId = [string]$trace['TraceId']
+        $runId = [string]$trace['RunId']
+        $stateSpanKey = if ([string]::IsNullOrWhiteSpace([string]$trace['SpanKey'])) { 'turn' } else { [string]$trace['SpanKey'] }
+        $scope = { param($key) New-ShpSpanId -TraceId $traceId -Key ('{0}|{1}' -f $runId, $key) }
+
+        $effectiveSpanKey = if ([string]::IsNullOrWhiteSpace($SpanKey)) { $stateSpanKey } else { $SpanKey }
+        $record['traceId'] = $traceId
+        $record['spanId'] = & $scope $effectiveSpanKey
+        $record['parentSpanId'] = if (-not [string]::IsNullOrWhiteSpace($ParentSpanKey)) {
+            & $scope $ParentSpanKey
+        } elseif ($effectiveSpanKey -ne $stateSpanKey) {
+            & $scope $stateSpanKey
+        } else {
+            [string]$trace['ParentSpanId']
+        }
+        $record['runId'] = $runId
+        if (-not [string]::IsNullOrWhiteSpace([string]$trace['TurnId'])) { $record['turnId'] = [string]$trace['TurnId'] }
+    }
+
+    $record['data'] = $payloadData
 
     $line = $record | ConvertTo-Json -Depth 6 -Compress
 

@@ -323,6 +323,24 @@ $script:ShpBuiltInRedactionPattern = @(
 # recognise and must not treat an unknown type as an error.
 $script:ShpEventSchemaVersion = 1
 
+# Shape version of the trace identity stamped alongside every event record
+# (spec 042): traceId, spanId, parentSpanId, runId and turnId. Separate from the
+# event schema version on purpose - the identity is additive to the record, so a
+# collector that only reads the older fields is unaffected, and a collector that
+# reads the identity has its own number to check.
+$script:ShpTraceSchemaVersion = 1
+
+# Version of the Event-stream-to-OpenTelemetry mapping (ConvertTo-ShpOtelTrace).
+# DEVELOPMENTAL, and named so on every report: the semantic conventions for
+# generative-AI and agent spans are themselves still moving, so attribute names
+# here may change without a breaking change to anything else in this module. A
+# caller may state the version it was written against; one this module does not
+# implement is refused rather than approximated.
+$script:ShpOtelMappingVersion = '0.1'
+$script:ShpOtelSupportedMappingVersion = @('0.1')
+$script:ShpOtelScopeName = 'ShellPilot'
+$script:ShpOtelDefaultServiceName = 'shellpilot'
+
 # Attached MCP servers (see Register-ShpMcpServer). Maps a caller-chosen alias
 # to a record carrying the child process, its stdio streams, the negotiated
 # protocol era and version, and the tool list captured at registration.

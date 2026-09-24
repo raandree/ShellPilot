@@ -159,4 +159,65 @@ Describe 'Invoke-ShpMcpRequest' {
             $response.Error.message | Should -Match 'Failed to write'
         }
     }
+
+    Context 'Trace context in _meta' {
+        It 'Propagates a W3C traceparent into a modern request' {
+            InModuleScope $script:moduleName {
+                $writer = [System.IO.StringWriter]::new()
+                $reader = [System.IO.StringReader]::new('{"jsonrpc":"2.0","id":"abc","result":{}}')
+
+                $null = Invoke-ShpMcpRequest -Writer $writer -Reader $reader -Method 'tools/call' -Id 'abc' `
+                    -ProtocolVersion '2026-07-28' `
+                    -TraceContext @{ TraceParent = '00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01'; TraceState = 'shp=1' }
+
+                $sent = $writer.ToString() | ConvertFrom-Json
+                $sent.params._meta.traceparent | Should -BeExactly '00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01'
+                $sent.params._meta.tracestate | Should -BeExactly 'shp=1'
+            }
+        }
+
+        It 'Leaves the protocol metadata the modern era requires untouched' {
+            InModuleScope $script:moduleName {
+                $writer = [System.IO.StringWriter]::new()
+                $reader = [System.IO.StringReader]::new('{"jsonrpc":"2.0","id":"abc","result":{}}')
+
+                $null = Invoke-ShpMcpRequest -Writer $writer -Reader $reader -Method 'tools/call' -Id 'abc' `
+                    -ProtocolVersion '2026-07-28' -ClientInfo @{ name = 'ShellPilot'; version = '1.0.0' } `
+                    -TraceContext @{ TraceParent = '00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01' }
+
+                $sent = $writer.ToString() | ConvertFrom-Json
+                $sent.params._meta.'io.modelcontextprotocol/protocolVersion' | Should -Be '2026-07-28'
+                $sent.params._meta.'io.modelcontextprotocol/clientInfo'.name | Should -Be 'ShellPilot'
+            }
+        }
+
+        It 'Never overwrites a traceparent the caller already placed in _meta' {
+            InModuleScope $script:moduleName {
+                $writer = [System.IO.StringWriter]::new()
+                $reader = [System.IO.StringReader]::new('{"jsonrpc":"2.0","id":"abc","result":{}}')
+
+                $null = Invoke-ShpMcpRequest -Writer $writer -Reader $reader -Method 'tools/call' -Id 'abc' `
+                    -ProtocolVersion '2026-07-28' `
+                    -Params @{ name = 'echo'; _meta = @{ traceparent = 'caller-owned'; 'com.example/tag' = 'keep' } } `
+                    -TraceContext @{ TraceParent = '00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01' }
+
+                $sent = $writer.ToString() | ConvertFrom-Json
+                $sent.params._meta.traceparent | Should -BeExactly 'caller-owned'
+                $sent.params._meta.'com.example/tag' | Should -BeExactly 'keep'
+            }
+        }
+
+        It 'Sends no trace context to a legacy server, which carries no per-request metadata' {
+            InModuleScope $script:moduleName {
+                $writer = [System.IO.StringWriter]::new()
+                $reader = [System.IO.StringReader]::new('{"jsonrpc":"2.0","id":"abc","result":{}}')
+
+                $null = Invoke-ShpMcpRequest -Writer $writer -Reader $reader -Method 'tools/list' -Id 'abc' `
+                    -TraceContext @{ TraceParent = '00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01' }
+
+                $sent = $writer.ToString() | ConvertFrom-Json
+                $sent.PSObject.Properties['params'] | Should -BeNullOrEmpty
+            }
+        }
+    }
 }

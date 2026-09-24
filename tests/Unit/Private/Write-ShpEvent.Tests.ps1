@@ -194,4 +194,72 @@ Describe 'Write-ShpEvent' {
             $warnings.Enabled | Should -BeFalse
         }
     }
+
+    Context 'Trace identity' {
+        It 'Should stamp the trace, span, parent, run and turn identity carried by the state' {
+            $path = Join-Path -Path $script:eventRoot -ChildPath 'trace.jsonl'
+            InModuleScope $script:moduleName -Parameters @{ Path = $path } {
+                param($Path)
+
+                $state = @{
+                    Enabled  = $true
+                    Path     = $Path
+                    Sequence = 0
+                    Redact   = $false
+                    Trace    = @{
+                        TraceId      = '4bf92f3577b34da6a3ce929d0e0e4736'
+                        ParentSpanId = '00f067aa0ba902b7'
+                        SpanKey      = 'turn'
+                        RunId        = 'run-1'
+                        TurnId       = 'turn-1'
+                    }
+                }
+                Write-ShpEvent -State $state -Type 'turn.start' -Data @{ model = 'm' }
+            }
+
+            $record = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json
+            $record.traceId | Should -BeExactly '4bf92f3577b34da6a3ce929d0e0e4736'
+            $record.spanId | Should -Match '^[0-9a-f]{16}$'
+            $record.parentSpanId | Should -BeExactly '00f067aa0ba902b7'
+            $record.runId | Should -BeExactly 'run-1'
+            $record.turnId | Should -BeExactly 'turn-1'
+        }
+
+        It 'Should derive a per-emission span from the span key and parent it on the state span' {
+            $path = Join-Path -Path $script:eventRoot -ChildPath 'trace-keys.jsonl'
+            InModuleScope $script:moduleName -Parameters @{ Path = $path } {
+                param($Path)
+
+                $state = @{
+                    Enabled  = $true
+                    Path     = $Path
+                    Sequence = 0
+                    Redact   = $false
+                    Trace    = @{ TraceId = '4bf92f3577b34da6a3ce929d0e0e4736'; ParentSpanId = ''; SpanKey = 'turn'; RunId = 'r'; TurnId = 't' }
+                }
+                Write-ShpEvent -State $state -Type 'turn.start' -Data @{ model = 'm' }
+                Write-ShpEvent -State $state -Type 'tool.call' -Data @{ tool = 'read_file' } -SpanKey 'tool:call-1' -ParentSpanKey 'iteration:1'
+            }
+
+            $records = @(Get-Content -LiteralPath $path | ConvertFrom-Json)
+            $turnSpan = $records[0].spanId
+            $records[1].spanId | Should -Not -BeExactly $turnSpan
+            $records[1].parentSpanId | Should -Not -BeExactly ''
+            $records[1].parentSpanId | Should -Not -BeExactly $records[1].spanId
+        }
+
+        It 'Should stamp nothing when the state carries no trace, so an older stream shape is unchanged' {
+            $path = Join-Path -Path $script:eventRoot -ChildPath 'no-trace.jsonl'
+            InModuleScope $script:moduleName -Parameters @{ Path = $path } {
+                param($Path)
+
+                $state = @{ Enabled = $true; Path = $Path; Sequence = 0; Redact = $false }
+                Write-ShpEvent -State $state -Type 'final' -Data @{ finishReason = 'stop' }
+            }
+
+            $record = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json
+            $record.PSObject.Properties.Name | Should -Not -Contain 'traceId'
+            $record.PSObject.Properties.Name | Should -Not -Contain 'spanId'
+        }
+    }
 }

@@ -574,6 +574,18 @@ function Invoke-Shp {
         decision but never the command line, which is where a credential
         passed on a command line would otherwise land.
 
+        Every record also carries the call's trace identity - traceId, spanId,
+        parentSpanId, runId and turnId - so the stream translates into spans
+        with ConvertTo-ShpOtelTrace without a correlation table.
+
+    .PARAMETER TraceParent
+        Continue an inbound W3C traceparent
+        ('00-<32 hex trace>-<16 hex span>-<2 hex flags>') instead of starting a
+        new trace. This is what puts a Batch item, a Job or a Subagent under
+        the span that dispatched it. A malformed value is refused before the
+        call spends anything, because a silently fresh trace produces an export
+        that looks complete and is not.
+
     .PARAMETER AsJob
         Run the call in a background thread job and return the job object
         immediately. Receive-Job resolves it to the same ShellPilot.Result the
@@ -1108,6 +1120,9 @@ function Invoke-Shp {
         [ValidateNotNullOrEmpty()]
         [string]$EventStream,
 
+        [ValidateNotNullOrEmpty()]
+        [string]$TraceParent,
+
         [switch]$AsJob,
 
         [switch]$UseServerSideState,
@@ -1185,6 +1200,13 @@ function Invoke-Shp {
     # Event record from this invocation correlates without the caller having to
     # stitch timestamps together.
     $runId = [guid]::NewGuid().ToString('N')
+    # Trace identity, resolved HERE - before the token exchange, before the
+    # first request, and before -AsJob hands the call away - so a malformed
+    # inbound traceparent costs nothing to discover and so the job handoff has
+    # a resolved context to forward.
+    $traceParams = @{ RunId = $runId }
+    if ($PSBoundParameters.ContainsKey('TraceParent')) { $traceParams['TraceParent'] = $TraceParent }
+    $traceContext = New-ShpTraceContext @traceParams
     $toolCallDecisions = [System.Collections.Generic.List[object]]::new()
 
     # Session chat persistence is refused for the two combinations where the
@@ -1402,6 +1424,10 @@ function Invoke-Shp {
         # The job runspace does not inherit the caller's location, so a relative
         # stream path would land somewhere else.
         if ($null -ne $eventStreamPath) { $jobParams['EventStream'] = $eventStreamPath }
+        # The job runspace mints its own run id, so without this its records
+        # would start a second trace and the two halves of one dispatch would
+        # never join up.
+        $jobParams['TraceParent'] = $traceContext.TraceParent
         return Start-ShpJob -Command 'Invoke-Shp' -Parameter $jobParams
     }
 
@@ -1700,6 +1726,41 @@ function Invoke-Shp {
         Path     = $eventStreamPath
         Sequence = $eventStreamSequence
         Redact   = -not $DisableRedaction
+        Trace    = @{
+            TraceId      = $traceContext.TraceId
+            ParentSpanId = $traceContext.ParentSpanId
+            SpanKey      = $traceContext.SpanKey
+            RunId        = $runId
+            TurnId       = ''
+        }
+    }
+    # Which span a record belongs to, decided in ONE place. A Tool call belongs
+    # to the model response it arrived in, and that response belongs to the
+    # turn, so the tree is reconstructable from the stream alone - no collector
+    # has to infer nesting from timestamps.
+    $spanKeyFor = {
+        param([string]$Type, [hashtable]$Data)
+
+        switch ($Type) {
+            'turn.start' { return @{} }
+            'final'      { return @{} }
+            { $_ -in 'tool.call', 'tool.result', 'todo' } {
+                if ($Data -and $Data['callId']) {
+                    return @{ SpanKey = ('tool:{0}' -f $Data['callId']); ParentSpanKey = ('iteration:{0}' -f $Data['iteration']) }
+                }
+                return @{ SpanKey = ('iteration:{0}' -f $Data['iteration']) }
+            }
+            'tool.decision' {
+                return @{ SpanKey = ('decision:{0}:{1}' -f $Data['callId'], $Data['phase']); ParentSpanKey = ('tool:{0}' -f $Data['callId']) }
+            }
+            'mcp.request' {
+                return @{ SpanKey = ('mcp:{0}' -f $Data['callId']); ParentSpanKey = ('tool:{0}' -f $Data['callId']) }
+            }
+            default {
+                if ($Data -and $null -ne $Data['iteration']) { return @{ SpanKey = ('iteration:{0}' -f $Data['iteration']) } }
+                return @{}
+            }
+        }
     }
     $emit = {
         param([string]$Type, [hashtable]$Data)
@@ -1722,7 +1783,8 @@ function Invoke-Shp {
                 $eventData.Remove('arguments')
                 $eventData['argumentsWithheld'] = $true
             }
-            Write-ShpEvent -State $eventState -Type $Type -Data $eventData
+            $spanParams = & $spanKeyFor $Type $Data
+            Write-ShpEvent -State $eventState -Type $Type -Data $eventData @spanParams
         }
     }
     # Circuit breaker: some models (notably claude-haiku-4.5 on /chat/completions)
@@ -1832,6 +1894,7 @@ function Invoke-Shp {
         # response it came in, and a decision or an execution request has to
         # name that response to be correlatable afterwards.
         $turnId = [guid]::NewGuid().ToString('N')
+        $eventState['Trace']['TurnId'] = $turnId
         $iterationRequestId = [guid]::NewGuid().ToString('N')
         if ($ShowThinking) { Write-Host ("`n=== iteration {0} ({1}) ===" -f $iteration, $apiMode) -ForegroundColor DarkCyan }
         try {
@@ -2584,7 +2647,25 @@ function Invoke-Shp {
                                         $callExecution = $(if ($contractOutcome.Outcome -eq 'Executed') { 'Contract' } else { 'ContractDenied' })
                                         $toolResult = $(if ($contractOutcome.Outcome -eq 'Executed') { $contractOutcome.Result } else { @{ denied = $contractOutcome.Reason } | ConvertTo-Json -Compress })
                                     } else {
-                                        $toolResult = Invoke-ShpMcpTool -ServerName $mcpTarget.Server -ToolName $mcpTarget.Tool -Argument $fargs
+                                        # One span per MCP request, parented on
+                                        # the Tool call that caused it, and the
+                                        # same trace context propagated into the
+                                        # request's own _meta - so a server that
+                                        # exports its own traces lands under
+                                        # this one rather than beside it.
+                                        $mcpRecord = $script:ShpMcpServers[$mcpTarget.Server]
+                                        & $emit 'mcp.request' @{
+                                            iteration       = $iteration
+                                            callId          = $tc.Id
+                                            server          = $mcpTarget.Server
+                                            tool            = $mcpTarget.Tool
+                                            method          = 'tools/call'
+                                            era             = $(if ($mcpRecord) { [string]$mcpRecord.Era } else { '' })
+                                            protocolVersion = $(if ($mcpRecord) { [string]$mcpRecord.ProtocolVersion } else { '' })
+                                            transport       = $(if ($mcpRecord) { [string]$mcpRecord.Transport } else { '' })
+                                        }
+                                        $mcpTrace = New-ShpTraceContext -RunId $runId -TraceParent $traceContext.TraceParent -SpanKey ('mcp:{0}' -f $tc.Id)
+                                        $toolResult = Invoke-ShpMcpTool -ServerName $mcpTarget.Server -ToolName $mcpTarget.Tool -Argument $fargs -TraceContext $mcpTrace
                                     }
                                     if ($callExecution -ne 'ContractDenied' -and -not $mcpToolsCalled.Contains($tc.Name)) { $null = $mcpToolsCalled.Add($tc.Name) }
                                 } else {
@@ -2961,6 +3042,15 @@ function Invoke-Shp {
         InstructionsLoaded=@($instructionsLoaded)
         SkillsAvailable=@($skillCatalog.Name)
         SkillsUsed=@($skillsUsed)
+        Trace=[pscustomobject]@{
+            SchemaVersion = $traceContext.SchemaVersion
+            TraceId       = $traceContext.TraceId
+            SpanId        = $traceContext.SpanId
+            ParentSpanId  = $traceContext.ParentSpanId
+            RunId         = $runId
+            Sampled       = $traceContext.Sampled
+            TraceParent   = $traceContext.TraceParent
+        }
         DurationMs=[int]$sw.Elapsed.TotalMilliseconds
         Endpoint="$(if ($usingAltBackend) { $backend.SafeApiBase } else { $apiBase })$(if ($turn.Mode -eq 'responses') {'/responses'} else {'/chat/completions'})"
         Headers=$rawHeaders; Raw=$turn.Raw

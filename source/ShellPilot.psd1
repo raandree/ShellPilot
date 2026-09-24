@@ -93,6 +93,7 @@ FunctionsToExport = @(
     'Clear-ShpContext'
     'Test-ShpCiReadiness'
     'ConvertTo-ShpAnnotation'
+    'ConvertTo-ShpOtelTrace'
     'ConvertTo-ShpTokenCount'
     'Get-ShpCostEstimate'
     'Register-ShpTool'

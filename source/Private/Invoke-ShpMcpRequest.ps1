@@ -53,6 +53,12 @@ function Invoke-ShpMcpRequest {
     .PARAMETER ClientInfo
         The client name and version to declare in _meta.
 
+    .PARAMETER TraceContext
+        Trace identity to propagate, as a table carrying TraceParent and an
+        optional TraceState. Sent only in the modern era, which is the only one
+        with per-request metadata, and only into keys the caller has not already
+        used: a caller's own _meta entry always wins.
+
     .EXAMPLE
         Invoke-ShpMcpRequest -Writer $w -Reader $r -Method 'tools/list' -ProtocolVersion '2026-07-28'
 
@@ -90,7 +96,9 @@ function Invoke-ShpMcpRequest {
 
         [string]$ProtocolVersion,
 
-        [hashtable]$ClientInfo
+        [hashtable]$ClientInfo,
+
+        [hashtable]$TraceContext
     )
 
     if ([string]::IsNullOrWhiteSpace($Id)) { $Id = [guid]::NewGuid().ToString('N').Substring(0, 12) }
@@ -110,6 +118,18 @@ function Invoke-ShpMcpRequest {
         $meta['io.modelcontextprotocol/protocolVersion'] = $ProtocolVersion
         $meta['io.modelcontextprotocol/clientCapabilities'] = @{}
         if ($ClientInfo) { $meta['io.modelcontextprotocol/clientInfo'] = $ClientInfo }
+        # Additive only. The caller's _meta - and the server-facing metadata the
+        # era already requires - is never overwritten by trace propagation: a
+        # traceparent is useful context, not a reason to redefine somebody
+        # else's key.
+        if ($TraceContext) {
+            if (-not $meta.ContainsKey('traceparent') -and -not [string]::IsNullOrWhiteSpace([string]$TraceContext['TraceParent'])) {
+                $meta['traceparent'] = [string]$TraceContext['TraceParent']
+            }
+            if (-not $meta.ContainsKey('tracestate') -and -not [string]::IsNullOrWhiteSpace([string]$TraceContext['TraceState'])) {
+                $meta['tracestate'] = [string]$TraceContext['TraceState']
+            }
+        }
         $effectiveParams['_meta'] = $meta
     }
     if ($effectiveParams.Count -gt 0) { $payload['params'] = $effectiveParams }

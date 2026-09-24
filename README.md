@@ -599,6 +599,34 @@ $job = Invoke-ShpBatch -Prompt $prompts -ThrottleLimit 8 -AsJob
 Receive-Job -Job $job -Wait -AutoRemoveJob | Sort-Object Index
 ```
 
+### Trace identity and OpenTelemetry export
+
+Every event record also carries `traceId`, `spanId`, `parentSpanId`, `runId`
+and `turnId`, so the stream describes what contained what rather than only what
+happened in which order. `ConvertTo-ShpOtelTrace` turns it into
+OpenTelemetry-compatible spans - and `-Format Otlp` into the `resourceSpans`
+document an OTLP/HTTP collector accepts.
+
+```powershell
+Invoke-Shp -Prompt 'Audit the build log.' -EventStream ./run.jsonl -NonInteractive
+ConvertTo-ShpOtelTrace -Path ./run.jsonl | Select-Object -ExpandProperty Spans
+ConvertTo-ShpOtelTrace -Path ./run.jsonl -Format Otlp -ServiceName 'ci-agent' |
+    ConvertTo-Json -Depth 12 | Set-Content ./otlp.json
+```
+
+There is no OpenTelemetry runtime dependency: this is a translation, and
+posting the document is your step with your own transport. Span ids are derived
+from the trace, the run and a stable key, so `-AsJob`, `Invoke-ShpBatch
+-TraceParent` and a Subagent all land under the span that dispatched them; pass
+`Invoke-Shp -TraceParent` to continue a trace your own system started, and read
+`$result.Trace` to continue it somewhere else. **Content is off by default** -
+prompts, answers, tool arguments, result previews and reasoning are withheld
+and only their lengths and counts exported. `-IncludeContent` opts in, and what
+it includes still goes through the redaction seam. The mapping version is
+reported as `developmental` and may change; state `-MappingVersion` to get an
+error instead of a silent re-shape. See
+[specs/042-trace-identity-and-otel-export.md](specs/042-trace-identity-and-otel-export.md).
+
 ### Instructions and Agent Skills
 
 Reuse the same VS Code customisation files. Point at a folder and the model
@@ -914,6 +942,7 @@ wrapper's job. See
 | Context | `Set-ShpContext`, `Get-ShpContext`, `Clear-ShpContext` |
 | Tool policy | `Set-ShpToolPolicy`, `Get-ShpToolPolicy`, `Clear-ShpToolPolicy` |
 | Evaluation | `Invoke-ShpEval` |
+| Telemetry | `ConvertTo-ShpOtelTrace` |
 | CI | `Test-ShpCiReadiness` |
 
 <!-- markdownlint-enable MD013 -->

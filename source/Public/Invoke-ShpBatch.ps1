@@ -332,6 +332,11 @@ function Invoke-ShpBatch {
         context (Set-ShpContext -GitHubToken, replayed into every worker), then
         $env:SHELLPILOT_GITHUB_TOKEN, then the default token file.
 
+    .PARAMETER TraceParent
+        Continue an inbound W3C traceparent, so every item's Event records land
+        under the span that dispatched the batch rather than starting N
+        unrelated traces. Each item still gets its own run id and its own span.
+
     .EXAMPLE
         Invoke-ShpBatch -Prompt 'What is PowerShell?', 'What is DSC?', 'What is Pester?'
 
@@ -535,7 +540,10 @@ function Invoke-ShpBatch {
         [string]$TokenPath,
 
         [AllowEmptyString()]
-        [string]$GitHubHost
+        [string]$GitHubHost,
+
+        [ValidateNotNullOrEmpty()]
+        [string]$TraceParent
     )
 
     begin {
@@ -611,7 +619,7 @@ function Invoke-ShpBatch {
                 'ContextReport', 'ToolResultSpillRoot', 'ToolResultSpillThresholdChars',
                 'ToolCallControl', 'ExecutionContract',
                 'MaxToolIterations', 'MaxContextWindowTokens', 'MaxBudgetUSD', 'FailOn',
-                'ApiBase', 'TimeoutSec', 'MaxRetryCount', 'RetryDelaySec', 'NetworkOutageToleranceSec', 'TokenPath', 'GitHubHost')) {
+                'ApiBase', 'TimeoutSec', 'MaxRetryCount', 'RetryDelaySec', 'NetworkOutageToleranceSec', 'TokenPath', 'GitHubHost', 'TraceParent')) {
             if ($PSBoundParameters.ContainsKey($name)) { $invokeParams[$name] = $PSBoundParameters[$name] }
         }
 

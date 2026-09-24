@@ -195,6 +195,11 @@ Every record has these five fields:
 | `type` | string | One of the types below |
 | `data` | object | Flat, scalars only; type-specific |
 
+Since [spec 042](042-trace-identity-and-otel-export.md) a record also carries
+`traceId`, `spanId`, `parentSpanId`, `runId` and `turnId`. Those fields are
+**additive** and are stamped only when the writer supplies a trace, so a stream
+produced without one keeps exactly the shape above.
+
 ### `type` to `data`
 
 | `type` | `data` fields |
@@ -205,6 +210,7 @@ Every record has these five fields:
 | `reasoning` | `iteration`, `text`, `length` (emitted text characters). Under `-ShowThinking`, one per streamed reasoning chunk; one summary for a buffered or Responses API trace |
 | `tool.call` | `iteration`, `tool`, `callId`, `policy` (`allowed`/`denied`/`error`), `reason`, and either `arguments` or `argumentsWithheld` (`run_command`) |
 | `tool.result` | `iteration`, `tool`, `callId`, `preview` (first 200 characters), `length`, `truncated` |
+| `mcp.request` | `iteration`, `callId`, `server`, `tool`, `method`, `era`, `protocolVersion`, `transport` |
 | `todo` | `iteration`, `total`, `completed`, `current` |
 | `retry` | `iteration`, `reason` (`TransientHttpFailure`, `NetworkOutage`, `SessionTokenExpired`, `ServerSideStateUnsupported`, `ApiShapeSwitch`, `ReasoningSummaryRejected`), `detail`; request-wrapper retries also carry `attempt`, `delaySeconds`, `statusCode` |
 | `error` | `iteration`, `reason` (`RequestFailed`, `ToolIterationLimit`, `UserPromptUnavailable`, `FailOn`), `message`, and `errorId` / `statusCode` / `errorCode` where they exist |
