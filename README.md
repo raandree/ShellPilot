@@ -497,12 +497,13 @@ Unregister-ShpTool -All
 ### MCP servers
 
 Attach an MCP (Model Context Protocol) server and its tools are offered to the
-model beside the built-ins, namespaced `mcp_<alias>_<tool>`. stdio transport;
-both the current `2026-07-28` revision and the older handshake-based era are
-supported, decided by a `server/discover` probe.
+model beside the built-ins, namespaced `mcp_<alias>_<tool>`. Local stdio and
+remote Streamable HTTP; both the current `2026-07-28` revision and the older
+handshake-based era are supported, decided by a `server/discover` probe.
 
 ```powershell
 Register-ShpMcpServer -Name files -Command npx -Argument '-y','@modelcontextprotocol/server-filesystem','C:\work'
+Register-ShpMcpServer -Name docs -Url https://mcp.example.com/mcp -Header @{ 'X-Api-Key' = $key }
 Invoke-Shp -Prompt 'List the markdown files in the work folder and summarise them.'
 Get-ShpMcpServer
 Unregister-ShpMcpServer -All
@@ -513,13 +514,26 @@ file is a command line. `-Path` reads a file you name (both the VS Code
 `servers` shape and the Claude Desktop `mcpServers` shape). Opt out for one
 call with `Invoke-Shp -DisableMcp`.
 
-> **An MCP server is a third-party process running with your privileges, and
-> there is no sandbox.** Its tool descriptions are untrusted input that the
-> model reads on every round-trip, and its results are untrusted content.
-> `Set-ShpToolPolicy` **cannot** gate an MCP call - its rules match resolved
-> paths and command tokens, and a tool call has neither - so a policy scoping
-> `read_file` does nothing about an attached filesystem server. Reduce reach at
-> attachment with `-ToolName`, and see
+A remote endpoint is validated before a byte is sent: HTTPS only (plain http
+needs `-AllowLoopbackHttp` **and** a loopback address), no embedded credentials,
+no fragment, and every address it resolves to must be publicly routable - so a
+model cannot steer an attachment at the cloud metadata service or an intranet
+admin interface. The approved addresses are **pinned** and every redirect is
+re-checked against them. Response bodies, stream events and redirect chains are
+capped, nothing retries, and a request carries only the headers you named: no
+cookie, no default credential and no ambient proxy credential. A `401` is
+reported with its challenge and **refused** - `-CredentialCallback` (invoked per
+request, never stored) is the only authorization this client performs, because
+answering a third party's challenge with whatever token is in reach is how a
+client becomes a credential router. See
+[specs/043-mcp-remote-transport.md](specs/043-mcp-remote-transport.md).
+
+> **An MCP server is third-party code running with your privileges, and there is
+> no sandbox.** Its tool descriptions are untrusted input that the model reads
+> on every round-trip, and its results are untrusted content. A `Tool` policy
+> gates an MCP call by `Mcp(<alias>/<tool>)` and a remote attachment by its
+> `Url` rules, but neither is a sandbox. Reduce reach at attachment with
+> `-ToolName`, and see
 > [specs/021-mcp-server-support.md](specs/021-mcp-server-support.md).
 
 ### Todo list and live progress

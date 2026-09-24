@@ -59,6 +59,12 @@ function Invoke-ShpMcpRequest {
         with per-request metadata, and only into keys the caller has not already
         used: a caller's own _meta entry always wins.
 
+    .PARAMETER Channel
+        A transport channel to send through instead of a stdio reader/writer
+        pair - the seam a remote (Streamable HTTP) attachment is called over.
+        Its Invoke scriptblock receives the same request and returns the same
+        response shape this function does, so every layer above is unchanged.
+
     .EXAMPLE
         Invoke-ShpMcpRequest -Writer $w -Reader $r -Method 'tools/list' -ProtocolVersion '2026-07-28'
 
@@ -72,14 +78,17 @@ function Invoke-ShpMcpRequest {
     .LINK
         Connect-ShpMcpServer
     #>
-    [CmdletBinding()]
+    [CmdletBinding(DefaultParameterSetName = 'Stdio')]
     [OutputType([hashtable])]
     param(
-        [Parameter(Mandatory)]
+        [Parameter(Mandatory, ParameterSetName = 'Stdio')]
         [System.IO.TextWriter]$Writer,
 
-        [Parameter(Mandatory)]
+        [Parameter(Mandatory, ParameterSetName = 'Stdio')]
         [System.IO.TextReader]$Reader,
+
+        [Parameter(Mandatory, ParameterSetName = 'Channel')]
+        [hashtable]$Channel,
 
         [Parameter(Mandatory)]
         [ValidateNotNullOrEmpty()]
@@ -100,6 +109,18 @@ function Invoke-ShpMcpRequest {
 
         [hashtable]$TraceContext
     )
+
+    if ($PSCmdlet.ParameterSetName -eq 'Channel') {
+        $request = @{
+            Method       = $Method
+            TimeoutSec   = $TimeoutSec
+            Notification = [bool]$Notification
+        }
+        foreach ($name in 'Params', 'Id', 'ProtocolVersion', 'ClientInfo', 'TraceContext') {
+            if ($PSBoundParameters.ContainsKey($name)) { $request[$name] = $PSBoundParameters[$name] }
+        }
+        return (& $Channel['Invoke'] $request $Channel)
+    }
 
     if ([string]::IsNullOrWhiteSpace($Id)) { $Id = [guid]::NewGuid().ToString('N').Substring(0, 12) }
 

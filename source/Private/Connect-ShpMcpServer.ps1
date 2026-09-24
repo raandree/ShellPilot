@@ -43,6 +43,10 @@ function Connect-ShpMcpServer {
     .PARAMETER ClientInfo
         The client name and version reported to the server.
 
+    .PARAMETER Channel
+        A transport channel to probe through instead of a stdio reader/writer
+        pair, for a remote attachment.
+
     .EXAMPLE
         Connect-ShpMcpServer -Writer $w -Reader $r
 
@@ -60,14 +64,17 @@ function Connect-ShpMcpServer {
     .LINK
         Register-ShpMcpServer
     #>
-    [CmdletBinding()]
+    [CmdletBinding(DefaultParameterSetName = 'Stdio')]
     [OutputType([hashtable])]
     param(
-        [Parameter(Mandatory)]
+        [Parameter(Mandatory, ParameterSetName = 'Stdio')]
         [System.IO.TextWriter]$Writer,
 
-        [Parameter(Mandatory)]
+        [Parameter(Mandatory, ParameterSetName = 'Stdio')]
         [System.IO.TextReader]$Reader,
+
+        [Parameter(Mandatory, ParameterSetName = 'Channel')]
+        [hashtable]$Channel,
 
         [ValidateRange(1, 600)]
         [int]$TimeoutSec = 10,
@@ -78,7 +85,11 @@ function Connect-ShpMcpServer {
     $preferred = $script:ShpMcpModernProtocolVersion
     $legacyPreferred = $script:ShpMcpLegacyProtocolVersion
 
-    $common = @{ Writer = $Writer; Reader = $Reader; TimeoutSec = $TimeoutSec; ClientInfo = $ClientInfo }
+    $common = if ($PSCmdlet.ParameterSetName -eq 'Channel') {
+        @{ Channel = $Channel; TimeoutSec = $TimeoutSec; ClientInfo = $ClientInfo }
+    } else {
+        @{ Writer = $Writer; Reader = $Reader; TimeoutSec = $TimeoutSec; ClientInfo = $ClientInfo }
+    }
 
     # A modern DiscoverResult reports the server identity under a dotted _meta
     # key rather than a serverInfo property.

@@ -64,6 +64,14 @@ function Stop-ShpMcpProcess {
         $Record['SubscriberId'] = $null
     }
 
+    # A remote attachment has no child process to stop; dropping the channel is
+    # the whole of its shutdown, and it has to happen on the same path so a
+    # faulted remote server cannot keep a live sender - and a live credential
+    # callback - behind it.
+    if ($Record.ContainsKey('Channel') -and $Record['Channel']) {
+        $Record['Channel'] = $null
+    }
+
     if ($null -eq $process) { return @{ Exited = $true; Forced = $false; ExitCode = $null } }
 
     try {

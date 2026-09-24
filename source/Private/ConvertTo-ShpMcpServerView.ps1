@@ -71,6 +71,14 @@ function ConvertTo-ShpMcpServerView {
         WorkingDirectory = $Record.WorkingDirectory
         EnvironmentKey   = @($Record.EnvironmentKey)
         SandboxRequested = [bool]$Record.SandboxRequested
+        # The endpoint and the NAMES of the headers it was registered with.
+        # Never the header values, never the transport, and never the
+        # credential callback: a view is something a caller prints.
+        Url              = [string]$Record.Url
+        EndpointAddress  = @($Record.Address)
+        Loopback         = [bool]$Record.Loopback
+        HeaderName       = @($Record.HeaderName)
+        CredentialCallback = [bool]$Record.CredentialCallback
         ServerName       = $serverName
         ServerVersion    = $serverVersion
         Instructions     = $Record.Instructions

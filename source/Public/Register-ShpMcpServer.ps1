@@ -66,6 +66,53 @@ function Register-ShpMcpServer {
         ({ "servers": ... }) and the Claude Desktop shape
         ({ "mcpServers": ... }) are accepted.
 
+    .PARAMETER Url
+        Attach a REMOTE server over Streamable HTTP instead of starting a local
+        process. HTTPS is required and the endpoint is validated before a byte
+        is sent: no embedded credentials, no fragment, and every address it
+        resolves to must be publicly routable, so a model cannot be steered into
+        attaching the host's own metadata service or an intranet admin
+        interface. The approved address set is PINNED, and every later redirect
+        is checked against it, so the endpoint cannot be moved by DNS after you
+        approved it. When a Tool policy covers the Url kind, the endpoint must
+        also pass its rules - an address this session may not fetch is not one
+        it may attach a server from.
+
+    .PARAMETER AllowLoopbackHttp
+        Permit a loopback endpoint, including over plain http. Reaching a local
+        development server is legitimate and has to be asked for; the opt-in
+        cannot be turned into general cleartext reach, because http to anything
+        that is not loopback is still refused.
+
+    .PARAMETER Header
+        Headers sent with every request to this remote server, and nothing else
+        is. No ambient credential, proxy credential or cookie travels with a
+        request - a third-party endpoint is not handed your network identity
+        because it asked for it.
+
+    .PARAMETER CredentialCallback
+        A scriptblock returning a bearer token already bound to this resource
+        and its scopes. Invoked per request and never stored, written to disk or
+        put on the server record. This is the ONLY authorization this client
+        performs: it cannot run an interactive authorization-code flow and will
+        not guess at a machine flow, so a 401 is reported with its challenge
+        rather than answered with whatever token is in reach.
+
+    .PARAMETER MaxResponseBytes
+        Ceiling on a remote response body. A larger reply is refused rather
+        than buffered.
+
+    .PARAMETER MaxStreamEvent
+        Ceiling on how many server-sent events are read while awaiting one
+        response.
+
+    .PARAMETER MaxRedirect
+        Ceiling on the redirect chain of one remote request.
+
+    .PARAMETER Transport
+        A caller-owned transport for the remote channel, used instead of the
+        built-in one. Intended for testing a server contract without a socket.
+
     .PARAMETER ToolName
         Offer only these tools from the server. Supports wildcards. This is the
         one place where an MCP server's reach can honestly be reduced.
@@ -103,6 +150,11 @@ function Register-ShpMcpServer {
 
         Attaches every stdio server defined in a configuration file you named.
 
+    .EXAMPLE
+        Register-ShpMcpServer -Name docs -Url https://mcp.example.com/mcp -Header @{ 'X-Api-Key' = $key }
+
+        Attaches a remote server over Streamable HTTP, sending only that header.
+
     .OUTPUTS
         None by default; the server record when -PassThru is used.
 
@@ -120,6 +172,7 @@ function Register-ShpMcpServer {
     [OutputType([pscustomobject])]
     param(
         [Parameter(Mandatory, ParameterSetName = 'Command', Position = 0)]
+        [Parameter(Mandatory, ParameterSetName = 'Url')]
         [Parameter(ParameterSetName = 'Path')]
         [ValidateNotNullOrEmpty()]
         [string]$Name,
@@ -140,6 +193,34 @@ function Register-ShpMcpServer {
         [Parameter(Mandatory, ParameterSetName = 'Path')]
         [ValidateNotNullOrEmpty()]
         [string]$Path,
+
+        [Parameter(Mandatory, ParameterSetName = 'Url')]
+        [ValidateNotNullOrEmpty()]
+        [string]$Url,
+
+        [Parameter(ParameterSetName = 'Url')]
+        [switch]$AllowLoopbackHttp,
+
+        [Parameter(ParameterSetName = 'Url')]
+        [hashtable]$Header,
+
+        [Parameter(ParameterSetName = 'Url')]
+        [scriptblock]$CredentialCallback,
+
+        [Parameter(ParameterSetName = 'Url')]
+        [ValidateRange(1024, 134217728)]
+        [int]$MaxResponseBytes = 0,
+
+        [Parameter(ParameterSetName = 'Url')]
+        [ValidateRange(1, 100000)]
+        [int]$MaxStreamEvent = 0,
+
+        [Parameter(ParameterSetName = 'Url')]
+        [ValidateRange(0, 10)]
+        [int]$MaxRedirect = -1,
+
+        [Parameter(ParameterSetName = 'Url')]
+        [scriptblock]$Transport,
 
         [SupportsWildcards()]
         [string[]]$ToolName,
@@ -166,6 +247,19 @@ function Register-ShpMcpServer {
         $configParams = @{ Path = $Path }
         if ($PSBoundParameters.ContainsKey('Name')) { $configParams['Name'] = $Name }
         @(Resolve-ShpMcpConfig @configParams)
+    } elseif ($PSCmdlet.ParameterSetName -eq 'Url') {
+        @(@{
+            Name             = $Name
+            Transport        = 'http'
+            Url              = $Url
+            Command          = ''
+            Argument         = @()
+            Environment      = @{}
+            WorkingDirectory = $null
+            SandboxRequested = $false
+            Supported        = $true
+            Reason           = ''
+        })
     } else {
         @(@{
             Name             = $Name
@@ -196,7 +290,11 @@ function Register-ShpMcpServer {
             throw "An MCP server named '$alias' is already attached. Use -Force to replace it, which also refreshes its tool list."
         }
 
-        $target = '{0} ({1} {2})' -f $alias, $definition.Command, ($definition.Argument -join ' ')
+        $target = if ($definition.Transport -eq 'http') {
+            '{0} ({1})' -f $alias, $definition.Url
+        } else {
+            '{0} ({1} {2})' -f $alias, $definition.Command, ($definition.Argument -join ' ')
+        }
         if (-not $PSCmdlet.ShouldProcess($target.Trim(), 'Start and attach MCP server')) { continue }
 
         # Warned rather than refused: a configuration written for a sandboxing
@@ -211,48 +309,117 @@ function Register-ShpMcpServer {
             $script:ShpMcpServers.Remove($alias)
         }
 
-        $startParams = @{ Command = $definition.Command; Argument = @($definition.Argument) }
-        if ($definition.WorkingDirectory) { $startParams['WorkingDirectory'] = $definition.WorkingDirectory }
-        if ($definition.Environment -and $definition.Environment.Count -gt 0) { $startParams['Environment'] = $definition.Environment }
+        $record = $null
+        $channel = $null
+        if ($definition.Transport -eq 'http') {
+            # Validated BEFORE a byte is sent, and the approved address set is
+            # kept so every later redirect is checked against it. An endpoint
+            # that moves by DNS after you approved it is a rebind, not a
+            # reconfiguration.
+            $endpoint = Test-ShpMcpEndpointUrl -Url ([string]$definition.Url) -AllowLoopbackHttp:$AllowLoopbackHttp
+            if (-not $endpoint.Allowed) {
+                throw "MCP server '$alias' was not attached: $($endpoint.Reason)"
+            }
+            # The same Url rules that gate fetch_url. An address this session may
+            # not fetch is not one it may attach a standing server from, and a
+            # standing attachment is the stronger of the two reaches.
+            $urlVerdict = Test-ShpToolAccess -Tool 'fetch_url' -Url $endpoint.Uri.AbsoluteUri
+            if (-not $urlVerdict.Allowed) {
+                throw "MCP server '$alias' was not attached: the Tool policy refuses its endpoint. $($urlVerdict.Reason)"
+            }
 
-        $started = Start-ShpMcpProcess @startParams
-        if (-not $started.Ok) { throw "MCP server '$alias' did not start: $($started.Reason)" }
+            $channelParams = @{
+                Uri               = $endpoint.Uri.AbsoluteUri
+                Address           = @($endpoint.Address)
+                Header            = $(if ($Header) { $Header } else { @{} })
+                TimeoutSec        = $effectiveRequest
+                AllowLoopbackHttp = $AllowLoopbackHttp
+            }
+            if ($MaxResponseBytes -gt 0) { $channelParams['MaxResponseBytes'] = $MaxResponseBytes }
+            if ($MaxStreamEvent -gt 0) { $channelParams['MaxStreamEvent'] = $MaxStreamEvent }
+            if ($MaxRedirect -ge 0) { $channelParams['MaxRedirect'] = $MaxRedirect }
+            if ($CredentialCallback) { $channelParams['CredentialCallback'] = $CredentialCallback }
+            if ($Transport) { $channelParams['Transport'] = $Transport }
+            $channel = New-ShpMcpHttpChannel @channelParams
 
-        $record = @{
-            Name              = $alias
-            Transport         = 'stdio'
-            Command           = $definition.Command
-            Argument          = @($definition.Argument)
-            WorkingDirectory  = $(if ($definition.WorkingDirectory) { $definition.WorkingDirectory } else { (Get-Location).Path })
-            EnvironmentKey    = @($definition.Environment.Keys | Sort-Object)
-            SandboxRequested  = [bool]$definition.SandboxRequested
-            Process           = $started.Process
-            Writer            = $started.Writer
-            Reader            = $started.Reader
-            StderrLog         = $started.StderrLog
-            SubscriberId      = $started.SubscriberId
-            Era               = ''
-            ProtocolVersion   = ''
-            ServerInfo        = $null
-            Instructions      = ''
-            Tools             = @()
-            ToolsDropped      = @()
-            ToolsTruncated    = $false
-            RequestTimeoutSec = $effectiveRequest
-            State             = 'Faulted'
-            FaultReason       = ''
-            RegisteredAt      = [datetime]::Now
+            $record = @{
+                Name               = $alias
+                Transport          = 'http'
+                Url                = $endpoint.Uri.AbsoluteUri
+                Address            = @($endpoint.Address)
+                Loopback           = [bool]$endpoint.Loopback
+                HeaderName         = @($channelParams.Header.Keys | Sort-Object)
+                CredentialCallback = [bool]$CredentialCallback
+                Command            = ''
+                Argument           = @()
+                WorkingDirectory   = ''
+                EnvironmentKey     = @()
+                SandboxRequested   = $false
+                Process            = $null
+                Writer             = $null
+                Reader             = $null
+                Channel            = $channel
+                StderrLog          = $null
+                SubscriberId       = $null
+                Era                = ''
+                ProtocolVersion    = ''
+                ServerInfo         = $null
+                Instructions       = ''
+                Tools              = @()
+                ToolsDropped       = @()
+                ToolsTruncated     = $false
+                RequestTimeoutSec  = $effectiveRequest
+                State              = 'Faulted'
+                FaultReason        = ''
+                RegisteredAt       = [datetime]::Now
+            }
+        } else {
+            $startParams = @{ Command = $definition.Command; Argument = @($definition.Argument) }
+            if ($definition.WorkingDirectory) { $startParams['WorkingDirectory'] = $definition.WorkingDirectory }
+            if ($definition.Environment -and $definition.Environment.Count -gt 0) { $startParams['Environment'] = $definition.Environment }
+
+            $started = Start-ShpMcpProcess @startParams
+            if (-not $started.Ok) { throw "MCP server '$alias' did not start: $($started.Reason)" }
+
+            $record = @{
+                Name              = $alias
+                Transport         = 'stdio'
+                Command           = $definition.Command
+                Argument          = @($definition.Argument)
+                WorkingDirectory  = $(if ($definition.WorkingDirectory) { $definition.WorkingDirectory } else { (Get-Location).Path })
+                EnvironmentKey    = @($definition.Environment.Keys | Sort-Object)
+                SandboxRequested  = [bool]$definition.SandboxRequested
+                Process           = $started.Process
+                Writer            = $started.Writer
+                Reader            = $started.Reader
+                Channel           = $null
+                StderrLog         = $started.StderrLog
+                SubscriberId      = $started.SubscriberId
+                Era               = ''
+                ProtocolVersion   = ''
+                ServerInfo        = $null
+                Instructions      = ''
+                Tools             = @()
+                ToolsDropped      = @()
+                ToolsTruncated    = $false
+                RequestTimeoutSec = $effectiveRequest
+                State             = 'Faulted'
+                FaultReason       = ''
+                RegisteredAt      = [datetime]::Now
+            }
         }
 
         $failAttachment = {
             param($message)
-            $stderr = @($record.StderrLog.ToArray() | Select-Object -Last 10)
+            $stderr = @(if ($record.StderrLog) { $record.StderrLog.ToArray() | Select-Object -Last 10 })
             $null = Stop-ShpMcpProcess -Record $record -TimeoutSec $script:ShpMcpDefaultStopTimeoutSec
             $detail = if ($stderr.Count -gt 0) { "$message Server stderr: $($stderr -join ' | ')" } else { $message }
             throw "MCP server '$alias' was not attached. $detail"
         }
 
-        $connection = Connect-ShpMcpServer -Writer $record.Writer -Reader $record.Reader -TimeoutSec $effectiveConnect
+        $connectParams = @{ TimeoutSec = $effectiveConnect }
+        if ($channel) { $connectParams['Channel'] = $channel } else { $connectParams['Writer'] = $record.Writer; $connectParams['Reader'] = $record.Reader }
+        $connection = Connect-ShpMcpServer @connectParams
         if (-not $connection.Ok) { & $failAttachment $connection.Reason }
 
         $record.Era = $connection.Era
@@ -261,12 +428,11 @@ function Register-ShpMcpServer {
         $record.Instructions = $connection.Instructions
 
         $listParams = @{
-            Writer     = $record.Writer
-            Reader     = $record.Reader
             TimeoutSec = $effectiveRequest
             MaxTool    = $effectiveMaxTool
             MaxPage    = $script:ShpMcpDefaultMaxPage
         }
+        if ($channel) { $listParams['Channel'] = $channel } else { $listParams['Writer'] = $record.Writer; $listParams['Reader'] = $record.Reader }
         if ($connection.Era -eq 'modern') { $listParams['ProtocolVersion'] = $connection.ProtocolVersion }
 
         $listed = Get-ShpMcpToolList @listParams

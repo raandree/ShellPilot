@@ -37,6 +37,10 @@ function Get-ShpMcpToolList {
     .PARAMETER ClientInfo
         The client name and version reported to the server.
 
+    .PARAMETER Channel
+        A transport channel to list through instead of a stdio reader/writer
+        pair, for a remote attachment.
+
     .EXAMPLE
         Get-ShpMcpToolList -Writer $w -Reader $r -ProtocolVersion '2026-07-28'
 
@@ -53,14 +57,17 @@ function Get-ShpMcpToolList {
     .LINK
         Register-ShpMcpServer
     #>
-    [CmdletBinding()]
+    [CmdletBinding(DefaultParameterSetName = 'Stdio')]
     [OutputType([hashtable])]
     param(
-        [Parameter(Mandatory)]
+        [Parameter(Mandatory, ParameterSetName = 'Stdio')]
         [System.IO.TextWriter]$Writer,
 
-        [Parameter(Mandatory)]
+        [Parameter(Mandatory, ParameterSetName = 'Stdio')]
         [System.IO.TextReader]$Reader,
+
+        [Parameter(Mandatory, ParameterSetName = 'Channel')]
+        [hashtable]$Channel,
 
         [string]$ProtocolVersion,
 
@@ -85,7 +92,13 @@ function Get-ShpMcpToolList {
         $params = @{}
         if ($cursor) { $params['cursor'] = $cursor }
 
-        $call = @{ Writer = $Writer; Reader = $Reader; TimeoutSec = $TimeoutSec; ClientInfo = $ClientInfo; Method = 'tools/list' }
+        $call = @{ TimeoutSec = $TimeoutSec; ClientInfo = $ClientInfo; Method = 'tools/list' }
+        if ($PSCmdlet.ParameterSetName -eq 'Channel') {
+            $call['Channel'] = $Channel
+        } else {
+            $call['Writer'] = $Writer
+            $call['Reader'] = $Reader
+        }
         if ($params.Count -gt 0) { $call['Params'] = $params }
         if (-not [string]::IsNullOrWhiteSpace($ProtocolVersion)) { $call['ProtocolVersion'] = $ProtocolVersion }
 

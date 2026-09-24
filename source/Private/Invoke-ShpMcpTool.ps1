@@ -83,11 +83,15 @@ function Invoke-ShpMcpTool {
     }
 
     $call = @{
-        Writer     = $record.Writer
-        Reader     = $record.Reader
         Method     = 'tools/call'
         Params     = @{ name = $ToolName; arguments = $arguments }
         TimeoutSec = $record.RequestTimeoutSec
+    }
+    if ($record.Channel) {
+        $call['Channel'] = $record.Channel
+    } else {
+        $call['Writer'] = $record.Writer
+        $call['Reader'] = $record.Reader
     }
     if ($record.Era -eq 'modern') { $call['ProtocolVersion'] = $record.ProtocolVersion }
     if ($TraceContext) { $call['TraceContext'] = $TraceContext }

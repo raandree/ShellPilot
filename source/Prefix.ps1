@@ -465,6 +465,15 @@ $script:ShpMcpDefaultConnectTimeoutSec = 10
 $script:ShpMcpDefaultRequestTimeoutSec = 30
 $script:ShpMcpDefaultStopTimeoutSec = 5
 
+# Bounds on a REMOTE (Streamable HTTP) attachment. Every one of them bounds a
+# reply this module did not author and cannot predict: a response body is
+# buffered before it is parsed, an event stream can be held open indefinitely
+# by a server that never answers, and a redirect chain is how an approved
+# endpoint gets moved somewhere it was never approved for.
+$script:ShpMcpDefaultMaxResponseBytes = 1MB
+$script:ShpMcpDefaultMaxStreamEvent = 256
+$script:ShpMcpDefaultMaxRedirect = 2
+
 # Ceiling on what edit_file will read and write back, including the BOM. A model
 # argument can never raise it; a larger file belongs to another tool.
 $script:ShpEditFileMaxBytes = 8MB
