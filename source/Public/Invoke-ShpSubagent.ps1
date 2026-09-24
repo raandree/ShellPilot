@@ -152,13 +152,17 @@ function Invoke-ShpSubagent {
         Warning      = @($definition.Warning)
     }
 
-    $parentCapability = if ($Parent -and $Parent['Capability']) { $Parent['Capability'] } else { @{} }
+    # Copied into a plain table on the way in: a capability handed back from a
+    # previous resolution is an ordered dictionary, which answers a different
+    # set of methods, and a missing-member error here would silently take the
+    # "no policy was named" branch and replace an inherited one.
+    $parentCapability = if ($Parent -and $Parent['Capability']) { @{} + $Parent['Capability'] } else { @{} }
     # The ACTIVE controls are the floor when the dispatching context named none.
     # A root call is dispatched from inside a session that already has a Tool
     # policy and a redaction policy, and a child that ignored them would be
     # wider than the caller that started it.
-    if (-not $parentCapability.ContainsKey('ToolPolicy')) { $parentCapability = @{} + $parentCapability; $parentCapability['ToolPolicy'] = $script:ShpToolPolicy }
-    if (-not $parentCapability.ContainsKey('RedactionPolicy')) { $parentCapability = @{} + $parentCapability; $parentCapability['RedactionPolicy'] = $script:ShpRedactionPolicy }
+    if (-not $parentCapability.ContainsKey('ToolPolicy')) { $parentCapability['ToolPolicy'] = $script:ShpToolPolicy }
+    if (-not $parentCapability.ContainsKey('RedactionPolicy')) { $parentCapability['RedactionPolicy'] = $script:ShpRedactionPolicy }
     $parentTraceParent = if ($Parent) { [string]$Parent['TraceParent'] } else { '' }
 
     $traceParams = @{ SpanKey = ('subagent:{0}' -f $definition.Name) }

@@ -351,6 +351,40 @@ Describe 'Invoke-ShpSubagent' {
             $script:seen.ApiBase | Should -BeExactly 'https://alt.example/v1'
             ($script:seen | ConvertTo-Json -Depth 5) | Should -Not -Match 'ApiKey'
         }
+
+        It 'Should keep the inherited policy when a resolved capability is handed back as the parent' {
+            Set-ShpToolPolicy -Rule @('Read(C:\session\*)') -Confirm:$false
+            $narrow = InModuleScope ShellPilot {
+                [pscustomobject]@{
+                    PSTypeName = 'ShellPilot.ToolPolicy'; SchemaVersion = $script:ShpToolPolicySchemaVersion
+                    TrustProfile = 'Legacy'; Coverage = @('Read', 'Write', 'Shell')
+                    Rule = @([pscustomobject]@{ Text = 'Read(C:\child\*)'; Kind = 'Read'; Deny = $false; Value = 'C:\child\*'; Token = @(); Pattern = '^child' })
+                    Source = '(parent)'
+                }
+            }
+
+            $parent = Invoke-ShpSubagent -DefinitionPath $script:agentFile -Prompt 'go' `
+                -Parent @{ Capability = @{ Tool = @('read_file', 'grep_files'); ToolPolicy = $narrow } } `
+                -Invoker {
+                    param($Request)
+                    [pscustomobject]@{ Content = 'ok'; Iterations = 1; ToolCalls = @(); CostUSD = 0.0 }
+                }
+
+            $script:seen = $null
+            $errors = @()
+            $child = Invoke-ShpSubagent -DefinitionPath $script:agentFile -Prompt 'go' `
+                -Parent @{ Capability = $parent.Capability; Budget = $parent.Budget } `
+                -Invoker {
+                    param($Request)
+                    $script:seen = $Request
+                    [pscustomobject]@{ Content = 'ok'; Iterations = 1; ToolCalls = @(); CostUSD = 0.0 }
+                } -ErrorVariable errors
+
+            $child.Refused | Should -BeFalse
+            $errors | Should -BeNullOrEmpty
+            @($script:seen.ToolPolicy.Rule.Text) | Should -Be @('Read(C:\child\*)')
+            $script:seen.ToolBound | Should -BeTrue
+        }
     }
 
     Context 'The deadline and the concurrency slot' {
