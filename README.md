@@ -722,6 +722,34 @@ is never pruned - retention is yours. A failed write raises an error rather
 than quietly truncating, because quietly truncating is the behaviour you turned
 off.
 
+### Save, resume, roll back or fork a conversation
+
+The session conversation lives in memory, so closing the shell ends it. Name a
+file you own and it can be checkpointed, resumed tomorrow, rolled back past a
+wrong turn, or forked into an alternative line - composing with `Get-ShpChat`,
+`Clear-ShpChat` and `Compress-ShpChat` rather than replacing them.
+
+```powershell
+Save-ShpChat -Path ./review.json -Label 'before the refactor'
+Get-ShpChatCheckpoint -Path ./review.json
+
+Restore-ShpChat -Path ./review.json            # resume the newest
+Restore-ShpChat -Path ./review.json -Rollback 2
+Restore-ShpChat -Path ./review.json -CheckpointId $id -Fork
+
+Invoke-Shp -Prompt 'Continue the review.' -SaveChatPath ./review.json
+```
+
+The path is always yours: nothing is discovered or defaulted, turns are
+redacted on the way to disk (so a resumed session replays redacted history and
+the model may answer differently), the schema version is refused rather than
+migrated when it is not recognised, and nothing is ever pruned.
+
+A resume never replays anything. A checkpoint holds only completed exchanges,
+and a side-effecting tool call whose turn never finished is recorded and
+reported - with a warning - so you can check it yourself rather than having it
+run a second time.
+
 ### Usage and cost tracking
 
 ```powershell
@@ -877,7 +905,7 @@ wrapper's job. See
 | Auth | `Initialize-Shp` |
 | Models | `Get-ShpModel`, `Get-ShpModelName`, `Select-ShpModel`, `Get-ShpDefault` |
 | Prompt | `Invoke-Shp`, `Start-ShpChat` |
-| Conversation | `Get-ShpChat`, `Clear-ShpChat` |
+| Conversation | `Get-ShpChat`, `Clear-ShpChat`, `Compress-ShpChat`, `Save-ShpChat`, `Restore-ShpChat`, `Get-ShpChatCheckpoint` |
 | User tools | `Register-ShpTool`, `Get-ShpTool`, `Unregister-ShpTool` |
 | MCP servers | `Register-ShpMcpServer`, `Get-ShpMcpServer`, `Unregister-ShpMcpServer` |
 | Embeddings | `Request-ShpEmbedding`, `Get-ShpCosineSimilarity` |

@@ -169,6 +169,18 @@ function Invoke-Shp {
         Defaults to the same figure as the built-in Tool result cap. Ignored
         without ToolResultSpillRoot.
 
+    .PARAMETER SaveChatPath
+        Append the Session chat to a caller-named checkpoint store after the
+        Turn succeeds, so the conversation can be resumed, rolled back, or
+        forked later with Restore-ShpChat. Nothing is discovered or defaulted,
+        the turns are redacted on the way to disk, and the store is never
+        pruned - retention is yours.
+
+        Refused with -AsJob, whose Session chat is its own runspace's rather
+        than yours, and with -History, which is a stateless call with no
+        Session chat to checkpoint. Both refusals happen before any credential
+        work.
+
     .PARAMETER DisableBrowsing
         Turn off web browsing. By default the fetch_url tool is exposed to the
         model so it can retrieve web content; this switch disables it.
@@ -1022,6 +1034,9 @@ function Invoke-Shp {
         [ValidateRange(1, [int]::MaxValue)]
         [int]$ToolResultSpillThresholdChars,
 
+        [ValidateNotNullOrEmpty()]
+        [string]$SaveChatPath,
+
         [switch]$AllowPrivateNetwork,
 
         [switch]$DisableFileAccess,
@@ -1171,6 +1186,26 @@ function Invoke-Shp {
     # stitch timestamps together.
     $runId = [guid]::NewGuid().ToString('N')
     $toolCallDecisions = [System.Collections.Generic.List[object]]::new()
+
+    # Session chat persistence is refused for the two combinations where the
+    # word "session" would mean two different things, and it is refused HERE -
+    # before any credential work, any request, and any Tool call - because a
+    # combination that cannot be honoured should cost nothing to discover.
+    if ($PSBoundParameters.ContainsKey('SaveChatPath')) {
+        if ($AsJob) {
+            throw '-SaveChatPath cannot be combined with -AsJob: a job continues its own runspace conversation, so checkpointing it would store a Session chat that is not the one you are holding.'
+        }
+        if ($PSBoundParameters.ContainsKey('History')) {
+            throw '-SaveChatPath cannot be combined with -History: an explicit history is a stateless call that deliberately never touches the Session chat, so there is nothing for a checkpoint to be of.'
+        }
+    }
+
+    # One ledger per Turn. It records side-effecting Tool calls as they happen
+    # and is cleared once the conversation is written back, so a non-empty
+    # ledger means exactly one thing: work happened whose outcome no stored
+    # conversation reflects. Nothing replays it; Save-ShpChat records it and
+    # says so.
+    $script:ShpChatSideEffectLedger = [System.Collections.Generic.List[object]]::new()
 
     $ownedTransport = $PSBoundParameters.ContainsKey('RequestTransport')
     if ($ownedTransport) {
@@ -2638,6 +2673,19 @@ function Invoke-Shp {
                     Execution=$callExecution
                     ResultPreview=$toolResult.Substring(0,[Math]::Min(200,$toolResult.Length))
                 }
+                # A side-effecting call that has already happened. Until this
+                # Turn writes its conversation back, nothing persisted records
+                # that it ran, so it is held here by name and identity only -
+                # never arguments, never a result - and surfaced on the next
+                # checkpoint instead of being quietly forgotten.
+                if (($tc.Name -in 'write_file', 'edit_file', 'create_directory', 'run_command' -or $callOrigin -in 'User', 'Mcp') -and
+                    $callExecution -notin 'Denied', 'ContractDenied' -and
+                    $script:ShpChatSideEffectLedger.Count -lt $script:ShpChatSideEffectLedgerMax) {
+                    $null = $script:ShpChatSideEffectLedger.Add([pscustomobject]@{
+                        Tool = $tc.Name; Origin = $callOrigin; Server = [string]$callServer
+                        Execution = $callExecution; RunId = $runId; TurnId = $turnId
+                    })
+                }
                 # A preview, not the transcript. A tool result is capped at
                 # 100,000 characters and a log collector reading a line per
                 # event should not be handed a file dump; the whole result is
@@ -2795,6 +2843,12 @@ function Invoke-Shp {
     if (-not $PSBoundParameters.ContainsKey('History')) {
         $script:ShpChat = $newHistory
         $script:ShpChatModel = $Model
+        # The Turn completed and its conversation is now the stored one, so
+        # nothing in this Turn is uncertain any more.
+        $script:ShpChatSideEffectLedger = [System.Collections.Generic.List[object]]::new()
+        if ($PSBoundParameters.ContainsKey('SaveChatPath')) {
+            $null = Save-ShpChat -Path $SaveChatPath
+        }
     }
 
     # The Context report accounts the request this Turn actually made, not a

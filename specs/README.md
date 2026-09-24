@@ -65,6 +65,7 @@ numbered specs below are the implemented ones.
 - [Context accounting](038-context-accounting.md)
 - [Focused chat compression](039-focused-chat-compression.md)
 - [Recoverable oversized Tool results](040-recoverable-tool-results.md)
+- [Session chat persistence and resume](041-session-chat-persistence.md)
 
 ### Tier 2
 

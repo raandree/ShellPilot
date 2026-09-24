@@ -402,6 +402,32 @@ $script:ShpToolResultSpillThresholdChars = 100000
 # to tell whether it needs the rest; small enough that a spill is a saving.
 $script:ShpToolResultSpillPreviewChars = 2000
 
+# Shape version of a Session chat checkpoint store (Save-ShpChat). Written from
+# the first save and REFUSED rather than migrated when it is not recognised:
+# decision 002's rule, and the one that matters most for a content store, since
+# silently reinterpreting a stored conversation is worse than declining to
+# resume it.
+$script:ShpChatStoreSchemaVersion = 1
+
+# What this session knows about the checkpoint store it last read or wrote:
+# Path, the Revision observed, and the CheckpointId the next save chains to.
+# It is how a save notices that another writer advanced the store, and how
+# restoring an older checkpoint turns the next save into a fork rather than an
+# overwrite. Session-scoped; the store itself is the only thing on disk.
+$script:ShpChatStoreState = $null
+
+# Side-effecting Tool calls whose Turn has not completed. Invoke-Shp starts a
+# fresh ledger per Turn and clears it once the conversation is written back, so
+# a non-empty ledger means exactly one thing: work happened whose outcome no
+# stored conversation reflects. Save-ShpChat records it on the checkpoint and
+# warns; a resume REPORTS it and never replays it. Session-scoped.
+$script:ShpChatSideEffectLedger = [System.Collections.Generic.List[object]]::new()
+
+# Bound on that ledger. It is audit data that rides into a stored conversation,
+# so it carries names and identifiers - never an argument value, a command line
+# or a Tool result - and it cannot grow without limit.
+$script:ShpChatSideEffectLedgerMax = 200
+
 # Shape version of the ShellPilot.EvalReport object (Invoke-ShpEval). Bumped
 # only by a breaking change to that report, so a gate that reads PassAt1 and
 # PassPowK can tell that the contract it was written against still holds.
