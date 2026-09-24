@@ -63,6 +63,13 @@ function Test-ShpToolAccess {
     .PARAMETER McpTool
         The tool name as the attached server knows it, not the namespaced name.
 
+    .PARAMETER Policy
+        A Tool policy to decide this one call against, instead of the Session
+        policy. It is how an attenuated child - a Subagent - runs under the
+        policy it inherited without any caller replacing Session state, and
+        $null means the same as no policy at all. Unbound, the Session policy
+        decides, which is what every ordinary call does.
+
     .EXAMPLE
         Test-ShpToolAccess -Tool 'write_file' -Path './out/report.md'
 
@@ -111,13 +118,24 @@ function Test-ShpToolAccess {
 
         [AllowEmptyString()]
         [AllowNull()]
-        [string]$McpTool
+        [string]$McpTool,
+
+        [AllowNull()]
+        [psobject]$Policy
     )
+
+    # One policy decides this call: the caller's when one was supplied, the
+    # Session's otherwise. Reading it once, here, is what lets an attenuated
+    # child run under an inherited policy without anything swapping Session
+    # state out from under a concurrent call.
+    $activePolicy = if ($PSBoundParameters.ContainsKey('Policy')) { $Policy } else { $script:ShpToolPolicy }
+    $policyParams = @{}
+    if ($PSBoundParameters.ContainsKey('Policy')) { $policyParams['Policy'] = $Policy }
 
     if ($Tool -eq 'run_command' -and -not [string]::IsNullOrWhiteSpace($Command)) {
         $parseErrors = $null
         $commandAst = [System.Management.Automation.Language.Parser]::ParseInput($Command, [ref]$null, [ref]$parseErrors)
-        if ($parseErrors.Count -gt 0 -and $null -eq $script:ShpToolPolicy) {
+        if ($parseErrors.Count -gt 0 -and $null -eq $activePolicy) {
             return @{ Allowed = $false; Target = $Command; Reason = 'The command cannot be parsed for environment assignment checks.' }
         }
         $assignedNames = [System.Collections.Generic.List[string]]::new()
@@ -164,7 +182,7 @@ function Test-ShpToolAccess {
         }
     }
 
-    if ($null -eq $script:ShpToolPolicy) {
+    if ($null -eq $activePolicy) {
         return @{ Allowed = $true; Reason = ''; Target = $(if ($Command) { $Command } else { $Path }) }
     }
 
@@ -186,7 +204,7 @@ function Test-ShpToolAccess {
     # mentioned them, and denying them now would revoke reach its author never
     # gave up. Coverage is absent on a policy object from an older shape, which
     # reads as the same three kinds it enforced then.
-    $coverage = @($script:ShpToolPolicy.Coverage)
+    $coverage = @($activePolicy.Coverage)
     if ($coverage.Count -eq 0) { $coverage = @($script:ShpToolPolicyBaseCoverage) }
     if ($kind -notin $coverage) {
         return @{ Allowed = $true; Reason = ''; Target = $(if ($Command) { $Command } elseif ($Url) { $Url } elseif ($Path) { $Path } else { $Tool }) }
@@ -197,7 +215,7 @@ function Test-ShpToolAccess {
         if (-not $normalised.Ok) {
             return @{ Allowed = $false; Target = $null; Reason = ('{0} The tool policy refuses it.' -f $normalised.Reason) }
         }
-        return Resolve-ShpToolRuleVerdict -Kind 'Url' -Target $normalised.Url -Subject 'address'
+        return Resolve-ShpToolRuleVerdict -Kind 'Url' -Target $normalised.Url -Subject 'address' @policyParams
     }
 
     if ($kind -eq 'Mcp') {
@@ -206,11 +224,11 @@ function Test-ShpToolAccess {
         }
         # The alias and tool that will actually dispatch, never the namespaced
         # name the model emitted - the same rule the path kinds follow.
-        return Resolve-ShpToolRuleVerdict -Kind 'Mcp' -Target ('{0}/{1}' -f $McpServer.Trim(), $McpTool.Trim()) -Subject 'MCP tool'
+        return Resolve-ShpToolRuleVerdict -Kind 'Mcp' -Target ('{0}/{1}' -f $McpServer.Trim(), $McpTool.Trim()) -Subject 'MCP tool' @policyParams
     }
 
     if ($kind -eq 'Tool') {
-        return Resolve-ShpToolRuleVerdict -Kind 'Tool' -Target $Tool -Subject 'tool'
+        return Resolve-ShpToolRuleVerdict -Kind 'Tool' -Target $Tool -Subject 'tool' @policyParams
     }
 
     if ($kind -eq 'Shell') {
@@ -241,7 +259,7 @@ function Test-ShpToolAccess {
 
         $comparison = if ($IsWindows) { [StringComparison]::OrdinalIgnoreCase } else { [StringComparison]::Ordinal }
         $matched = $null
-        foreach ($rule in $script:ShpToolPolicy.Rule) {
+        foreach ($rule in $activePolicy.Rule) {
             if ($rule.Kind -ne 'Shell') { continue }
             if ($rule.Token.Count -gt $tokens.Count) { continue }
             $prefixMatches = $true
@@ -268,7 +286,7 @@ function Test-ShpToolAccess {
     }
 
     $matched = $null
-    foreach ($rule in $script:ShpToolPolicy.Rule) {
+    foreach ($rule in $activePolicy.Rule) {
         if ($rule.Kind -ne $kind) { continue }
         if ($resolved -notmatch $rule.Pattern) { continue }
         if ($rule.Deny) {
@@ -278,7 +296,7 @@ function Test-ShpToolAccess {
     }
     if ($matched) {
         if ($Tool -eq 'edit_file') {
-            return Test-ShpToolAccess -Tool 'read_file' -Path $resolved
+            return Test-ShpToolAccess -Tool 'read_file' -Path $resolved @policyParams
         }
         return @{ Allowed = $true; Reason = ''; Target = $resolved }
     }

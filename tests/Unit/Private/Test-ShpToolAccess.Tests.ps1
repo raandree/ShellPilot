@@ -240,4 +240,61 @@ Describe 'Test-ShpToolAccess' {
             }
         }
     }
+
+    Context 'A per-call policy narrows one call without touching the Session policy' {
+        It 'Decides against the supplied policy rather than the Session one' {
+            InModuleScope $script:moduleName -Parameters @{ Root = $TestDrive } {
+                param($Root)
+                $root = (Resolve-ShpRealPath -Path $Root)
+                $null = New-Item -Path (Join-Path $root 'in') -ItemType Directory -Force
+                $null = New-Item -Path (Join-Path $root 'out') -ItemType Directory -Force
+                Set-ShpToolPolicy -Rule @(('Read({0}/**)' -f $root))
+                $sessionPolicy = Get-ShpToolPolicy
+                $narrow = [pscustomobject]@{
+                    PSTypeName = 'ShellPilot.ToolPolicy'; SchemaVersion = $sessionPolicy.SchemaVersion
+                    TrustProfile = 'Legacy'; Coverage = @($sessionPolicy.Coverage)
+                    Rule = @($sessionPolicy.Rule | Where-Object { $false })
+                    Source = '(subagent)'
+                }
+
+                (Test-ShpToolAccess -Tool 'read_file' -Path (Join-Path $root 'in/a.txt')).Allowed | Should -BeTrue
+                (Test-ShpToolAccess -Tool 'read_file' -Path (Join-Path $root 'in/a.txt') -Policy $narrow).Allowed | Should -BeFalse
+                @((Get-ShpToolPolicy).Rule.Text) | Should -Be @($sessionPolicy.Rule.Text)
+            }
+        }
+
+        It 'Decides against the supplied policy when the Session has none at all' {
+            InModuleScope $script:moduleName -Parameters @{ Root = $TestDrive } {
+                param($Root)
+                Clear-ShpToolPolicy
+                $root = (Resolve-ShpRealPath -Path $Root)
+                Set-ShpToolPolicy -Rule @(('Read({0}/**)' -f $root))
+                $policy = Get-ShpToolPolicy
+                Clear-ShpToolPolicy
+
+                (Test-ShpToolAccess -Tool 'read_file' -Path (Join-Path $root 'in/a.txt')).Allowed | Should -BeTrue
+                (Test-ShpToolAccess -Tool 'run_command' -Command 'git status' -Policy $policy).Allowed | Should -BeFalse
+                (Test-ShpToolAccess -Tool 'read_file' -Path (Join-Path $root 'in/a.txt') -Policy $policy).Allowed | Should -BeTrue
+                Get-ShpToolPolicy | Should -BeNullOrEmpty
+            }
+        }
+
+        It 'Carries the supplied policy into the edit_file read-back check' {
+            InModuleScope $script:moduleName -Parameters @{ Root = $TestDrive } {
+                param($Root)
+                Clear-ShpToolPolicy
+                $root = (Resolve-ShpRealPath -Path $Root)
+                $null = New-Item -Path (Join-Path $root 'out') -ItemType Directory -Force
+                $target = Join-Path $root 'out/report.md'
+                Set-Content -LiteralPath $target -Value 'text' -Encoding utf8
+                Set-ShpToolPolicy -Rule @(('Write({0}/out/**)' -f $root))
+                $writeOnly = Get-ShpToolPolicy
+                Clear-ShpToolPolicy
+
+                $verdict = Test-ShpToolAccess -Tool 'edit_file' -Path $target -Policy $writeOnly
+                $verdict.Allowed | Should -BeFalse
+                $verdict.Reason | Should -Match 'Read'
+            }
+        }
+    }
 }

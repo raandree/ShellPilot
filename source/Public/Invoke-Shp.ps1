@@ -110,7 +110,9 @@ function Invoke-Shp {
         category switches can narrow it further.
         A preset is a convenience, not an enforcement boundary. It intersects
         existing Tool policy checks and never replaces or mutates session policy.
-        MCP tools are not covered by Tool policy and are therefore withheld.
+        MCP tools are withheld because an attached server is third-party
+        dispatch, not because Tool policy cannot see them: a policy covering the
+        Mcp kind gates them by alias and tool.
         Reads and fetches still run with caller privileges; there is no containment.
 
     .PARAMETER Tool
@@ -716,6 +718,24 @@ function Invoke-Shp {
         reservation. An overrun or unknown Usage stops before further Tool or
         provider dispatch. Strict invocation behavior remains unchanged.
 
+    .PARAMETER ToolPolicy
+        Internal. A Tool policy this one call is gated by instead of the Session
+        policy, used by a Subagent to run under the policy it inherited. Session
+        state is never replaced, so a concurrent call is unaffected; $null means
+        the same as no policy at all. Set-ShpToolPolicy remains the supported
+        way to scope a session.
+
+    .PARAMETER CancellationToken
+        Internal. A cancellation signal for this call, checked before every
+        model request and before every Tool dispatch, used by a Subagent to
+        bound a child. A provider request already in flight is not interrupted:
+        the guarantee is no further request and no further Tool call.
+
+    .PARAMETER Deadline
+        Internal. The UTC instant this call must not work past, checked at the
+        same two points as the cancellation signal and used by a Subagent to
+        carry a tree deadline into the child turn. Unbound, nothing expires.
+
     .PARAMETER RetryDelaySec
         Base delay in seconds for the exponential backoff between retries
         (attempt n waits RetryDelaySec * 2^(n-1) seconds, with equal jitter
@@ -1153,6 +1173,16 @@ function Invoke-Shp {
         [ValidateNotNull()]
         [scriptblock]$RequestTokenCounter,
 
+        [Parameter(DontShow)]
+        [AllowNull()]
+        [psobject]$ToolPolicy,
+
+        [Parameter(DontShow)]
+        [System.Threading.CancellationToken]$CancellationToken = [System.Threading.CancellationToken]::None,
+
+        [Parameter(DontShow)]
+        [datetime]$Deadline,
+
         [ValidateSet('verified', 'provider-estimate')]
         [string]$RequestBudgetMode = 'verified',
 
@@ -1196,6 +1226,18 @@ function Invoke-Shp {
         $resolvedToolControl = Resolve-ShpToolCallControl -Control $ToolCallControl
     }
     $executionContractBound = $PSBoundParameters.ContainsKey('ExecutionContract')
+    # The Tool policy this call is gated by. Splatted onto every Test-ShpToolAccess
+    # call rather than swapped into session state, so an attenuated child runs
+    # under the policy it inherited while the session's own policy - which a
+    # concurrent call is reading - stays exactly where it was.
+    $toolPolicyParams = @{}
+    if ($PSBoundParameters.ContainsKey('ToolPolicy')) { $toolPolicyParams['Policy'] = $ToolPolicy }
+    # A bounded call carries a cancellation signal, a deadline, or both. Neither
+    # can interrupt a provider request that is already in flight - there is no
+    # cancellation seam inside the request path - so what they promise is
+    # narrower and honest: no further model request and no further Tool
+    # dispatch once the signal is raised or the deadline has passed.
+    $deadlineBound = $PSBoundParameters.ContainsKey('Deadline')
     # One identity per call, so every decision receipt, execution request and
     # Event record from this invocation correlates without the caller having to
     # stitch timestamps together.
@@ -1943,7 +1985,36 @@ function Invoke-Shp {
         redaction         = (-not $DisableRedaction)
     }
 
+    # The two checkpoints a bounded call can actually stop at: before a model
+    # request, and before a Tool dispatch. Both are places where nothing is in
+    # flight, so stopping costs no unfinished work and no orphaned side effect.
+    $stopIfSignalled = {
+        param([string]$Stage)
+
+        $stopReason = ''
+        if ($CancellationToken.IsCancellationRequested) {
+            $stopReason = 'Cancelled'
+        } elseif ($deadlineBound -and [datetime]::UtcNow -ge $Deadline) {
+            $stopReason = 'Deadline'
+        }
+        if (-not $stopReason) { return }
+
+        $stopMessage = if ($stopReason -eq 'Cancelled') {
+            "The turn was cancelled before $Stage."
+        } else {
+            "The turn deadline passed before $Stage."
+        }
+        $null = Add-ShpUsageRecord -RequestedModel $Model -ServerModel $(if ($turn) { $turn.ModelName } else { $null }) -Prompt $Prompt -RoundTrip $roundTrips.ToArray() -ContextTokens $peakPromptTokens -Iterations ([Math]::Max(0, $iteration - 1)) -ToolCallCount (@($toolCallsExecuted).Count) -DurationMs ([int]$sw.Elapsed.TotalMilliseconds) -ErrorMessage $stopMessage -RequestBudget $requestBudget
+        & $emit 'error' @{ iteration = $iteration; reason = $stopReason; message = $stopMessage }
+        $PSCmdlet.ThrowTerminatingError([System.Management.Automation.ErrorRecord]::new(
+                [System.OperationCanceledException]::new($stopMessage),
+                $(if ($stopReason -eq 'Cancelled') { 'ShpTurnCancelled' } else { 'ShpTurnDeadline' }),
+                [System.Management.Automation.ErrorCategory]::OperationStopped,
+                $null))
+    }
+
     while ($true) {
+        & $stopIfSignalled 'the next model request'
         $iteration++
         if ($iteration -gt $MaxToolIterations) {
             # Every completed iteration was a billable round-trip, so record what
@@ -2128,6 +2199,14 @@ function Invoke-Shp {
                 $requestCopy = ConvertTo-ShpStableJson -InputObject $requestData -Depth 32 | ConvertFrom-Json
                 if ($requestBudget) {
                     $requestReservation = Add-ShpRequestReservation -Budget $requestBudget -Request $requestCopy -Counter $RequestTokenCounter
+                }
+                # Attached AFTER the digest and the reservation, so neither the
+                # admission hash nor a caller's token counter sees a request
+                # shape that changed. A transport that already takes a signal -
+                # the bounded Engine request does - can honour this one; a
+                # transport that never asked for one never sees it.
+                if ($PSBoundParameters.ContainsKey('CancellationToken')) {
+                    $requestCopy | Add-Member -NotePropertyName 'CancellationToken' -NotePropertyValue $CancellationToken -Force
                 }
                 try {
                     $transportResults = @(& $RequestTransport $requestCopy)
@@ -2351,6 +2430,11 @@ function Invoke-Shp {
                 })
             }
             foreach ($tc in $turn.ToolCalls) {
+                # Checked BEFORE anything about this call runs, and before the
+                # try below that turns a failure into a tool result: a cancelled
+                # turn must not dispatch, and must not report a dispatch it
+                # refused as a tool that failed.
+                & $stopIfSignalled ("dispatching the '{0}' tool" -f $tc.Name)
                 Write-Verbose ("-> tool: {0}({1})" -f $tc.Name, $tc.Arguments)
                 if ($ShowThinking) { Write-Host ("-> {0}({1})" -f $tc.Name, $tc.Arguments) -ForegroundColor Cyan }
                 # An unattended run refuses a prompt outright. ask_user is not
@@ -2429,19 +2513,19 @@ function Invoke-Shp {
                     # never prompts, which is exactly the run that needs scoping.
                     $access = switch ($tc.Name) {
                         { $_ -in 'read_file', 'list_directory', 'glob_files', 'grep_files', 'write_file', 'edit_file', 'create_directory' } {
-                            Test-ShpToolAccess -Tool $tc.Name -Path ([string]$fargs.path)
+                            Test-ShpToolAccess -Tool $tc.Name -Path ([string]$fargs.path) @toolPolicyParams
                         }
-                        'run_command' { Test-ShpToolAccess -Tool $tc.Name -Command ([string]$fargs.command) }
-                        'fetch_url'   { Test-ShpToolAccess -Tool $tc.Name -Url ([string]$fargs.url) }
+                        'run_command' { Test-ShpToolAccess -Tool $tc.Name -Command ([string]$fargs.command) @toolPolicyParams }
+                        'fetch_url'   { Test-ShpToolAccess -Tool $tc.Name -Url ([string]$fargs.url) @toolPolicyParams }
                         default {
                             # An MCP call is decided on the alias and tool that
                             # will actually dispatch, so a model cannot reach a
                             # different server by inventing a namespaced name.
                             # Everything else is decided on its own tool name.
                             if ($mcpToolMap.ContainsKey($tc.Name)) {
-                                Test-ShpToolAccess -Tool $tc.Name -McpServer $mcpToolMap[$tc.Name].Server -McpTool $mcpToolMap[$tc.Name].Tool
+                                Test-ShpToolAccess -Tool $tc.Name -McpServer $mcpToolMap[$tc.Name].Server -McpTool $mcpToolMap[$tc.Name].Tool @toolPolicyParams
                             } else {
-                                Test-ShpToolAccess -Tool $tc.Name
+                                Test-ShpToolAccess -Tool $tc.Name @toolPolicyParams
                             }
                         }
                     }
@@ -2492,15 +2576,15 @@ function Invoke-Shp {
                             $fargs = $effectiveArguments | ConvertFrom-Json -ErrorAction Stop
                             $access = switch ($tc.Name) {
                                 { $_ -in 'read_file', 'list_directory', 'glob_files', 'grep_files', 'write_file', 'edit_file', 'create_directory' } {
-                                    Test-ShpToolAccess -Tool $tc.Name -Path ([string]$fargs.path)
+                                    Test-ShpToolAccess -Tool $tc.Name -Path ([string]$fargs.path) @toolPolicyParams
                                 }
-                                'run_command' { Test-ShpToolAccess -Tool $tc.Name -Command ([string]$fargs.command) }
-                                'fetch_url'   { Test-ShpToolAccess -Tool $tc.Name -Url ([string]$fargs.url) }
+                                'run_command' { Test-ShpToolAccess -Tool $tc.Name -Command ([string]$fargs.command) @toolPolicyParams }
+                                'fetch_url'   { Test-ShpToolAccess -Tool $tc.Name -Url ([string]$fargs.url) @toolPolicyParams }
                                 default {
                                     if ($mcpToolMap.ContainsKey($tc.Name)) {
-                                        Test-ShpToolAccess -Tool $tc.Name -McpServer $mcpToolMap[$tc.Name].Server -McpTool $mcpToolMap[$tc.Name].Tool
+                                        Test-ShpToolAccess -Tool $tc.Name -McpServer $mcpToolMap[$tc.Name].Server -McpTool $mcpToolMap[$tc.Name].Tool @toolPolicyParams
                                     } else {
-                                        Test-ShpToolAccess -Tool $tc.Name
+                                        Test-ShpToolAccess -Tool $tc.Name @toolPolicyParams
                                     }
                                 }
                             }
@@ -2720,10 +2804,12 @@ function Invoke-Shp {
                         default {
                             # An MCP tool (Register-ShpMcpServer) is dispatched
                             # over the protocol, never as a PowerShell command.
-                            # Test-ShpToolAccess cannot gate it - the policy
-                            # matches resolved paths and command tokens, and a
-                            # tool call has neither - so ShouldProcess is the
-                            # only gate, and it is interactive only.
+                            # The gate above already decided it on the alias and
+                            # tool that will dispatch, when the policy covers the
+                            # Mcp kind; a policy written before that kind existed
+                            # leaves it to ShouldProcess, which is interactive
+                            # only. Neither is containment: that is the execution
+                            # contract's job.
                             if ($mcpToolMap.ContainsKey($tc.Name)) {
                                 $mcpTarget = $mcpToolMap[$tc.Name]
                                 if ($PSCmdlet.ShouldProcess(('{0}/{1} {2}' -f $mcpTarget.Server, $mcpTarget.Tool, $effectiveArguments), 'MCP tool')) {

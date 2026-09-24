@@ -28,6 +28,12 @@ function Resolve-ShpToolRuleVerdict {
     .PARAMETER Subject
         The noun used in the denial message, for example 'address'.
 
+    .PARAMETER Policy
+        A Tool policy to match against instead of the Session policy. It is how
+        one call - an attenuated child's - runs under the policy it inherited
+        without anything replacing Session state. Unbound, the Session policy
+        is where the rules come from.
+
     .EXAMPLE
         Resolve-ShpToolRuleVerdict -Kind 'Url' -Target 'https://example.com/a' -Subject 'address'
 
@@ -55,11 +61,16 @@ function Resolve-ShpToolRuleVerdict {
 
         [Parameter(Mandatory)]
         [ValidateNotNullOrEmpty()]
-        [string]$Subject
+        [string]$Subject,
+
+        [AllowNull()]
+        [psobject]$Policy
     )
 
+    $activePolicy = if ($PSBoundParameters.ContainsKey('Policy')) { $Policy } else { $script:ShpToolPolicy }
+
     $matched = $null
-    foreach ($rule in $script:ShpToolPolicy.Rule) {
+    foreach ($rule in $activePolicy.Rule) {
         if ($rule.Kind -ne $Kind) { continue }
         if ($Target -notmatch $rule.Pattern) { continue }
         if ($rule.Deny) {

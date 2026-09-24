@@ -16,6 +16,16 @@ BeforeAll {
         ''
         'Read the diff. Report defects. Do not edit.'
     ) | Set-Content -LiteralPath $script:agentFile -Encoding utf8
+
+    $script:plainAgentFile = Join-Path $script:agentRoot 'plain.agent.md'
+    @(
+        '---'
+        'name: plain'
+        'description: Answer without asking for any tool'
+        '---'
+        ''
+        'Answer from the prompt alone.'
+    ) | Set-Content -LiteralPath $script:plainAgentFile -Encoding utf8
 }
 
 AfterAll {
@@ -251,6 +261,132 @@ Describe 'Invoke-ShpSubagent' {
     Context 'No persistent background process' {
         It 'Should refuse -AsJob semantics rather than leaving a child running' {
             (Get-Command -Name 'Invoke-ShpSubagent').Parameters.Keys | Should -Not -Contain 'AsJob'
+        }
+    }
+
+    Context 'A parent that holds no tool grants none' {
+        It 'Should hand a child of a tool-less parent an explicitly empty, bound set' {
+            $script:seen = $null
+            $null = Invoke-ShpSubagent -DefinitionPath $script:plainAgentFile -Prompt 'go' `
+                -Parent @{ Capability = @{ Tool = @() } } `
+                -Invoker {
+                    param($Request)
+                    $script:seen = $Request
+                    [pscustomobject]@{ Content = 'ok'; Iterations = 1; ToolCalls = @(); CostUSD = 0.0 }
+                }
+
+            $script:seen.ToolBound | Should -BeTrue
+            @($script:seen.Tool).Count | Should -Be 0
+        }
+
+        It 'Should refuse a definition that asks for a tool when its parent holds none' {
+            $result = Invoke-ShpSubagent -DefinitionPath $script:agentFile -Prompt 'go' `
+                -Parent @{ Capability = @{ Tool = @() } } `
+                -Invoker { param($Request) throw 'the child must not run' }
+
+            $result.Refused | Should -BeTrue
+            $result.Reason | Should -Match 'read_file'
+        }
+    }
+
+    Context 'The controls the child actually runs under' {
+        AfterEach {
+            Clear-ShpToolPolicy
+        }
+
+        It 'Should inherit the Session Tool policy as a floor without replacing it during the call' {
+            Set-ShpToolPolicy -Rule @('Read(C:\work\*)') -Confirm:$false
+            $script:seen = $null
+            $null = Invoke-ShpSubagent -DefinitionPath $script:agentFile -Prompt 'go' `
+                -Parent @{ Capability = @{ Tool = @('read_file', 'grep_files') } } `
+                -Invoker {
+                    param($Request)
+                    $script:seen = [pscustomobject]@{
+                        Policy = $Request.ToolPolicy
+                        SessionDuringCall = (Get-ShpToolPolicy)
+                    }
+                    [pscustomobject]@{ Content = 'ok'; Iterations = 1; ToolCalls = @(); CostUSD = 0.0 }
+                }
+
+            @($script:seen.Policy.Rule.Text) | Should -Contain 'Read(C:\work\*)'
+            @($script:seen.SessionDuringCall.Rule.Text) | Should -Contain 'Read(C:\work\*)'
+            @((Get-ShpToolPolicy).Rule.Text) | Should -Contain 'Read(C:\work\*)'
+        }
+
+        It 'Should hand the child the execution contract and the decision control its parent runs under' {
+            $contract = { param($Request) @{ Outcome = 'Executed'; Result = '{}' } }
+            $control = @{ PreToolCall = { param($Request) @{ Decision = 'allow' } } }
+            $script:seen = $null
+            $null = Invoke-ShpSubagent -DefinitionPath $script:agentFile -Prompt 'go' `
+                -Parent @{ Capability = @{ Tool = @('read_file', 'grep_files'); ExecutionContract = $contract; ToolCallControl = $control } } `
+                -Invoker {
+                    param($Request)
+                    $script:seen = $Request
+                    [pscustomobject]@{ Content = 'ok'; Iterations = 1; ToolCalls = @(); CostUSD = 0.0 }
+                }
+
+            $script:seen.ExecutionContract | Should -BeOfType [scriptblock]
+            $script:seen.ToolCallControl | Should -Be $control
+        }
+
+        It 'Should refuse to dispatch a child natively when the contract its parent requires cannot travel' {
+            $result = Invoke-ShpSubagent -DefinitionPath $script:agentFile -Prompt 'go' `
+                -Parent @{ Capability = @{ Tool = @('read_file', 'grep_files'); ExecutionContract = $true } } `
+                -Invoker { param($Request) throw 'the child must not run natively' }
+
+            $result.Refused | Should -BeTrue
+            $result.Reason | Should -Match 'execution contract'
+        }
+
+        It 'Should run the child against the backend its parent was approved for' {
+            $script:seen = $null
+            $null = Invoke-ShpSubagent -DefinitionPath $script:agentFile -Prompt 'go' `
+                -Parent @{ Capability = @{ Tool = @('read_file', 'grep_files'); ApiBase = 'https://alt.example/v1' } } `
+                -Invoker {
+                    param($Request)
+                    $script:seen = $Request
+                    [pscustomobject]@{ Content = 'ok'; Iterations = 1; ToolCalls = @(); CostUSD = 0.0 }
+                }
+
+            $script:seen.ApiBase | Should -BeExactly 'https://alt.example/v1'
+            ($script:seen | ConvertTo-Json -Depth 5) | Should -Not -Match 'ApiKey'
+        }
+    }
+
+    Context 'The deadline and the concurrency slot' {
+        It 'Should refuse a child whose tree deadline has already passed, without running it' {
+            $expired = InModuleScope ShellPilot {
+                $budget = New-ShpSubagentBudget -Limit @{ MaxDurationSec = 300 }
+                $budget.Tree.Deadline = [datetime]::UtcNow.AddSeconds(-1)
+                $budget
+            }
+            $result = Invoke-ShpSubagent -DefinitionPath $script:agentFile -Prompt 'go' `
+                -Parent @{ Capability = @{ Tool = @('read_file', 'grep_files') }; Budget = $expired } `
+                -Invoker { param($Request) throw 'the child must not run' }
+
+            $result.Refused | Should -BeTrue
+            $result.Reason | Should -Match 'deadline'
+        }
+
+        It 'Should give the concurrency slot back when the child is cancelled mid-flight' {
+            $source = [System.Threading.CancellationTokenSource]::new()
+            try {
+                $parentBudget = InModuleScope ShellPilot { New-ShpSubagentBudget -Limit @{ MaxConcurrency = 1; MaxFanOut = 4 } }
+                $first = Invoke-ShpSubagent -DefinitionPath $script:agentFile -Prompt 'go' `
+                    -Parent @{ Capability = @{ Tool = @('read_file', 'grep_files') }; Budget = $parentBudget } `
+                    -CancellationToken $source.Token `
+                    -Invoker {
+                        param($Request)
+                        $source.Cancel()
+                        throw [System.OperationCanceledException]::new('the child was cancelled')
+                    }
+
+                $first.Refused | Should -BeTrue
+                $first.Cancelled | Should -BeTrue
+                $parentBudget.Tree.Running | Should -Be 0
+            } finally {
+                $source.Dispose()
+            }
         }
     }
 }

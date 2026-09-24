@@ -48,4 +48,21 @@ Describe 'Resolve-ShpToolRuleVerdict' {
             $verdict.Reason | Should -Match 'run_anything'
         }
     }
+
+    It 'Matches against a per-call policy instead of the Session one when it is supplied' {
+        InModuleScope $script:moduleName {
+            Set-ShpToolPolicy -Rule @('Tool(*)')
+            $sessionPolicy = Get-ShpToolPolicy
+            $narrow = [pscustomobject]@{
+                PSTypeName = 'ShellPilot.ToolPolicy'; SchemaVersion = $sessionPolicy.SchemaVersion
+                TrustProfile = 'Legacy'; Coverage = @('Tool')
+                Rule = @($sessionPolicy.Rule | Where-Object { $false })
+                Source = '(subagent)'
+            }
+
+            (Resolve-ShpToolRuleVerdict -Kind 'Tool' -Target 'load_skill' -Subject 'tool').Allowed | Should -BeTrue
+            (Resolve-ShpToolRuleVerdict -Kind 'Tool' -Target 'load_skill' -Subject 'tool' -Policy $narrow).Allowed | Should -BeFalse
+            @((Get-ShpToolPolicy).Rule.Text) | Should -Be @('Tool(*)')
+        }
+    }
 }

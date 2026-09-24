@@ -20,8 +20,15 @@ function Invoke-ShpSubagent {
         ATTENUATION. The child's tools, switches, Tool policy, network reach,
         redaction, execution contract and backend all come from
         Resolve-ShpSubagentCapability, which refuses any request to widen rather
-        than dropping it. No credential travels: a Subagent inherits a boundary,
-        not a secret.
+        than dropping it. Those controls are then HANDED TO the child turn as
+        the objects the parent runs under - the Tool policy as a per-call
+        override, the decision control and the execution contract as the
+        scriptblocks themselves - so the child is gated by them rather than
+        merely described by them. Session state is never replaced to do it. A
+        parent that requires an execution contract it cannot hand down refuses
+        the dispatch instead of letting the child run natively. No credential
+        travels: a Subagent inherits a boundary, not a secret, and the approved
+        backend travels as its address only.
 
         BUDGET. The tree's spend, iteration count and deadline live in ONE
         shared ledger. A child never gets a slice - it gets the smaller of what
@@ -50,7 +57,8 @@ function Invoke-ShpSubagent {
 
     .PARAMETER Parent
         The dispatching context: Capability, Budget, Depth and TraceParent. A
-        root call omits it and the caller's own limits apply.
+        root call omits it and the caller's own limits apply; the Session Tool
+        policy and redaction policy are inherited as the floor either way.
 
     .PARAMETER Capability
         Additional narrowing on top of the definition and the parent. It can
@@ -66,7 +74,8 @@ function Invoke-ShpSubagent {
 
     .PARAMETER CancellationToken
         Cancellation from the caller, checked before dispatch and handed to the
-        child.
+        child, which checks it before every model request and Tool dispatch. A
+        request already in flight is not interrupted.
 
     .PARAMETER Invoker
         A caller-owned dispatcher used instead of the nested Invoke-Shp turn.
@@ -144,6 +153,12 @@ function Invoke-ShpSubagent {
     }
 
     $parentCapability = if ($Parent -and $Parent['Capability']) { $Parent['Capability'] } else { @{} }
+    # The ACTIVE controls are the floor when the dispatching context named none.
+    # A root call is dispatched from inside a session that already has a Tool
+    # policy and a redaction policy, and a child that ignored them would be
+    # wider than the caller that started it.
+    if (-not $parentCapability.ContainsKey('ToolPolicy')) { $parentCapability = @{} + $parentCapability; $parentCapability['ToolPolicy'] = $script:ShpToolPolicy }
+    if (-not $parentCapability.ContainsKey('RedactionPolicy')) { $parentCapability = @{} + $parentCapability; $parentCapability['RedactionPolicy'] = $script:ShpRedactionPolicy }
     $parentTraceParent = if ($Parent) { [string]$Parent['TraceParent'] } else { '' }
 
     $traceParams = @{ SpanKey = ('subagent:{0}' -f $definition.Name) }
@@ -238,6 +253,14 @@ function Invoke-ShpSubagent {
         return & $refuse $resolvedCapability.Reason $false $childBudget
     }
 
+    # A contract the parent requires and cannot hand down has no honest
+    # dispatch: running the child natively would execute exactly the work the
+    # contract exists to keep out of this process.
+    if ($resolvedCapability.Capability.ExecutionContractRequired -and $resolvedCapability.Capability.ExecutionContract -isnot [scriptblock]) {
+        & $releaseReservation
+        return & $refuse ('The parent runs under an execution contract that was not handed down, so the child has no contract to dispatch through; a Subagent never falls back to native execution.') $false $childBudget
+    }
+
     if ($eventState['Enabled']) {
         Write-ShpEvent -State $eventState -Type 'subagent.start' -Data @{
             agent    = $definition.Name
@@ -255,6 +278,7 @@ function Invoke-ShpSubagent {
         SystemPrompt        = $definition.Body
         Agent               = $definition.Name
         Tool                = @($resolvedCapability.Capability.Tool)
+        ToolBound           = [bool]$resolvedCapability.Capability.ToolBound
         DisableFileAccess   = [bool]$resolvedCapability.Capability.DisableFileAccess
         DisableTerminal     = [bool]$resolvedCapability.Capability.DisableTerminal
         DisableBrowsing     = [bool]$resolvedCapability.Capability.DisableBrowsing
@@ -264,6 +288,10 @@ function Invoke-ShpSubagent {
         NonInteractive      = $true
         AllowPrivateNetwork = [bool]$resolvedCapability.Capability.AllowPrivateNetwork
         DisableRedaction    = [bool]$resolvedCapability.Capability.DisableRedaction
+        ToolPolicy          = $resolvedCapability.Capability.ToolPolicy
+        ToolCallControl     = $resolvedCapability.Capability.ToolCallControl
+        ExecutionContract   = $resolvedCapability.Capability.ExecutionContract
+        ApiBase             = [string]$resolvedCapability.Capability.ApiBase
         MaxBudgetUSD        = [double]$childBudget.MaxCostUSD
         MaxToolIterations   = [int]$childBudget.MaxIterations
         TraceParent         = $trace.TraceParent
@@ -276,14 +304,32 @@ function Invoke-ShpSubagent {
 
     $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
     $child = $null
+    $failure = $null
     try {
         $child = if ($Invoker) { & $Invoker $request } else { Invoke-ShpSubagentTurn -Request $request }
     } catch {
+        $failure = $_
+    } finally {
+        # The slot is a resource, not a result: it goes back whether the child
+        # answered, failed or was cancelled, and it goes back before anything
+        # else can decide to return early.
+        $stopwatch.Stop()
         & $releaseSlot
-        return & $refuse ("The Subagent failed: {0}" -f $_.Exception.Message) $false $childBudget
     }
-    $stopwatch.Stop()
-    & $releaseSlot
+    if ($failure) {
+        # A cancelled child is reported as cancelled rather than as a failure,
+        # because the two mean different things to whoever reads the result: one
+        # is a boundary doing its job, the other is work that went wrong.
+        $cancelled = $CancellationToken.IsCancellationRequested -or
+            $failure.Exception -is [System.OperationCanceledException] -or
+            [string]$failure.FullyQualifiedErrorId -match '^ShpTurn(Cancelled|Deadline)'
+        $reason = if ($cancelled) {
+            ("The Subagent was cancelled: {0}" -f $failure.Exception.Message)
+        } else {
+            ("The Subagent failed: {0}" -f $failure.Exception.Message)
+        }
+        return & $refuse $reason $cancelled $childBudget
+    }
 
     $cost = 0.0
     $iterations = 0
