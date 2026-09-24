@@ -58,7 +58,7 @@ Describe 'Invoke-ShpSubagent' {
             $bad = Join-Path $script:agentRoot 'bad.agent.md'
             @('---', 'name: bad', '---', 'body') | Set-Content -LiteralPath $bad -Encoding utf8
 
-            { Invoke-ShpSubagent -DefinitionPath $bad -Prompt 'go' -Invoker { param($Request) $null } } |
+            { Invoke-ShpSubagent -DefinitionPath $bad -Prompt 'go' -Invoker { param($Request) $null = $Request; $null } } |
                 Should -Throw '*description*'
         }
 
@@ -74,6 +74,7 @@ Describe 'Invoke-ShpSubagent' {
                 -Parent @{ Capability = @{ Tool = @('read_file', 'grep_files', 'run_command'); DisableTerminal = $false } } `
                 -Invoker {
                     param($Request)
+                    $null = $Request
                     [pscustomobject]@{ Content = 'ok'; Iterations = 1; ToolCalls = @(); CostUSD = 0.0; Trace = [pscustomobject]@{} }
                 }
 
@@ -88,7 +89,7 @@ Describe 'Invoke-ShpSubagent' {
 
             $result = Invoke-ShpSubagent -DefinitionPath $greedy -Prompt 'go' `
                 -Parent @{ Capability = @{ Tool = @('read_file') } } `
-                -Invoker { param($Request) throw 'the child must not run' }
+                -Invoker { param($Request) $null = $Request; throw 'the child must not run' }
 
             $result.Refused | Should -BeTrue
             $result.Reason | Should -Match 'run_command'
@@ -128,6 +129,7 @@ Describe 'Invoke-ShpSubagent' {
         It 'Should return the final answer and a trace reference rather than the child conversation' {
             $result = Invoke-ShpSubagent -DefinitionPath $script:agentFile -Prompt 'go' -Invoker {
                 param($Request)
+                $null = $Request
                 [pscustomobject]@{
                     Content = 'the child answer'
                     Iterations = 3
@@ -167,6 +169,7 @@ Describe 'Invoke-ShpSubagent' {
             $path = Join-Path $TestDrive 'subagent.jsonl'
             $null = Invoke-ShpSubagent -DefinitionPath $script:agentFile -Prompt 'go' -EventStream $path -Invoker {
                 param($Request)
+                $null = $Request
                 [pscustomobject]@{ Content = 'ok'; Iterations = 2; ToolCalls = @(); CostUSD = 0.002; Trace = [pscustomobject]@{} }
             }
 
@@ -185,7 +188,7 @@ Describe 'Invoke-ShpSubagent' {
             $result = Invoke-ShpSubagent -DefinitionPath $script:agentFile -Prompt 'go' `
                 -Budget @{ MaxTotalUSD = 1.0; MaxDepth = 1 } `
                 -Parent @{ Capability = @{ Tool = @('read_file') }; Depth = 1 } `
-                -Invoker { param($Request) throw 'the child must not run' }
+                -Invoker { param($Request) $null = $Request; throw 'the child must not run' }
 
             $result.Refused | Should -BeTrue
             $result.Reason | Should -Match 'depth'
@@ -196,6 +199,7 @@ Describe 'Invoke-ShpSubagent' {
                 -Budget @{ MaxTotalUSD = 0.01; MaxChildUSD = 0.01; MaxDepth = 3; MaxFanOut = 5 } `
                 -Invoker {
                     param($Request)
+                    $null = $Request
                     [pscustomobject]@{ Content = 'ok'; Iterations = 1; ToolCalls = @(); CostUSD = 0.01; Trace = [pscustomobject]@{} }
                 }
 
@@ -204,7 +208,7 @@ Describe 'Invoke-ShpSubagent' {
 
             $second = Invoke-ShpSubagent -DefinitionPath $script:agentFile -Prompt 'second' `
                 -Parent @{ Capability = @{ Tool = @('read_file') }; Budget = $root.Budget } `
-                -Invoker { param($Request) throw 'the sibling must not run' }
+                -Invoker { param($Request) $null = $Request; throw 'the sibling must not run' }
 
             $second.Refused | Should -BeTrue
             $second.Reason | Should -Match 'budget'
@@ -231,7 +235,7 @@ Describe 'Invoke-ShpSubagent' {
             $source.Cancel()
             try {
                 $result = Invoke-ShpSubagent -DefinitionPath $script:agentFile -Prompt 'go' `
-                    -CancellationToken $source.Token -Invoker { param($Request) throw 'the child must not run' }
+                    -CancellationToken $source.Token -Invoker { param($Request) $null = $Request; throw 'the child must not run' }
 
                 $result.Refused | Should -BeTrue
                 $result.Cancelled | Should -BeTrue
@@ -282,7 +286,7 @@ Describe 'Invoke-ShpSubagent' {
         It 'Should refuse a definition that asks for a tool when its parent holds none' {
             $result = Invoke-ShpSubagent -DefinitionPath $script:agentFile -Prompt 'go' `
                 -Parent @{ Capability = @{ Tool = @() } } `
-                -Invoker { param($Request) throw 'the child must not run' }
+                -Invoker { param($Request) $null = $Request; throw 'the child must not run' }
 
             $result.Refused | Should -BeTrue
             $result.Reason | Should -Match 'read_file'
@@ -314,8 +318,8 @@ Describe 'Invoke-ShpSubagent' {
         }
 
         It 'Should hand the child the execution contract and the decision control its parent runs under' {
-            $contract = { param($Request) @{ Outcome = 'Executed'; Result = '{}' } }
-            $control = @{ PreToolCall = { param($Request) @{ Decision = 'allow' } } }
+            $contract = { param($Request) $null = $Request; @{ Outcome = 'Executed'; Result = '{}' } }
+            $control = @{ PreToolCall = { param($Request) $null = $Request; @{ Decision = 'allow' } } }
             $script:seen = $null
             $null = Invoke-ShpSubagent -DefinitionPath $script:agentFile -Prompt 'go' `
                 -Parent @{ Capability = @{ Tool = @('read_file', 'grep_files'); ExecutionContract = $contract; ToolCallControl = $control } } `
@@ -332,7 +336,7 @@ Describe 'Invoke-ShpSubagent' {
         It 'Should refuse to dispatch a child natively when the contract its parent requires cannot travel' {
             $result = Invoke-ShpSubagent -DefinitionPath $script:agentFile -Prompt 'go' `
                 -Parent @{ Capability = @{ Tool = @('read_file', 'grep_files'); ExecutionContract = $true } } `
-                -Invoker { param($Request) throw 'the child must not run natively' }
+                -Invoker { param($Request) $null = $Request; throw 'the child must not run natively' }
 
             $result.Refused | Should -BeTrue
             $result.Reason | Should -Match 'execution contract'
@@ -367,6 +371,7 @@ Describe 'Invoke-ShpSubagent' {
                 -Parent @{ Capability = @{ Tool = @('read_file', 'grep_files'); ToolPolicy = $narrow } } `
                 -Invoker {
                     param($Request)
+                    $null = $Request
                     [pscustomobject]@{ Content = 'ok'; Iterations = 1; ToolCalls = @(); CostUSD = 0.0 }
                 }
 
@@ -396,7 +401,7 @@ Describe 'Invoke-ShpSubagent' {
             }
             $result = Invoke-ShpSubagent -DefinitionPath $script:agentFile -Prompt 'go' `
                 -Parent @{ Capability = @{ Tool = @('read_file', 'grep_files') }; Budget = $expired } `
-                -Invoker { param($Request) throw 'the child must not run' }
+                -Invoker { param($Request) $null = $Request; throw 'the child must not run' }
 
             $result.Refused | Should -BeTrue
             $result.Reason | Should -Match 'deadline'
@@ -411,6 +416,7 @@ Describe 'Invoke-ShpSubagent' {
                     -CancellationToken $source.Token `
                     -Invoker {
                         param($Request)
+                        $null = $Request
                         $source.Cancel()
                         throw [System.OperationCanceledException]::new('the child was cancelled')
                     }

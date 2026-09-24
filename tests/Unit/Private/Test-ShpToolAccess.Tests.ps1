@@ -135,10 +135,20 @@ Describe 'Test-ShpToolAccess' {
             $linkPath = Join-Path $root 'escape'
             $linkType = if ($IsWindows) { 'Junction' } else { 'SymbolicLink' }
             $made = $null
-            try { $made = New-Item -ItemType $linkType -Path $linkPath -Target $outside -ErrorAction Stop } catch { }
+            $linkFailure = $null
+            try {
+                $made = New-Item -ItemType $linkType -Path $linkPath -Target $outside -ErrorAction Stop
+            } catch {
+                # Creating a junction or a symlink needs a privilege this account
+                # may not hold. That is a skip, not a failure, but the reason is
+                # kept so the skip says why instead of swallowing it.
+                $linkFailure = $_.Exception.Message
+            }
 
             if (-not $made) {
-                Set-ItResult -Skipped -Because 'this platform or account cannot create a link'
+                $because = 'this platform or account cannot create a link'
+                if ($linkFailure) { $because = '{0}: {1}' -f $because, $linkFailure }
+                Set-ItResult -Skipped -Because $because
                 return
             }
 

@@ -160,7 +160,7 @@ Describe 'Invoke-ShpMcpHttpRequest' {
 
         It 'Should treat a 202 as the whole answer for a notification' {
             InModuleScope $script:moduleName {
-                $transport = { param($Request) @{ StatusCode = 202; Headers = @{}; Body = '' } }
+                $transport = { param($Request) $null = $Request; @{ StatusCode = 202; Headers = @{}; Body = '' } }
 
                 $response = Invoke-ShpMcpHttpRequest -Uri 'https://mcp.example.com/mcp' -Method 'notifications/initialized' -Notification -Transport $transport
                 $response.Ok | Should -BeTrue
@@ -179,7 +179,7 @@ Describe 'Invoke-ShpMcpHttpRequest' {
                     'data: {"jsonrpc":"2.0","id":"abc","result":{"tools":[{"name":"read"}]}}'
                     ''
                 ) -join "`n"
-                $transport = { param($Request) @{ StatusCode = 200; Headers = @{ 'Content-Type' = 'text/event-stream' }; Body = $body } }
+                $transport = { param($Request) $null = $Request; @{ StatusCode = 200; Headers = @{ 'Content-Type' = 'text/event-stream' }; Body = $body } }
 
                 $response = Invoke-ShpMcpHttpRequest -Uri 'https://mcp.example.com/mcp' -Method 'tools/list' -Id 'abc' -Transport $transport
 
@@ -192,7 +192,7 @@ Describe 'Invoke-ShpMcpHttpRequest' {
         It 'Should bound the number of stream events it will read' {
             InModuleScope $script:moduleName {
                 $lines = foreach ($i in 1..50) { "data: {`"jsonrpc`":`"2.0`",`"method`":`"notifications/progress`",`"params`":{`"n`":$i}}"; '' }
-                $transport = { param($Request) @{ StatusCode = 200; Headers = @{ 'Content-Type' = 'text/event-stream' }; Body = ($lines -join "`n") } }
+                $transport = { param($Request) $null = $Request; @{ StatusCode = 200; Headers = @{ 'Content-Type' = 'text/event-stream' }; Body = ($lines -join "`n") } }
 
                 $response = Invoke-ShpMcpHttpRequest -Uri 'https://mcp.example.com/mcp' -Method 'tools/list' -Id 'abc' -MaxStreamEvent 5 -Transport $transport
 
@@ -203,7 +203,7 @@ Describe 'Invoke-ShpMcpHttpRequest' {
 
         It 'Should refuse a body larger than the cap rather than buffering it' {
             InModuleScope $script:moduleName {
-                $transport = { param($Request) @{ StatusCode = 200; Headers = @{ 'Content-Type' = 'application/json' }; Body = ('x' * 5000) } }
+                $transport = { param($Request) $null = $Request; @{ StatusCode = 200; Headers = @{ 'Content-Type' = 'application/json' }; Body = ('x' * 5000) } }
 
                 $response = Invoke-ShpMcpHttpRequest -Uri 'https://mcp.example.com/mcp' -Method 'tools/list' -Id 'abc' -MaxResponseBytes 1024 -Transport $transport
 
@@ -214,7 +214,7 @@ Describe 'Invoke-ShpMcpHttpRequest' {
 
         It 'Should refuse a media type it does not implement' {
             InModuleScope $script:moduleName {
-                $transport = { param($Request) @{ StatusCode = 200; Headers = @{ 'Content-Type' = 'text/html' }; Body = '<html></html>' } }
+                $transport = { param($Request) $null = $Request; @{ StatusCode = 200; Headers = @{ 'Content-Type' = 'text/html' }; Body = '<html></html>' } }
 
                 $response = Invoke-ShpMcpHttpRequest -Uri 'https://mcp.example.com/mcp' -Method 'tools/list' -Id 'abc' -Transport $transport
                 $response.Ok | Should -BeFalse
@@ -250,6 +250,7 @@ Describe 'Invoke-ShpMcpHttpRequest' {
                 Mock Resolve-ShpMcpEndpointAddress { @('169.254.169.254') }
                 $transport = {
                     param($Request)
+                    $null = $Request
                     @{ StatusCode = 307; Headers = @{ 'Location' = 'https://169.254.169.254/latest' }; Body = '' }
                 }
 
@@ -266,6 +267,7 @@ Describe 'Invoke-ShpMcpHttpRequest' {
                 $script:hops = 0
                 $transport = {
                     param($Request)
+                    $null = $Request
                     $script:hops++
                     @{ StatusCode = 307; Headers = @{ 'Location' = ('https://mcp.example.com/hop{0}' -f $script:hops) }; Body = '' }
                 }
@@ -283,6 +285,7 @@ Describe 'Invoke-ShpMcpHttpRequest' {
                 $script:attempts = 0
                 $transport = {
                     param($Request)
+                    $null = $Request
                     $script:attempts++
                     @{ StatusCode = 401; Headers = @{ 'WWW-Authenticate' = 'Bearer resource_metadata="https://mcp.example.com/.well-known/oauth-protected-resource"' }; Body = '' }
                 }
@@ -303,7 +306,7 @@ Describe 'Invoke-ShpMcpHttpRequest' {
                 $source = [System.Threading.CancellationTokenSource]::new()
                 $source.Cancel()
                 try {
-                    $transport = { param($Request) throw 'the sender must not run' }
+                    $transport = { param($Request) $null = $Request; throw 'the sender must not run' }
                     $response = Invoke-ShpMcpHttpRequest -Uri 'https://mcp.example.com/mcp' -Method 'tools/list' -Id 'abc' `
                         -Transport $transport -CancellationToken $source.Token
 
@@ -317,7 +320,7 @@ Describe 'Invoke-ShpMcpHttpRequest' {
 
         It 'Should report a transport failure without throwing into the Turn' {
             InModuleScope $script:moduleName {
-                $transport = { param($Request) throw 'connection reset' }
+                $transport = { param($Request) $null = $Request; throw 'connection reset' }
                 $response = Invoke-ShpMcpHttpRequest -Uri 'https://mcp.example.com/mcp' -Method 'tools/list' -Id 'abc' -Transport $transport
 
                 $response.Ok | Should -BeFalse
@@ -328,7 +331,7 @@ Describe 'Invoke-ShpMcpHttpRequest' {
         It 'Should refuse an endpoint that does not pass the URL guard, before sending anything' {
             InModuleScope $script:moduleName {
                 $script:called = $false
-                $transport = { param($Request) $script:called = $true; @{ StatusCode = 200; Headers = @{}; Body = '' } }
+                $transport = { param($Request) $null = $Request; $script:called = $true; @{ StatusCode = 200; Headers = @{}; Body = '' } }
 
                 $response = Invoke-ShpMcpHttpRequest -Uri 'http://10.0.0.5/mcp' -Method 'tools/list' -Id 'abc' -Transport $transport
                 $response.Ok | Should -BeFalse

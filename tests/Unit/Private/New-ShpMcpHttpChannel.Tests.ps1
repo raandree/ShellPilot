@@ -141,7 +141,7 @@ Describe 'New-ShpMcpHttpChannel' {
                     $script:sent = $Request
                     @{ StatusCode = 200; Headers = @{ 'Content-Type' = 'application/json' }; Body = '{"jsonrpc":"2.0","id":"abc","result":{}}' }
                 }
-                $callback = { param($Context) $script:callbackCalls++; 'resource-bound-token' }
+                $callback = { param($Context) $null = $Context; $script:callbackCalls++; 'resource-bound-token' }
                 $channel = New-ShpMcpHttpChannel -Uri 'https://mcp.example.com/mcp' -Address @('93.184.216.34') -CredentialCallback $callback -Transport $transport
 
                 $null = & $channel.Invoke @{ Method = 'tools/list'; Id = 'abc' } $channel
@@ -158,7 +158,7 @@ Describe 'New-ShpMcpHttpChannel' {
         It 'Should tell the callback which endpoint and method it is minting for' {
             InModuleScope $script:moduleName {
                 $script:context = $null
-                $transport = { param($Request) @{ StatusCode = 200; Headers = @{ 'Content-Type' = 'application/json' }; Body = '{"jsonrpc":"2.0","id":"abc","result":{}}' } }
+                $transport = { param($Request) $null = $Request; @{ StatusCode = 200; Headers = @{ 'Content-Type' = 'application/json' }; Body = '{"jsonrpc":"2.0","id":"abc","result":{}}' } }
                 $callback = { param($Context) $script:context = $Context; 't' }
                 $channel = New-ShpMcpHttpChannel -Uri 'https://mcp.example.com/mcp' -Address @('93.184.216.34') -CredentialCallback $callback -Transport $transport
 

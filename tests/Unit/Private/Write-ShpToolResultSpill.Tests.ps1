@@ -169,6 +169,7 @@ Describe 'Write-ShpToolResultSpill' {
         It 'Surfaces a write failure instead of falling back to truncation' {
             InModuleScope $script:moduleName -Parameters @{ Root = $script:spillRoot } {
                 param($Root)
+                $null = $Root  # used inside the assertion scriptblock below
                 Mock Move-Item { throw 'the volume is read-only' }
 
                 { Write-ShpToolResultSpill -Root $Root -Result ('Z' * 9000) -Tool 'read_file' `

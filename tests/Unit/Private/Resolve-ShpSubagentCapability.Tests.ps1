@@ -187,7 +187,7 @@ Describe 'Resolve-ShpSubagentCapability' {
 
         It 'Should carry the parent decision control rather than a report that one exists' {
             InModuleScope $script:moduleName {
-                $control = @{ PreToolCall = { param($Request) @{ Decision = 'allow' } } }
+                $control = @{ PreToolCall = { param($Request) $null = $Request; @{ Decision = 'allow' } } }
                 $resolved = Resolve-ShpSubagentCapability -Parent @{ Tool = @('read_file'); ToolCallControl = $control }
 
                 $resolved.Ok | Should -BeTrue
@@ -197,7 +197,7 @@ Describe 'Resolve-ShpSubagentCapability' {
 
         It 'Should refuse a child that asks to run without the decision control its parent runs under' {
             InModuleScope $script:moduleName {
-                $control = @{ PreToolCall = { param($Request) @{ Decision = 'allow' } } }
+                $control = @{ PreToolCall = { param($Request) $null = $Request; @{ Decision = 'allow' } } }
                 $resolved = Resolve-ShpSubagentCapability -Parent @{ Tool = @('read_file'); ToolCallControl = $control } -Requested @{ ToolCallControl = $null }
 
                 $resolved.Ok | Should -BeFalse
@@ -207,7 +207,7 @@ Describe 'Resolve-ShpSubagentCapability' {
 
         It 'Should let a child add a decision control its parent did not have' {
             InModuleScope $script:moduleName {
-                $control = @{ PreToolCall = { param($Request) @{ Decision = 'allow' } } }
+                $control = @{ PreToolCall = { param($Request) $null = $Request; @{ Decision = 'allow' } } }
                 $resolved = Resolve-ShpSubagentCapability -Parent @{ Tool = @('read_file') } -Requested @{ ToolCallControl = $control }
 
                 $resolved.Ok | Should -BeTrue
@@ -217,7 +217,7 @@ Describe 'Resolve-ShpSubagentCapability' {
 
         It 'Should carry the execution contract as the scriptblock the child has to run under' {
             InModuleScope $script:moduleName {
-                $contract = { param($Request) @{ Outcome = 'Executed'; Result = '{}' } }
+                $contract = { param($Request) $null = $Request; @{ Outcome = 'Executed'; Result = '{}' } }
                 $resolved = Resolve-ShpSubagentCapability -Parent @{ Tool = @('run_command'); ExecutionContract = $contract }
 
                 $resolved.Ok | Should -BeTrue
@@ -238,7 +238,7 @@ Describe 'Resolve-ShpSubagentCapability' {
 
         It 'Should refuse a child that asks to run outside the execution contract its parent runs under' {
             InModuleScope $script:moduleName {
-                $contract = { param($Request) @{ Outcome = 'Executed'; Result = '{}' } }
+                $contract = { param($Request) $null = $Request; @{ Outcome = 'Executed'; Result = '{}' } }
                 $resolved = Resolve-ShpSubagentCapability -Parent @{ Tool = @('run_command'); ExecutionContract = $contract } -Requested @{ ExecutionContract = $false }
 
                 $resolved.Ok | Should -BeFalse
@@ -248,8 +248,8 @@ Describe 'Resolve-ShpSubagentCapability' {
 
         It 'Should refuse a child that swaps the execution contract for one of its own' {
             InModuleScope $script:moduleName {
-                $parentContract = { param($Request) @{ Outcome = 'Denied'; Reason = 'no' } }
-                $childContract = { param($Request) @{ Outcome = 'Executed'; Result = '{}' } }
+                $parentContract = { param($Request) $null = $Request; @{ Outcome = 'Denied'; Reason = 'no' } }
+                $childContract = { param($Request) $null = $Request; @{ Outcome = 'Executed'; Result = '{}' } }
                 $resolved = Resolve-ShpSubagentCapability -Parent @{ Tool = @('run_command'); ExecutionContract = $parentContract } -Requested @{ ExecutionContract = $childContract }
 
                 $resolved.Ok | Should -BeFalse

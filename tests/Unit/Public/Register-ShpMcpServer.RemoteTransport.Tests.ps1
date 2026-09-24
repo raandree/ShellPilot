@@ -106,7 +106,7 @@ Describe 'Register-ShpMcpServer over Streamable HTTP' {
         It 'Should refuse plain http without the loopback opt-in' {
             InModuleScope $script:moduleName {
                 $script:called = $false
-                $transport = { param($Request) $script:called = $true; @{ StatusCode = 200; Headers = @{}; Body = '' } }
+                $transport = { param($Request) $null = $Request; $script:called = $true; @{ StatusCode = 200; Headers = @{}; Body = '' } }
 
                 { Register-ShpMcpServer -Name bad -Url 'http://mcp.example.com/mcp' -Transport $transport } |
                     Should -Throw '*http*'
@@ -118,7 +118,7 @@ Describe 'Register-ShpMcpServer over Streamable HTTP' {
             InModuleScope $script:moduleName {
                 Mock Resolve-ShpMcpEndpointAddress { @('169.254.169.254') }
                 Mock Get-ShpBlockedAddressReason { 'a link-local address' }
-                $transport = { param($Request) throw 'the sender must not run' }
+                $transport = { param($Request) $null = $Request; throw 'the sender must not run' }
 
                 { Register-ShpMcpServer -Name meta -Url 'https://metadata.example/mcp' -Transport $transport } |
                     Should -Throw '*link-local*'
@@ -127,7 +127,7 @@ Describe 'Register-ShpMcpServer over Streamable HTTP' {
 
         It 'Should refuse an endpoint with an embedded credential' {
             InModuleScope $script:moduleName {
-                $transport = { param($Request) throw 'the sender must not run' }
+                $transport = { param($Request) $null = $Request; throw 'the sender must not run' }
                 { Register-ShpMcpServer -Name creds -Url 'https://user:pass@mcp.example.com/mcp' -Transport $transport } |
                     Should -Throw '*credential*'
             }
@@ -138,6 +138,7 @@ Describe 'Register-ShpMcpServer over Streamable HTTP' {
         It 'Should refuse an endpoint the policy Url rules do not allow' {
             InModuleScope $script:moduleName -Parameters @{ Transport = $script:remoteTransport } {
                 param($Transport)
+                $null = $Transport  # used inside the assertion scriptblock below
 
                 Set-ShpToolPolicy -Rule 'Url(https://allowed.example/*)'
                 try {

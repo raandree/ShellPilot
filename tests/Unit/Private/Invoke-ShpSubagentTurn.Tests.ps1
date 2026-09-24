@@ -174,8 +174,8 @@ Describe 'Invoke-ShpSubagentTurn' {
                 }
 
                 $policy = [pscustomobject]@{ PSTypeName = 'ShellPilot.ToolPolicy'; SchemaVersion = 1; TrustProfile = 'Legacy'; Coverage = @('Read'); Rule = @(); Source = '(inline)' }
-                $control = @{ PreToolCall = { param($Request) @{ Decision = 'allow' } } }
-                $contract = { param($Request) @{ Outcome = 'Executed'; Result = '{}' } }
+                $control = @{ PreToolCall = { param($Request) $null = $Request; @{ Decision = 'allow' } } }
+                $contract = { param($Request) $null = $Request; @{ Outcome = 'Executed'; Result = '{}' } }
 
                 $null = Invoke-ShpSubagentTurn -Request @{
                     Prompt = 'go'; Tool = @('read_file'); ToolBound = $true; MaxToolIterations = 1

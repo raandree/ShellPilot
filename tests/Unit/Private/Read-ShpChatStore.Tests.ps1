@@ -33,6 +33,7 @@ Describe 'Read-ShpChatStore' {
     It 'Throws for a missing store' {
         InModuleScope $script:moduleName -Parameters @{ StorePath = $script:storePath } {
             param($StorePath)
+            $null = $StorePath  # used inside the assertion scriptblock below
             { Read-ShpChatStore -Path $StorePath } | Should -Throw '*not found*'
         }
     }
@@ -84,6 +85,7 @@ Describe 'Read-ShpChatStore' {
     It 'Refuses a directory named where a store should be' {
         InModuleScope $script:moduleName -Parameters @{ Directory = $script:storeDirectory } {
             param($Directory)
+            $null = $Directory  # used inside the assertion scriptblock below
             { Read-ShpChatStore -Path $Directory } | Should -Throw '*not found*'
         }
     }

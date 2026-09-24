@@ -81,6 +81,7 @@ Describe 'Get-ShpChatCheckpoint' {
     It 'Refuses a missing store rather than returning nothing' {
         InModuleScope $script:moduleName -Parameters @{ Store = $script:storePath } {
             param($Store)
+            $null = $Store  # used inside the assertion scriptblock below
             { Get-ShpChatCheckpoint -Path $Store } | Should -Throw '*not found*'
         }
     }

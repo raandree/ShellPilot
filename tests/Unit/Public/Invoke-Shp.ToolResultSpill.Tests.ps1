@@ -122,6 +122,7 @@ Describe 'Invoke-Shp recoverable oversized Tool results' {
         It 'Fails the Turn rather than truncating when the spill write fails' {
             InModuleScope $script:moduleName -Parameters @{ Root = $script:spillRoot } {
                 param($Root)
+                $null = $Root  # used inside the assertion scriptblock below
                 Mock Move-Item { throw 'the volume is read-only' }
 
                 { Invoke-Shp @script:invokeParameters -ToolResultSpillRoot $Root -ToolResultSpillThresholdChars 2048 } |
@@ -133,6 +134,7 @@ Describe 'Invoke-Shp recoverable oversized Tool results' {
         It 'Refuses a spill root that does not exist before the first request' {
             InModuleScope $script:moduleName -Parameters @{ Root = $script:spillRoot } {
                 param($Root)
+                $null = $Root  # used inside the assertion scriptblock below
                 { Invoke-Shp @script:invokeParameters -ToolResultSpillRoot (Join-Path $Root 'absent') } |
                     Should -Throw '*does not exist*'
                 @($script:requestBodies) | Should -HaveCount 0
@@ -224,6 +226,7 @@ Describe 'Invoke-Shp recoverable oversized Tool results' {
                     -ToolResultSpillRoot $Root -ToolResultSpillThresholdChars 2048 `
                     -ExecutionContract {
                         param($Request)
+                        $null = $Request
                         @{ Executed = $true; Result = (('CONTRACT' * 2000) + 'TAILMARKER') }
                     }
 

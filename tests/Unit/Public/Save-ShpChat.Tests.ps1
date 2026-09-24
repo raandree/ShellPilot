@@ -168,6 +168,7 @@ Describe 'Session chat persistence and resume' {
         It 'Refuses a store that is missing' {
             InModuleScope $script:moduleName -Parameters @{ Store = $script:storePath } {
                 param($Store)
+                $null = $Store  # used inside the assertion scriptblock below
                 { Restore-ShpChat -Path $Store } | Should -Throw '*not found*'
             }
         }
@@ -227,6 +228,7 @@ Describe 'Session chat persistence and resume' {
         It 'Refuses an ambiguous combination before any credential work' {
             InModuleScope $script:moduleName -Parameters @{ Store = $script:storePath } {
                 param($Store)
+                $null = $Store  # used inside the assertion scriptblock below
                 Mock Get-ShpSessionToken { throw 'no credential work may happen before the refusal' }
                 Mock Resolve-ShpOAuthToken { throw 'no credential work may happen before the refusal' }
 
