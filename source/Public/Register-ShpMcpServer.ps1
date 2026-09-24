@@ -34,11 +34,13 @@ function Register-ShpMcpServer {
         SECURITY. An MCP server is a third-party process running with your
         privileges, and there is no sandbox. Its tool names and descriptions
         are untrusted input that the model reads on every round-trip, and its
-        results are untrusted content. Set-ShpToolPolicy CANNOT gate an MCP
-        call: its rules match resolved filesystem paths and leading command
-        tokens, and a tool call has neither - so a policy that scopes read_file
-        to one directory does nothing about an attached filesystem server. Use
-        -ToolName to attach only the tools you actually need.
+        results are untrusted content. Set-ShpToolPolicy DOES gate an MCP call
+        when the policy covers the Mcp kind: a call is matched on the alias and
+        tool that will actually dispatch - Mcp(files/read_text_file) - and is
+        deny-by-default like every covered kind. A policy written before that
+        kind existed does not cover it and leaves MCP calls ungated, which is
+        what keeps an older policy working unchanged. Gating is not containment
+        either way, so use -ToolName to attach only the tools you actually need.
 
     .PARAMETER Name
         The alias for this server. It namespaces the server's tools as

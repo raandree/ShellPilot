@@ -35,16 +35,20 @@ into questions with a wrong answer that looks right:
 - **HTTPS by default.** Plain http only under `-AllowLoopbackHttp`, and only
   when every resolved address is loopback, so the opt-in cannot be widened into
   general cleartext reach.
-- **Reach is checked before a byte is sent**, at attachment and on every
-  redirect: no embedded credentials, no fragment, must resolve, and every
-  resolved address publicly routable. A name resolving to a public and a private
-  address fails.
-- **The approved address set is pinned.** A later redirect resolving outside it
-  is refused as a DNS rebind.
+- **Reach is checked before a byte is sent**, at attachment, before every
+  request and on every redirect: no embedded credentials, no fragment, must
+  resolve, and every resolved address publicly routable. A name resolving to a
+  public and a private address fails.
+- **The approved address set is pinned to the socket.** The built-in transport
+  connects to an address that has just passed the guard instead of handing the
+  name back to the HTTP stack, and any answer outside the approved set - a
+  redirect target or a re-resolution - is refused as a DNS rebind. The request
+  keeps the host name, so TLS, SNI, certificate validation and `Host` are
+  untouched.
 - **Redirects are disabled in the transport** and re-validated by this module
   before being followed, with a bounded chain.
-- **Body, stream events, redirects and time are all capped**, and nothing
-  retries.
+- **Body, stream events, redirects and time are all capped**, the body while it
+  is being read rather than after it has been held, and nothing retries.
 - **Headers are exactly what the attachment named**, plus the protocol's own.
   No cookie, no default credential, and no ambient proxy credential.
 - **A 401 is reported, never answered.** The challenge is parsed, its metadata
@@ -73,10 +77,22 @@ then. DNS can change after that, and a redirect is the cheapest way to make it
 look like a reconfiguration. Checking every hop against the approved set is what
 makes the approval mean something ten minutes later.
 
+Pinning has to reach the socket to be worth anything, which is the part that is
+easy to get wrong. Validating a name and then handing that name to an HTTP stack
+is two lookups with a gap between them, and the packets follow the second one -
+so the approved set describes a check that happened rather than a destination
+that was used. Resolving once, approving that answer and connecting to it closes
+the gap. The alternative shortcut, putting the address in the URL, would force
+the certificate to match the address instead of the name: a relaxation of TLS
+validation wearing the costume of a pin.
+
 Caps are not tuning. Each one bounds input the module did not author: a body is
-buffered before it is parsed, a stream can be held open forever, and a redirect
-chain is unbounded by construction. A default that assumed good behavior would
-be trusting the least-trusted party in the exchange to be reasonable.
+read before it is parsed, a stream can be held open forever, and a redirect
+chain is unbounded by construction. A cap applied after the body has been
+materialised is a statement of intent rather than a bound, so the read stops one
+byte past the limit and refuses what it has. A default that assumed good
+behavior would be trusting the least-trusted party in the exchange to be
+reasonable.
 
 Reusing the Tool policy's `Url` kind rather than inventing an `McpEndpoint` kind
 keeps one place to audit reach. An address this session may not fetch is not one
@@ -105,6 +121,12 @@ it.
 - **Follow redirects in the HTTP stack.** One line of configuration, and it
   moves the endpoint decision to a component that knows nothing about which
   addresses were approved.
+- **Connect by name and trust the pin as a check.** The same mistake one layer
+  down: the stack resolves again, and the second answer is the one the socket
+  uses.
+- **Put the approved address in the URL.** Pins the destination and breaks
+  certificate validation in the same move, because the certificate would then
+  have to name the address.
 - **Implement the authorization-code flow.** Needs a browser and a loopback
   redirect listener. In an unattended shell the first is absent and the second
   is a listening socket this module will not open.

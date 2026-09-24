@@ -51,18 +51,34 @@ The one rule: **a child is a strict subset of its parent.**
 
 | Dimension | Rule |
 | --- | --- |
-| Tools | Intersected with the parent's. A name the parent does not hold is **refused**, not dropped. |
+| Tools | Intersected with the parent's. A name the parent does not hold is **refused**, not dropped. An explicitly empty set stays empty. |
 | `Disable*` switches | Off is stronger. A parent that set one has set it for the whole subtree. |
 | `AllowPrivateNetwork`, `DisableRedaction` | These grant, so the child may only hold them if the parent already did. |
-| Tool policy | Rules must be a subset; `RestrictedUnattended` cannot be loosened. |
-| Execution contract | A parent running under one cannot be escaped by a child. |
-| Backend | Must be the parent's. A different `ApiBase` is refused. |
+| Tool policy | The parent's policy object travels and gates the child turn. Rules must be a subset, every parent deny is kept, and `RestrictedUnattended` cannot be loosened. |
+| Decision control | Travels as the control itself. A child may add one; asking to run without the parent's is refused. |
+| Execution contract | Travels as the scriptblock. A parent running under one cannot be escaped, and a contract that cannot travel refuses the dispatch instead of falling back to native execution. |
+| Redaction policy | Travels as the policy. A child may add rules; dropping one the parent runs under is refused. |
+| Backend | Must be the parent's. A different `ApiBase` is refused, and the approved one travels as an address with no credential attached. |
 | Credentials | Never travel. The child capability carries no key and no token. |
 | User prompts | Always off. There is nobody at the console of a child. |
 
 Refusing a widening request rather than dropping it is deliberate: a dropped
 request lets an agent definition ask for `run_command` in every file and rely on
 the one context where nobody had disabled it.
+
+**An empty tool set is a set.** "The child may hold no tool" and "nobody named
+a tool set" are different states, and collapsing them widens: a child attenuated
+to nothing would be offered every enabled tool instead. The capability carries
+the bound state next to the list, the nested turn binds `-Tool @()` rather than
+binding nothing, and a parent holding an explicitly empty set grants nothing at
+all.
+
+**The controls are handed over, not described.** A boolean saying "there was a
+contract" is satisfied by dispatching natively, which is precisely what the
+contract exists to prevent, so what travels is the object the parent runs under.
+The Tool policy travels as a per-call override rather than by swapping session
+state, because replacing a module-wide policy for the duration of a child would
+change what a concurrent call is gated by.
 
 ## Budget
 
@@ -119,6 +135,19 @@ that outlives the call that started it is a budget nobody is watching and a
 cancellation nobody can deliver. The call is synchronous, and cancellation is
 checked before dispatch and handed to the child.
 
+The child turn checks the signal and the tree deadline at the two points where
+stopping costs nothing unfinished: **before every model request and before every
+Tool dispatch.** A cancelled or expired child therefore stops without dispatching
+another tool, reports `Cancelled` rather than a failure, and gives its
+concurrency slot back whether it answered, failed or was cancelled.
+
+What this does **not** do is interrupt a provider request that is already in
+flight: there is no cancellation seam inside the request path, so an owned
+request transport that accepts a signal is handed one and everything else
+finishes its current round-trip under its own timeout. The promise is "no
+further request and no further Tool call", and it is worth stating as exactly
+that rather than as "stops immediately".
+
 ## The agent definition
 
 An explicit path, always - nothing is discovered. It is validated and
@@ -145,8 +174,10 @@ beats inventing a meaning, which is the same conclusion
 
 ## Compatibility
 
-- One new exported cmdlet and three new private helpers. Nothing existing
-  changes shape.
+- One new exported cmdlet and three new private helpers. `Invoke-Shp` gained
+  three internal parameters - a per-call Tool policy, a cancellation signal and
+  a deadline - that an ordinary call never binds and that change nothing when
+  unbound. Nothing existing changes shape.
 - A session that never calls it is unaffected; there is no discovery, no
   background process and no state.
 
@@ -155,9 +186,12 @@ beats inventing a meaning, which is the same conclusion
 A Subagent is an attenuation boundary, not a sandbox: the child runs in the same
 process with the same operating-system identity, and a tool the parent holds is
 a tool the child can be given. Concurrency is capped but not parallel - children
-run one at a time within a call. There is no retry, no resumption and no partial
-result: a child that fails returns a refusal with its reason, and re-running it
-is the caller's decision. Cost accounting is as accurate as the price table.
+run one at a time within a call. Cancellation and the deadline bound what the
+child STARTS, not what is already in flight. An owned request transport does not
+travel into a child: a parent that needs one dispatches the child itself. There
+is no retry, no resumption and no partial result: a child that fails returns a
+refusal with its reason, and re-running it is the caller's decision. Cost
+accounting is as accurate as the price table.
 
 ## See also
 

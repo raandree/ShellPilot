@@ -448,13 +448,22 @@ A child is a **strict subset** of its parent: tools are intersected, a switch
 the parent turned off stays off, `AllowPrivateNetwork` and `DisableRedaction`
 are only held if the parent held them, `RestrictedUnattended` cannot be
 loosened, the backend must match, and **no credential travels**. A request to
-widen is refused, not dropped. The whole tree shares **one budget ledger** -
-never a slice, because a split budget is recovered by spawning more children -
+widen is refused, not dropped, and an explicitly empty tool set stays empty -
+"no tools" never quietly becomes "every tool". The controls are **handed to the
+child, not described to it**: the active Tool policy travels as a per-call
+override (session state is never replaced), and the decision control and
+execution contract travel as the scriptblocks themselves, so a parent that
+requires a contract it cannot hand down refuses the dispatch rather than letting
+the child run natively. The whole tree shares **one budget ledger** - never a
+slice, because a split budget is recovered by spawning more children -
 alongside depth, fan-out, concurrency and duration caps that are all checked
-before any credential work or request. There is no `-AsJob` and there will not
-be: a child that outlives the call has a budget nobody is watching. The child
-runs under its own span inside the parent's trace, so its work is auditable
-through `ConvertTo-ShpOtelTrace` rather than through the parent's context. See
+before any credential work or request. The cancellation signal and the tree
+deadline are carried into the child turn and checked before every model request
+and every Tool dispatch; a provider request already in flight is not
+interrupted. There is no `-AsJob` and there will not be: a child that outlives
+the call has a budget nobody is watching. The child runs under its own span
+inside the parent's trace, so its work is auditable through
+`ConvertTo-ShpOtelTrace` rather than through the parent's context. See
 [specs/045-bounded-subagents.md](specs/045-bounded-subagents.md).
 
 ### Read-only Plan mode
@@ -473,10 +482,12 @@ never replaces or mutates that policy, including on failure. Without a session
 policy, reads retain the ordinary unrestricted path scope. `-AsJob` retains
 the preset. `-Mode Default`, or omitting Mode, preserves ordinary behavior.
 
-A preset is a convenience, not an enforcement boundary. MCP tools are not
-covered by Tool policy and are therefore withheld. File reads and fetches
-still use caller privileges and can move sensitive content; Plan is not a
-sandbox or a guarantee that untrusted content cannot cause disclosure.
+A preset is a convenience, not an enforcement boundary. MCP tools are withheld
+because an attached server is third-party dispatch, not because the Tool policy
+cannot see them - a policy that covers the `Mcp` kind gates them by
+`Mcp(<alias>/<tool>)`. File reads and fetches still use caller privileges and
+can move sensitive content; Plan is not a sandbox or a guarantee that untrusted
+content cannot cause disclosure.
 
 ### Command environment
 
@@ -543,14 +554,20 @@ A remote endpoint is validated before a byte is sent: HTTPS only (plain http
 needs `-AllowLoopbackHttp` **and** a loopback address), no embedded credentials,
 no fragment, and every address it resolves to must be publicly routable - so a
 model cannot steer an attachment at the cloud metadata service or an intranet
-admin interface. The approved addresses are **pinned** and every redirect is
-re-checked against them. Response bodies, stream events and redirect chains are
-capped, nothing retries, and a request carries only the headers you named: no
-cookie, no default credential and no ambient proxy credential. A `401` is
-reported with its challenge and **refused** - `-CredentialCallback` (invoked per
-request, never stored) is the only authorization this client performs, because
-answering a third party's challenge with whatever token is in reach is how a
-client becomes a credential router. See
+admin interface. The approved addresses are **pinned to the socket**: reach is
+re-checked immediately before every request and redirect, and the built-in
+transport opens the connection to an address that just passed rather than
+letting the HTTP stack resolve the name again, so a name that starts resolving
+elsewhere fails the request closed. The request still carries the host name, so
+TLS, SNI, certificate validation and `Host` are unchanged - nothing here relaxes
+certificate checking. Response bodies are read under their cap and abandoned one
+byte past it, stream events and redirect chains are capped, nothing retries, and
+a request carries only the headers you named: no cookie, no default credential
+and no ambient proxy credential. A `401` is reported with its challenge and
+**refused** - `-CredentialCallback` (invoked per request, never stored) is the
+only authorization this client performs, because answering a third party's
+challenge with whatever token is in reach is how a client becomes a credential
+router. See
 [specs/043-mcp-remote-transport.md](specs/043-mcp-remote-transport.md).
 
 > **An MCP server is third-party code running with your privileges, and there is

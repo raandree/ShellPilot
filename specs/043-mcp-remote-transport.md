@@ -52,7 +52,8 @@ callback - behind it.
 
 ## The endpoint guard
 
-Applied at attachment and again on every redirect, in this order:
+Applied at attachment and again before every request and every redirect, in
+this order:
 
 | Rule | Behavior |
 | --- | --- |
@@ -62,25 +63,52 @@ Applied at attachment and again on every redirect, in this order:
 | No fragment | No server needs one; everything keeps it. |
 | Must resolve | A name that resolves to nothing is refused, not retried. |
 | Every address publicly routable | Loopback, link-local (including the cloud metadata address), and RFC 1918 refused. A name resolving to a public **and** a private address is still a way in, so all of them must pass. |
-| Address set pinned | The approved addresses are kept, and a later redirect that resolves outside them is refused as a DNS rebind. |
+| Address set pinned | The approved addresses are kept, and any later answer outside them - a redirect target or a re-resolution of the same name - is refused as a DNS rebind. |
 | Tool policy | When a policy covers the `Url` kind, the endpoint must pass its rules - the same rules that gate `fetch_url`. |
 
 A literal IP is checked as itself, so skipping DNS does not skip the guard.
+
+## The pinned socket
+
+The guard decides whether an address may be reached. The socket has to go to
+that address, and those are not the same statement: validating a host name and
+then handing the name to an HTTP stack leaves the stack free to resolve it
+again, and the second answer is the one the packets follow.
+
+The built-in transport therefore re-checks reach immediately before each
+request, including each redirect target, and connects to an address that just
+passed. Nothing re-resolves between the check and the connection, and a name
+that has started resolving elsewhere fails the request closed rather than
+moving it.
+
+The request keeps the host name. TLS, SNI, certificate validation and the
+`Host` header are exactly what they were, so the peer still has to present a
+certificate for the name that was attached - putting the address in the URL
+instead would have forced the certificate to match the address, which is a
+relaxation of validation dressed up as pinning.
+
+A caller-supplied `-Transport` owns its own socket, so it owns this decision
+too; the approved address set, the loopback opt-in, the response cap and the
+cancellation signal all travel on the request descriptor for a transport that
+wants to honour them, and the protocol layer keeps its own cap on whatever
+comes back.
 
 ## The bounds
 
 | Bound | Default | Why |
 | --- | --- | --- |
-| `-MaxResponseBytes` | 1 MiB | A body is buffered before it is parsed. |
+| `-MaxResponseBytes` | 1 MiB | A body is read under the cap and abandoned one byte past it, rather than buffered and then measured. |
 | `-MaxStreamEvent` | 256 | A server can hold an event stream open forever without answering. |
 | `-MaxRedirect` | 2 | A redirect chain is how an approved endpoint gets moved. |
 | `-RequestTimeoutSec` | 30 | Per server, already in spec 021. |
 | `-ConnectTimeoutSec` | 10 | Per server, already in spec 021. |
 
 Redirects are disabled in the transport itself, because a redirect has to be
-validated by this module before it is followed, not by the stack. Nothing
-retries: a retry policy belongs to the caller that knows whether the request was
-idempotent.
+validated by this module before it is followed, not by the stack. Cookies, the
+proxy, default credentials, proxy credentials and pre-authentication are all
+off for the same reason: none of them are a third-party endpoint's to ask for.
+Nothing retries: a retry policy belongs to the caller that knows whether the
+request was idempotent.
 
 ## Headers and credentials
 
@@ -126,15 +154,19 @@ never over a key the caller or the protocol already set.
 - `Get-ShpMcpServer` reports `Url`, `EndpointAddress`, `Loopback`, the header
   NAMES and whether a credential callback is configured. Never a header value,
   never the transport, never the callback.
-- Three private helpers and one channel factory are new; the three protocol
+- Six private helpers and one channel factory are new; the three protocol
   functions gained a parameter set each and no behavior change on the stdio
-  path.
+  path. The request descriptor a `-Transport` receives gained the approved
+  address set, the loopback opt-in, the response cap and the cancellation
+  signal; a transport that ignores them behaves exactly as before.
 
 ## Limits
 
 An attached MCP server is still third-party code with the caller's reach, and
-this module still does not sandbox one. The remote transport adds no resumable
-stream (`Last-Event-ID` replay), no server-initiated requests, no sampling or
+this module still does not sandbox one. The socket pin binds the destination,
+not the peer: what proves the peer is the certificate, and what proves the tool
+is nothing at all. The remote transport adds no resumable stream
+(`Last-Event-ID` replay), no server-initiated requests, no sampling or
 elicitation, and no `DELETE`-based session termination - dropping the channel is
 the client's whole shutdown. Batch and Job carry a remote attachment no further
 than they carry a stdio one: attachments do not travel into a worker runspace,

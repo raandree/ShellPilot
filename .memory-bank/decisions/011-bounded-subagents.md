@@ -31,18 +31,27 @@ watching it.
 **Frame it as attenuation. A child is a strict subset of its parent, and
 everything else follows.**
 
-- **Tools are intersected, and a widening request is REFUSED**, not dropped.
+- **Tools are intersected, and a widening request is REFUSED**, not dropped. An
+  explicitly empty set stays empty rather than collapsing into "everything".
 - **`Disable*` switches read as "off is stronger"**; `AllowPrivateNetwork` and
   `DisableRedaction` read the other way, because they grant.
-- **The Tool policy, the execution contract and the backend travel as floors.**
-  `RestrictedUnattended` cannot be loosened and a different `ApiBase` is
-  refused.
+- **The Tool policy, the decision control, the execution contract, the redaction
+  policy and the backend travel as floors, and travel as OBJECTS.** The child
+  turn is gated by them; `RestrictedUnattended` cannot be loosened and a
+  different `ApiBase` is refused. A contract that cannot travel refuses the
+  dispatch rather than letting the child run natively.
+- **The inherited Tool policy is a per-call override, not a session swap.**
+  Replacing module state for the duration of a child would change what a
+  concurrent call is gated by.
 - **No credential travels.** A Subagent inherits a boundary, not a secret.
 - **One shared ledger for the tree**, never a slice. A child gets the smaller of
   what it asked for, what the tree has left, and the per-child cap; asking for
   more than the per-child cap is refused rather than clamped.
 - **Depth, fan-out, concurrency and the deadline are accounted when the budget
   is derived**, before capability work, credential resolution or any request.
+- **Cancellation and the deadline are checked before every model request and
+  every Tool dispatch**, and the concurrency slot is released whatever the
+  outcome. A request already in flight is not interrupted.
 - **No `-AsJob`, ever.** The call is synchronous and cancellable.
 - **The result is an answer plus a trace reference, never a transcript.**
 - **The agent definition is an explicit path**, validated and fingerprinted like
@@ -69,11 +78,25 @@ failure that succeeds somewhere else: an agent definition asks for
 eleventh where nobody had disabled it. A refusal surfaces the mismatch at the
 point where it is cheap to fix.
 
+Carrying the controls as objects rather than as flags is the same argument one
+level down. A capability that records "the parent ran under an execution
+contract" is satisfied by a child that dispatches natively, because the flag was
+never something the dispatch path consulted - which turns the strongest
+containment control in the module into a label. The same holds for an empty tool
+set: "attenuated to nothing" and "nobody said" are different facts, and a
+capability that cannot tell them apart resolves the ambiguity in the direction
+of more reach every time.
+
 Refusing `-AsJob` is the decision most likely to be revisited, so the reason is
 worth stating plainly: a background Subagent has a budget nobody is watching
 and a cancellation nobody can deliver. The Job model elsewhere in this module
 returns a handle to work the caller explicitly waits on; a Subagent is dispatched
 BY A MODEL mid-turn, and the caller may never see the handle at all.
+
+Cancellation is checked where stopping is free - before a model request and
+before a Tool dispatch - rather than promised as an interrupt. Nothing in the
+request path can abandon a round-trip already in flight, and a boundary that
+claims more than it delivers is worse than one that states its edge.
 
 Returning an answer rather than a transcript is the feature, not a limitation.
 A transcript would put the context straight back into the parent's window -
@@ -88,17 +111,25 @@ inventing one would produce a cap that is a fiction.
 ## Consequences
 
 - One new exported cmdlet (`Invoke-ShpSubagent`) and three private helpers.
-  Nothing existing changes shape.
+  `Invoke-Shp` gained three internal parameters - a per-call Tool policy, a
+  cancellation signal and a deadline - that an ordinary call never binds.
 - Defaults are deliberately small - one dollar, depth two, fan-out four - because
   a Subagent spends in a context the caller is not watching. A caller who needs
   more states it.
 - A parent that wants a child to do something must hold that capability itself.
   This is occasionally inconvenient and is the whole point.
+- A parent running under an execution contract it cannot hand down cannot
+  dispatch a child at all. That is the intended shape of the refusal: the
+  alternative is a child executing exactly the work the contract exists to keep
+  out of this process.
 - Children run one at a time within a call. Concurrency is capped, not parallel;
   true parallel dispatch would need the Batch runspace model and the ledger
   question it refuses.
-- A failed child returns a refusal with its reason. There is no retry and no
-  partial result, so re-running is the caller's decision.
+- A failed child returns a refusal with its reason; a cancelled one returns a
+  refusal marked cancelled. There is no retry and no partial result, so
+  re-running is the caller's decision.
+- An owned request transport does not travel into a child. A parent that needs
+  one dispatches the child itself.
 
 ## Alternatives rejected
 
@@ -106,6 +137,11 @@ inventing one would produce a cap that is a fiction.
   only when the branching factor is not chosen by the thing being budgeted.
 - **Background Subagents via the Job model.** A budget nobody watches and a
   cancellation nobody can deliver, dispatched by a model mid-turn.
+- **Carrying the controls as booleans.** Cheap to record, and satisfied by a
+  child that runs natively; a flag is not a gate.
+- **Swapping the session Tool policy for the duration of a child.** The obvious
+  way to make a child inherit a policy, and it changes what every concurrent
+  call in the session is gated by.
 - **Returning the child transcript.** Undoes the reason a Subagent exists and
   injects untrusted content into the parent without the child's gates.
 - **Implicit agent discovery under a conventional folder.** Refused for the same
