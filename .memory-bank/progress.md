@@ -14,8 +14,9 @@ ShellPilot is a Sampler-built PowerShell module with 42 public commands,
 Pester and QA gates, and GitHub Actions packaging and cross-platform tests.
 The complete agent modernization is implemented, validated, merged, and green
 on hosted CI: `main`, `origin/main`, and `origin/ai/agent-modernization` all
-point at `e714d8d`. The published baseline is prerelease `0.4.0-preview0015`,
-published by the existing `main`-branch deploy job at that commit, and it
+point at `08a4a22`. The published baseline is prerelease `0.4.0-preview0015`,
+published by the existing `main`-branch deploy job from tested source commit
+`e714d8d`, and it
 requires PowerShell 7.4 or later.
 
 Specifications 002-045 are implemented; [spec 029](../specs/029-candidate-features.md)
@@ -46,8 +47,10 @@ and evidence work:
 ## Recent milestones
 
 - 2026-09-25 - Push the modernization and take the hosted matrix green.
-  `main`, `origin/main`, and `origin/ai/agent-modernization` are at `e714d8d`
-  after a non-force push. First run `36075325458` packaged green but failed
+  The final documentation tip is `08a4a22` on `main`, `origin/main`, and
+  `origin/ai/agent-modernization`; `[skip ci]` prevented another run. Tested
+  source commit `e714d8d` reached that state after a non-force push. First run
+  `36075325458` packaged green but failed
   all six current/7.4 OS test jobs and skipped deploy: five new `Invoke-Shp`
   fixture files inherited the runner's `CI=true` profile and hit the
   intentional Copilot backend gate. A local `CI=true` reproduction produced 31

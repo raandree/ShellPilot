@@ -11,8 +11,9 @@ source: repository source, specifications, retained local gate logs, and
 ## Focus
 
 The agent modernization is complete, pushed, and green on hosted CI. `main`,
-`origin/main`, and `origin/ai/agent-modernization` all point at `e714d8d`
-after a non-force push. The module exports 42 public commands and implements
+`origin/main`, and `origin/ai/agent-modernization` all point at `08a4a22`; the
+tested and published source commit is `e714d8d`. The module exports 42 public
+commands and implements
 specifications 002-045; [spec 029](../specs/029-candidate-features.md) is the
 proposal inventory rather than a feature.
 
@@ -185,8 +186,9 @@ place. Treat any correction as a new version, not as a retraction.
 
 ## Retained context
 
-The modernization is merged: `main` and `origin/main` sit at `e714d8d`, above
-the earlier base `10a5ca3`. The 2026-09-07 CI repair is older merged work.
+The modernization is merged: `main` and `origin/main` sit at `08a4a22`, above
+the tested and published source commit `e714d8d` and the earlier base
+`10a5ca3`. The 2026-09-07 CI repair is older merged work.
 Earlier release evidence stays in [release readiness](deployment-notes.md),
 the chronology stays in [progress](progress.md), and the
 [2026-09-07 active context](activeContext-history-2026-09-07.md) is

@@ -11,7 +11,9 @@ source: repository, service APIs, build logs, hosted run results, and
 ## Hosted CI and publication - 2026-09-25
 
 The modernization is merged and green on hosted CI. `main`, `origin/main`, and
-`origin/ai/agent-modernization` all point at `e714d8d` after a non-force push.
+`origin/ai/agent-modernization` point at documentation tip `08a4a22`; tested
+and published source commit `e714d8d` is its parent. Both were pushed without
+force, and `[skip ci]` prevented a second deployment from the documentation tip.
 
 ### Final hosted run 36077401985
 

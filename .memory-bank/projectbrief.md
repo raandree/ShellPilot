@@ -63,8 +63,9 @@ The complete agent modernization - specifications 002-045, including the
 complete Tool policy, backend credential separation, decision controls and the
 execution contract, context accounting, caller-owned chat and Tool-result
 stores, trace identity, guarded remote MCP, Skill provenance, and bounded
-Subagents - has shipped. It is merged at `e714d8d`, and the hosted matrix is
-green across all six current/7.4 combinations of Ubuntu, Windows, and macOS.
+Subagents - has shipped. It is merged at documentation tip `08a4a22`; tested
+and published source commit `e714d8d` passed the hosted matrix across all six
+current/7.4 combinations of Ubuntu, Windows, and macOS.
 Stable `0.4.0` was not published, does not exist, and is not claimed;
 promoting the preview remains a maintainer decision.
 
