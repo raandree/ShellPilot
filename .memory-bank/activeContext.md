@@ -1,22 +1,25 @@
 ---
 status: current
-last-verified: 2026-09-24
+last-verified: 2026-09-25
 owner: software-engineer
-source: repository source, specifications, and retained local gate logs
+source: repository source, specifications, retained local gate logs, and
+  hosted run results
 ---
 
 # Active context
 
 ## Focus
 
-Complete the agent modernization on `ai/agent-modernization`, branched from
-`10a5ca3`. The module exports 42 public commands and implements specifications
-002-045; [spec 029](../specs/029-candidate-features.md) is the proposal
-inventory rather than a feature. All of it is local and unpushed.
+The agent modernization is complete, pushed, and green on hosted CI. `main`,
+`origin/main`, and `origin/ai/agent-modernization` all point at `e714d8d`
+after a non-force push. The module exports 42 public commands and implements
+specifications 002-045; [spec 029](../specs/029-candidate-features.md) is the
+proposal inventory rather than a feature.
 
-The next authorized action is to push the topic branch, fast-forward `main`,
-monitor every hosted CI job, and repair until they are green. No release, tag,
-or PowerShell Gallery publication is authorized.
+No modernization implementation work is open. The hosted run at that commit
+also ran the existing `main`-branch deploy job, which published prerelease
+`0.4.0-preview0015`; that is now the published baseline. Stable `0.4.0` was
+not published and remains a maintainer decision.
 
 ## Implemented behavior
 
@@ -63,11 +66,43 @@ Batch three - identity, remote reach, provenance, and delegation:
   Tool visibility it inherited, spends from one ledger shared by the tree, and
   returns an answer with evidence instead of a transcript.
 
+## Hosted CI and publication
+
+First hosted run `36075325458` packaged successfully, then failed all six
+current/7.4 OS test jobs and skipped deploy. Five new `Invoke-Shp` fixture
+files inherited the runner's `CI=true` profile and hit the intentional
+Copilot backend gate, which is production behavior working as specified. A
+local `CI=true` reproduction produced 31 failures in total across the affected
+suites over two rounds.
+
+Commit `e714d8d` snapshots, clears, and restores the CI and backend
+environment variables inside exactly those five test files -
+`Invoke-Shp.ContextReport.Tests.ps1`,
+`Invoke-Shp.ResourceProvenance.Tests.ps1`,
+`Invoke-Shp.ToolResultSpill.Tests.ps1`,
+`Invoke-Shp.TraceIdentity.Tests.ps1`, and `Save-ShpChat.Tests.ps1`. No
+production file changed and the gate itself is untouched.
+
+Final hosted run `36077401985` completed successfully on 2026-09-25: Package
+Module, Ubuntu current, Ubuntu 7.4, Windows current, Windows 7.4, macOS
+current, macOS 7.4, and Deploy Module `0.4.0-preview.15+98` all succeeded.
+
+Deploy is the existing `main`-branch workflow behavior, not a release decision
+taken here. It published prerelease `0.4.0-preview0015` at `e714d8d`: the
+GitHub Release exists and carries `ShellPilot.0.4.0-preview0015.nupkg` at
+453,335 bytes, the remote tag points at `e714d8d`, and both the PowerShell
+Gallery package endpoint and the package details endpoint answer HTTP 200. No
+changelog pull request and no changelog branch were created. Stable `0.4.0`
+was not published.
+
 ## Verification
 
 Exact local evidence, produced by detached runs with retained TEMP logs:
 
-- Final post-remediation full gate, `./build.ps1 -AutoRestore -Tasks test`
+- Full gate under `CI=true` after the fixture repair: 3,002 passed, zero
+  failed, three existing skips, 90.66% coverage, nine tasks, zero errors or
+  warnings. This is the gate that reproduces the hosted runner profile.
+- Post-remediation full gate, `./build.ps1 -AutoRestore -Tasks test`
   detached: 3,002 passed, zero failed, three existing skips, zero not run,
   90.66% coverage, nine tasks, zero errors or warnings. Retained log:
   `%TEMP%/shp-modernization-finaltest-24faead3d16040fb9e7dd7e27e04536a.log`.
@@ -78,6 +113,14 @@ Exact local evidence, produced by detached runs with retained TEMP logs:
   errors or warnings. `output/ShellPilot.0.0.1.nupkg` carries the exact
   repository LICENSE, and an isolated import of the built module exports 42 of
   42 expected commands.
+- Changed-file validation is warning-clean across 121 PowerShell files. The
+  40 Markdown receipts are incomplete only because the receipt skill's
+  supported linter executable was unconfigured; the real repository
+  markdownlint passed 77 tracked files. `.gitignore` and `build.yaml` are
+  unsupported file types for that receipt skill.
+- Provenance missing-red evidence was reproduced in an isolated worktree at
+  pre-implementation commit `3374da1`: 25 expected failures. The green
+  current suite was already recorded.
 
 Package SHA-256:
 
@@ -100,17 +143,22 @@ this work, and none is claimed.
 
 ## Remaining work and limits
 
-- Nothing has been pushed. No hosted CI job has run for this branch, so the
-  Linux, macOS, and minimum-runtime legs are unexecuted for the modernization.
-- Publication is out of scope. Stable `0.4.0`, a tag, and any Gallery upload
-  remain maintainer decisions that this work does not make.
+- No modernization implementation work is open. The hosted matrix is green on
+  all six current/7.4 OS combinations, so the Linux, macOS, and
+  minimum-runtime legs are now executed evidence rather than a gap.
+- Stable `0.4.0` was not published and remains a maintainer decision. The
+  published baseline is prerelease `0.4.0-preview0015`.
+- No credentialed model turn and no credentialed Subagent turn were executed,
+  and no authenticated remote MCP authorization flow was exercised. The remote
+  MCP default transport has a public HTTPS socket and TLS smoke check only,
+  answered with 405.
 - ShellPilot still supplies no containment. A Tool policy, a decision control,
   an execution contract, and a Subagent narrow reach; the work still runs with
   the caller's identity, and Copilot content exclusions and enterprise MCP
   allowlists are still not enforced.
 - The remote MCP socket pin binds the destination, not the peer; no OAuth
-  grant is implemented, and a 401 is reported by name rather than answered.
-  An attachment does not travel into a worker runspace.
+  grant is implemented, and a 401 is reported by name rather than answered. An
+  attachment does not travel into a worker runspace.
 - Trace support is a translation. The module opens no telemetry socket and
   posts nothing; that step, its transport, and its credentials are the
   caller's.
@@ -129,12 +177,18 @@ that base. No data migration is required. Every new store - the Tool-result
 spill root and the chat checkpoint path - is opt-in and named by the caller,
 so an unbound run writes nothing new and behaves as it did before.
 
+Reverting the source does not undo the publication. Prerelease
+`0.4.0-preview0015`, its GitHub Release, and the remote tag at `e714d8d`
+already exist, and a published PowerShell Gallery package is immutable: it can
+be unlisted or superseded by a later version, never edited or replaced in
+place. Treat any correction as a new version, not as a retraction.
+
 ## Retained context
 
-The 2026-09-07 CI repair is merged and is no longer active work: `main` sits
-at `10a5ca3`, the commit this branch is based on. Earlier release evidence
-stays in [release readiness](deployment-notes.md), the chronology stays in
-[progress](progress.md), and the
+The modernization is merged: `main` and `origin/main` sit at `e714d8d`, above
+the earlier base `10a5ca3`. The 2026-09-07 CI repair is older merged work.
+Earlier release evidence stays in [release readiness](deployment-notes.md),
+the chronology stays in [progress](progress.md), and the
 [2026-09-07 active context](activeContext-history-2026-09-07.md) is
 historical. Its pending states and permissions do not authorize new features
 or remote writes.

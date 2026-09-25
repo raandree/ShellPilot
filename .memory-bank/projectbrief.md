@@ -1,6 +1,6 @@
 ---
 status: current
-last-verified: 2026-09-24
+last-verified: 2026-09-25
 owner: shared
 source: repository and release APIs
 ---
@@ -54,7 +54,8 @@ pipeline.
 
 ShellPilot is a Sampler-built module with 42 public commands, Pester and QA
 gates, and GitHub Actions packaging and cross-platform tests. The published
-baseline is preview `0.4.0-preview0014`; stable `0.3.1` remains the latest
+baseline is prerelease `0.4.0-preview0015`, published on 2026-09-25 by the
+existing `main`-branch deploy job; stable `0.3.1` remains the latest
 non-prerelease, verified on 2026-09-07. The preview requires PowerShell 7.4
 or later.
 
@@ -62,9 +63,10 @@ The complete agent modernization - specifications 002-045, including the
 complete Tool policy, backend credential separation, decision controls and the
 execution contract, context accounting, caller-owned chat and Tool-result
 stores, trace identity, guarded remote MCP, Skill provenance, and bounded
-Subagents - is implemented and validated locally on `ai/agent-modernization`.
-It has not been pushed, no hosted CI job has run for it, and no stable `0.4.0`
-exists or is claimed. Publication remains a maintainer decision.
+Subagents - has shipped. It is merged at `e714d8d`, and the hosted matrix is
+green across all six current/7.4 combinations of Ubuntu, Windows, and macOS.
+Stable `0.4.0` was not published, does not exist, and is not claimed;
+promoting the preview remains a maintainer decision.
 
 Distribution decision 7 is closed. The maintainer selected MIT on 2026-09-07;
 the license is merged into `main` and ships inside the built module and the

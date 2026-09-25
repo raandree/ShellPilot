@@ -1,13 +1,92 @@
 ---
 status: current
-last-verified: 2026-09-24
+last-verified: 2026-09-25
 owner: software-engineer
-source: repository, service APIs, build logs, and independent review
+source: repository, service APIs, build logs, hosted run results, and
+  independent review
 ---
 
 # Release readiness
 
+## Hosted CI and publication - 2026-09-25
+
+The modernization is merged and green on hosted CI. `main`, `origin/main`, and
+`origin/ai/agent-modernization` all point at `e714d8d` after a non-force push.
+
+### Final hosted run 36077401985
+
+| Job | Result |
+| --- | --- |
+| Package Module | success |
+| Test (ubuntu-latest, pwsh current) | success |
+| Test (ubuntu-latest, pwsh 7.4) | success |
+| Test (windows-latest, pwsh current) | success |
+| Test (windows-latest, pwsh 7.4) | success |
+| Test (macos-latest, pwsh current) | success |
+| Test (macos-latest, pwsh 7.4) | success |
+| Deploy Module 0.4.0-preview.15+98 | success |
+
+The run completed successfully on 2026-09-25 and is recorded here by run id.
+
+### First run and remediation
+
+First hosted run `36075325458` packaged green, then failed all six current/7.4
+OS test jobs, and deploy was skipped. Five new `Invoke-Shp` fixture files
+inherited the runner's `CI=true` profile and tripped the intentional Copilot
+backend gate, which is production behavior working as specified. A local
+`CI=true` reproduction produced 31 failures in total across the affected
+suites over two rounds.
+
+Commit `e714d8d` snapshots, clears, and restores the CI and backend
+environment variables inside exactly those five test files:
+
+- `tests/Unit/Public/Invoke-Shp.ContextReport.Tests.ps1`
+- `tests/Unit/Public/Invoke-Shp.ResourceProvenance.Tests.ps1`
+- `tests/Unit/Public/Invoke-Shp.ToolResultSpill.Tests.ps1`
+- `tests/Unit/Public/Invoke-Shp.TraceIdentity.Tests.ps1`
+- `tests/Unit/Public/Save-ShpChat.Tests.ps1`
+
+No production file changed and the gate itself is untouched. The full local
+gate under `CI=true` after the repair passed 3,002 tests, zero failed, three
+existing skips, 90.66% coverage, nine tasks, zero errors or warnings.
+
+### Publication
+
+Deploy is the existing `main`-branch workflow behavior - the job runs for the
+upstream repository on a push to `main` or a version tag - and not a release
+decision taken during this work. At `e714d8d` it published:
+
+| Fact | Value |
+| --- | --- |
+| Published version | prerelease `0.4.0-preview0015` |
+| GitHub Release asset | `ShellPilot.0.4.0-preview0015.nupkg`, 453,335 bytes |
+| Remote tag | points at `e714d8d` |
+| PowerShell Gallery package endpoint | HTTP 200 |
+| PowerShell Gallery package details endpoint | HTTP 200 |
+| Changelog pull request | none created |
+| Changelog branch | none created |
+| Stable `0.4.0` | not published |
+
+### Release immutability and rollback
+
+Source rollback and release rollback are different operations:
+
+- Source: revert the batch commits in reverse order, or reset to `10a5ca3`.
+  No data migration is required; the Tool-result spill root and the chat
+  checkpoint path are opt-in and named by the caller.
+- Release: reverting the source does not undo the publication. Prerelease
+  `0.4.0-preview0015`, its GitHub Release, and the remote tag at `e714d8d`
+  already exist, and a published PowerShell Gallery package is immutable. It
+  can be unlisted or superseded by a later version; it cannot be edited or
+  replaced in place. Any correction ships as a new version, not as a
+  retraction.
+- A documentation-only commit must carry `[skip ci]` so it does not trigger a
+  second `main`-branch deploy and a further publication.
+
 ## Modernization readiness - 2026-09-24
+
+The section below is the retained pre-push record. It is superseded by the
+2026-09-25 section above, which carries the hosted and publication facts.
 
 The complete agent modernization is implemented and validated locally on
 `ai/agent-modernization`, branched from `main` at `10a5ca3`. The module exports

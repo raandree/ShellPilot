@@ -1,8 +1,9 @@
 ---
 status: current
-last-verified: 2026-09-24
+last-verified: 2026-09-25
 owner: shared
-source: repository, specifications, and retained local gate logs
+source: repository, specifications, retained local gate logs, and hosted run
+  results
 ---
 
 # Progress
@@ -11,10 +12,11 @@ source: repository, specifications, and retained local gate logs
 
 ShellPilot is a Sampler-built PowerShell module with 42 public commands,
 Pester and QA gates, and GitHub Actions packaging and cross-platform tests.
-The published baseline is preview `0.4.0-preview0014`, which requires
-PowerShell 7.4 or later. The complete agent modernization is implemented and
-validated locally on `ai/agent-modernization`, branched from `main` at
-`10a5ca3`, and has not been pushed.
+The complete agent modernization is implemented, validated, merged, and green
+on hosted CI: `main`, `origin/main`, and `origin/ai/agent-modernization` all
+point at `e714d8d`. The published baseline is prerelease `0.4.0-preview0015`,
+published by the existing `main`-branch deploy job at that commit, and it
+requires PowerShell 7.4 or later.
 
 Specifications 002-045 are implemented; [spec 029](../specs/029-candidate-features.md)
 is the proposal inventory, not a feature. That now includes the complete Tool
@@ -28,18 +30,35 @@ allowlists are still not provided.
 
 ## Open work
 
-- Push the topic branch, fast-forward `main`, monitor every hosted CI job,
-  and repair until they are green. Nothing has been pushed yet.
-- No release, tag, or Gallery publication is authorized. Stable `0.4.0`
-  remains a maintainer decision.
-- F14 stays blocked with no configured token, and no enterprise credential is
-  available for a live host-routing proof.
+No modernization implementation work remains open. What is left is decision
+and evidence work:
+
+- Stable `0.4.0` is an explicit future maintainer decision. It was not
+  published; the published baseline is prerelease `0.4.0-preview0015`.
+- Live credential probes remain future work. F14 stays blocked with no
+  configured token, no enterprise credential is available for a live
+  host-routing proof, no credentialed model or Subagent turn has been run, and
+  no authenticated remote MCP authorization flow has been exercised.
 - F3, F13, F21, and F25 were deliberately not taken; the deferred rows in
   [spec 029](../specs/029-candidate-features.md) say what each one still
   lacks.
 
 ## Recent milestones
 
+- 2026-09-25 - Push the modernization and take the hosted matrix green.
+  `main`, `origin/main`, and `origin/ai/agent-modernization` are at `e714d8d`
+  after a non-force push. First run `36075325458` packaged green but failed
+  all six current/7.4 OS test jobs and skipped deploy: five new `Invoke-Shp`
+  fixture files inherited the runner's `CI=true` profile and hit the
+  intentional Copilot backend gate. A local `CI=true` reproduction produced 31
+  failures over two rounds, and `e714d8d` isolates the environment inside
+  exactly those five test files without changing production behavior. Final
+  run `36077401985` succeeded end to end: Package Module, all six OS test
+  jobs, and Deploy Module `0.4.0-preview.15+98`. The full local `CI=true` gate
+  after the repair passed 3,002 tests, zero failed, three existing skips,
+  90.66% coverage, nine clean tasks. Deploy is existing `main`-branch workflow
+  behavior and published prerelease `0.4.0-preview0015`; stable `0.4.0` was
+  not published. See [release readiness](deployment-notes.md).
 - 2026-09-24 - Complete the agent modernization on `ai/agent-modernization`
   from `10a5ca3`: specs 032-045 across three batches, taking the module to 42
   public commands. Complete Tool policy with `Url`, `Mcp`, and `Tool` rules and
@@ -56,7 +75,9 @@ allowlists are still not provided.
   green. Self-review fixed remote MCP socket pinning and bounded reads plus
   Subagent empty-Tool, control, and cancellation gaps in `ed40fd7`, `61baceb`,
   `cc25564`, and `a1fae4d`; no independent review was requested or is claimed.
-  Nothing was pushed. See [active context](activeContext.md) for exact logs.
+  Nothing was pushed that day; the push, the hosted repair, and the green
+  matrix are the 2026-09-25 entry above. See
+  [active context](activeContext.md) for exact logs.
 - 2026-09-07 - Repair CI run 34147749896 with native, checksum-verified
   PowerShell 7.4.19 archives and LF license checkouts, keeping every assertion.
   Clean clones reusing the original CI artifact each passed 2,120 tests, zero
