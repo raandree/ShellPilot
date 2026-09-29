@@ -1,6 +1,6 @@
 ---
 status: current
-last-verified: 2026-09-25
+last-verified: 2026-09-29
 owner: shared
 source: repository, specifications, retained local gate logs, and hosted run
   results
@@ -13,10 +13,11 @@ source: repository, specifications, retained local gate logs, and hosted run
 ShellPilot is a Sampler-built PowerShell module with 42 public commands,
 Pester and QA gates, and GitHub Actions packaging and cross-platform tests.
 The complete agent modernization is implemented, validated, merged, and green
-on hosted CI: `main`, `origin/main`, and `origin/ai/agent-modernization` all
-point at `08a4a22`. The published baseline is prerelease `0.4.0-preview0015`,
-published by the existing `main`-branch deploy job from tested source commit
-`e714d8d`, and it
+on hosted CI at `main` / `origin/main` (`08a4a22`). PR #5
+(`ai/agent-modernization`) adds one documentation commit and the local,
+unpushed minimum-runtime CI repair above it. The published baseline is
+prerelease `0.4.0-preview0015`, published by the existing `main`-branch deploy
+job from tested source commit `e714d8d`, and it
 requires PowerShell 7.4 or later.
 
 Specifications 002-045 are implemented; [spec 029](../specs/029-candidate-features.md)
@@ -34,6 +35,8 @@ allowlists are still not provided.
 No modernization implementation work remains open. What is left is decision
 and evidence work:
 
+- Push the minimum-runtime CI repair to `ai/agent-modernization` so PR #5
+  re-runs; only that hosted run proves the macOS 7.4 job green.
 - Stable `0.4.0` is an explicit future maintainer decision. It was not
   published; the published baseline is prerelease `0.4.0-preview0015`.
 - Live credential probes remain future work. F14 stays blocked with no
@@ -46,6 +49,16 @@ and evidence work:
 
 ## Recent milestones
 
+- 2026-09-29 - Repair PR #5 run `36552666299`. Only the macOS 7.4 job failed,
+  in "Install minimum PowerShell", about one second in, at the anonymous
+  `api.github.com` release lookup that shares the hosted runner's per-IP rate
+  limit. `ci.yml` now pins the six 7.4.19 archive digests and makes no API
+  call. `tests/QA/CiWorkflow.Tests.ps1` fails 8 of 8 against the old workflow
+  and passes 8 of 8 against the fix. A replay of the real step installed 7.4.19
+  on Windows x64 and verified the Linux x64 and macOS arm64 archives. The full
+  local `CI=true` gate passed 3,010 tests with zero failures, three existing
+  skips, 90.66% coverage, and nine clean tasks. The fix is committed locally
+  and not pushed. See [release readiness](deployment-notes.md).
 - 2026-09-25 - Push the modernization and take the hosted matrix green.
   The final documentation tip is `08a4a22` on `main`, `origin/main`, and
   `origin/ai/agent-modernization`; `[skip ci]` prevented another run. Tested
