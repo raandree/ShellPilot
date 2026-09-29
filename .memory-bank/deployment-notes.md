@@ -1,6 +1,6 @@
 ---
 status: current
-last-verified: 2026-09-25
+last-verified: 2026-09-29
 owner: software-engineer
 source: repository, service APIs, build logs, hosted run results, and
   independent review
@@ -8,10 +8,49 @@ source: repository, service APIs, build logs, hosted run results, and
 
 # Release readiness
 
+## PR #5 CI repair - 2026-09-29
+
+Pull-request run `36552666299` for `ai/agent-modernization` at `83e9706`
+failed one job. Deploy was skipped, as it is for every pull request.
+
+| Job | Result |
+| --- | --- |
+| Package Module | success |
+| Test (ubuntu-latest, pwsh current) | success |
+| Test (ubuntu-latest, pwsh 7.4) | success |
+| Test (windows-latest, pwsh current) | success |
+| Test (windows-latest, pwsh 7.4) | success |
+| Test (macos-latest, pwsh current) | success |
+| Test (macos-latest, pwsh 7.4) | failure in Install minimum PowerShell |
+| Deploy Module | skipped |
+
+The failed step ran for about one second; the five earlier successful macOS
+installs took three to eight seconds. The workflow and source were unchanged
+since green run `36077401985`, the 7.4.19 osx-arm64 asset and its digest were
+intact, and a local download matched that digest. The failure therefore almost
+certainly came from the step's first network call: the anonymous
+`api.github.com` release lookup, which shares the hosted runner's per-IP rate
+limit. The job log needs authentication, so the exact HTTP status was not read.
+
+The repair pins all six 7.4.19 archive digests in `ci.yml` and removes the
+lookup, which also moves the integrity anchor from a run-time API answer into
+reviewed source. `tests/QA/CiWorkflow.Tests.ps1` guards the step: 8 of 8 fail
+against the old workflow and 8 of 8 pass against the repair. A replay of the
+real step installed 7.4.19 on Windows x64 and verified and extracted the Linux
+x64 and macOS arm64 archives with no API call, and all six pinned digests match
+the release's own. The full local `CI=true` gate passed 3,010 tests, zero
+failed, three existing skips, zero not run, 90.66% coverage, nine tasks, zero
+errors or warnings; it ran `./build.ps1 -AutoRestore -Tasks test`. The repair
+is committed on `ai/agent-modernization` and not pushed; a push re-runs PR #5,
+and only that run is hosted proof. Roll back by reverting the commit, which
+restores the run-time lookup.
+
 ## Hosted CI and publication - 2026-09-25
 
 The modernization is merged and green on hosted CI. `main`, `origin/main`, and
-`origin/ai/agent-modernization` all point at `e714d8d` after a non-force push.
+`origin/ai/agent-modernization` point at documentation tip `08a4a22`; tested
+and published source commit `e714d8d` is its parent. Both were pushed without
+force, and `[skip ci]` prevented a second deployment from the documentation tip.
 
 ### Final hosted run 36077401985
 

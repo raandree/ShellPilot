@@ -1,6 +1,6 @@
 ---
 status: current
-last-verified: 2026-09-25
+last-verified: 2026-09-29
 owner: software-engineer
 source: repository source, specifications, retained local gate logs, and
   hosted run results
@@ -10,11 +10,29 @@ source: repository source, specifications, retained local gate logs, and
 
 ## Focus
 
-The agent modernization is complete, pushed, and green on hosted CI. `main`,
-`origin/main`, and `origin/ai/agent-modernization` all point at `e714d8d`
-after a non-force push. The module exports 42 public commands and implements
-specifications 002-045; [spec 029](../specs/029-candidate-features.md) is the
-proposal inventory rather than a feature.
+Current focus is the CI repair for PR #5. `ai/agent-modernization` was at
+`83e9706`, one documentation commit above `main` / `origin/main` (`08a4a22`).
+Its pull-request run `36552666299` failed only the macOS 7.4 job, in the
+"Install minimum PowerShell" step, about one second after the step started.
+Every other job passed. The five earlier successful macOS installs took three
+to eight seconds, and the workflow was unchanged since the last green run, so
+the failure almost certainly came from the step's first network call. That
+call was an anonymous `api.github.com` release lookup, which shares the hosted
+runner's per-IP rate limit. The job log needs authentication, so the exact
+HTTP status was not read.
+
+The fix pins the six official 7.4.19 archive SHA-256 digests in `ci.yml` and
+removes the API call. `tests/QA/CiWorkflow.Tests.ps1` guards the step: it fails
+8 of 8 against the old workflow and passes 8 of 8 against the fix. The full
+local `CI=true` gate passed 3,010 tests, zero failed, three existing skips,
+90.66% coverage. The fix is committed locally on `ai/agent-modernization` and
+not pushed. Pushing it re-runs PR #5.
+
+The agent modernization is complete and green on hosted CI. The tested and
+published source commit is `e714d8d`. The module exports 42 public commands
+and implements specifications 002-045;
+[spec 029](../specs/029-candidate-features.md) is the proposal inventory
+rather than a feature.
 
 No modernization implementation work is open. The hosted run at that commit
 also ran the existing `main`-branch deploy job, which published prerelease
@@ -185,8 +203,9 @@ place. Treat any correction as a new version, not as a retraction.
 
 ## Retained context
 
-The modernization is merged: `main` and `origin/main` sit at `e714d8d`, above
-the earlier base `10a5ca3`. The 2026-09-07 CI repair is older merged work.
+The modernization is merged: `main` and `origin/main` sit at `08a4a22`, above
+the tested and published source commit `e714d8d` and the earlier base
+`10a5ca3`. The 2026-09-07 CI repair is older merged work.
 Earlier release evidence stays in [release readiness](deployment-notes.md),
 the chronology stays in [progress](progress.md), and the
 [2026-09-07 active context](activeContext-history-2026-09-07.md) is

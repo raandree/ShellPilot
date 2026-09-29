@@ -88,7 +88,10 @@ transport remains GitHub.com-only; no enterprise entitlement is live-verified.
   Configuration and Metadata.
 - GitHub Actions tests current and native PowerShell 7.4.19 on Windows, Linux,
   and macOS. Minimum-runtime jobs select an official archive by runner OS and
-  architecture, verify its SHA-256, and check the native parent/child runtime.
+  architecture, verify it against a SHA-256 digest pinned in `ci.yml`, and
+  check the native parent/child runtime. The digests are not fetched from
+  `api.github.com` at run time: that anonymous request shares the hosted
+  runner's per-IP rate limit and failed PR #5 run `36552666299` on macOS.
   Do not use the .NET-tool package for these jobs: fixtures relaunch ProcessPath,
   which can be `dotnet` rather than `pwsh` under that package.
 

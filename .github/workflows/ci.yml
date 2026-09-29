@@ -124,6 +124,17 @@ jobs:
         shell: pwsh
         run: |
           $version = '7.4.19'
+          # SHA-256 digests of the official release assets; update them with
+          # $version. They are pinned because an anonymous api.github.com lookup
+          # shares the hosted runner's per-IP rate limit and can fail the job.
+          $pinnedDigests = @{
+            'PowerShell-7.4.19-win-x64.zip'        = 'cd62ad6d8174cc6fb85b335a0058444bc934fe27c39fa97fe342134286d28af9'
+            'PowerShell-7.4.19-win-arm64.zip'      = 'ac3a0249c0cd9f5b55f198f681485099ea73f45838dfd676457571a94d793463'
+            'powershell-7.4.19-linux-x64.tar.gz'   = '1b023e097b0e0546ad9566f7a2126cbe0eb8455fa7b0c5de558e317b8ddc16c8'
+            'powershell-7.4.19-linux-arm64.tar.gz' = '2b11aafacf574222abaf691a0b3b2d463e617d17fe337343c2fb93ea871a4691'
+            'powershell-7.4.19-osx-x64.tar.gz'     = 'bb67378d9b9d469d0c3863aa8a5576a38ad8eaa0fd7aae2c4819e7caf06cb79c'
+            'powershell-7.4.19-osx-arm64.tar.gz'   = 'fb9d6656d0c78c6d3f6e8d08ff15e5e0d867f886bf4ebecfde6484d2fa06c042'
+          }
           $architecture = $env:RUNNER_ARCH.ToLowerInvariant()
           if ($architecture -notin @('x64', 'arm64')) {
             throw "Unsupported runner architecture: $architecture"
@@ -134,15 +145,14 @@ jobs:
             'macOS' { "powershell-$version-osx-$architecture.tar.gz" }
             default { throw "Unsupported runner OS: $env:RUNNER_OS" }
           }
-          $release = Invoke-RestMethod -Uri "https://api.github.com/repos/PowerShell/PowerShell/releases/tags/v$version" -ErrorAction Stop
-          $asset = @($release.assets | Where-Object name -CEQ $archiveName)
-          if ($asset.Count -ne 1 -or $asset[0].digest -cnotmatch '^sha256:[a-f0-9]{64}$') {
-            throw "No verified release asset found for $archiveName."
+          $expectedDigest = $pinnedDigests[$archiveName]
+          if ($expectedDigest -cnotmatch '^[a-f0-9]{64}$') {
+            throw "No pinned SHA-256 digest for $archiveName."
           }
           $archivePath = Join-Path $env:RUNNER_TEMP $archiveName
           Invoke-WebRequest -Uri "https://github.com/PowerShell/PowerShell/releases/download/v$version/$archiveName" -OutFile $archivePath -ErrorAction Stop
-          $actualDigest = 'sha256:' + (Get-FileHash -LiteralPath $archivePath -Algorithm SHA256).Hash.ToLowerInvariant()
-          if ($actualDigest -cne $asset[0].digest) {
+          $actualDigest = (Get-FileHash -LiteralPath $archivePath -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($actualDigest -cne $expectedDigest) {
             throw "Checksum mismatch for $archiveName."
           }
           $installPath = Join-Path $env:RUNNER_TEMP 'powershell-minimum'

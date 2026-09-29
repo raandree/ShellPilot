@@ -30,13 +30,18 @@ Build the package, then run the complete test gate:
 ```
 
 The test workflow discovers both `tests/QA` and `tests/Unit`. QA compares the
-source manifest exports with public function declarations and checks that the
-built module contains the repository's license text.
+source manifest exports with public function declarations, checks that the
+built module contains the repository's license text, and checks that the CI
+minimum-runtime install verifies pinned archive digests without calling the
+GitHub API.
 
 CI is configured for Windows, macOS, and Ubuntu on both the runner's current
 PowerShell and the latest serviced PowerShell 7.4 runtime. Each combination
-has its own test artifact, and the minimum-runtime jobs verify the running
-version before testing. Deploy still depends on every test combination.
+has its own test artifact, and the minimum-runtime jobs install an official
+release archive whose SHA-256 digest is pinned in the workflow, then verify
+the running version before testing. When you move to a newer 7.4 servicing
+release, update `$version` and all six digests together. Deploy still depends
+on every test combination.
 
 The coverage floor is 85%, below the recorded recent cross-platform low of
 87.45%. Raise it only after measuring all supported platforms; keep headroom

@@ -130,6 +130,10 @@ See [technical context](techContext.md) for services, authentication, and gates.
 - CI child-process fixtures require a native `pwsh` host. Use an OS/architecture
   release archive, verify its SHA-256, and check the parent/child runtime.
   A .NET-tool installation can expose `dotnet` as ProcessPath instead.
+- Pin a CI download's SHA-256 in the workflow; never look it up from
+  `api.github.com` at run time. An anonymous request shares the hosted
+  runner's per-IP rate limit, so the job fails before any test runs.
+  `tests/QA/CiWorkflow.Tests.ps1` guards the minimum-runtime install step.
 - Pin the root license to LF so Linux build artifacts and Windows checkouts
   retain exact content equality; do not loosen the packaged-license assertion.
 - Release facts come from current source and service evidence. A local license,
