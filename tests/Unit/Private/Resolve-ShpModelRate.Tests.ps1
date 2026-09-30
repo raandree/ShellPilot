@@ -67,7 +67,14 @@ Describe 'Resolve-ShpModelRate' {
         @{ Model = 'gpt-5.6-sol';    Threshold = 272000 }
         @{ Model = 'gpt-5.6-terra';  Threshold = 272000 }
         @{ Model = 'gpt-5.6-luna';   Threshold = 200000 }
+        @{ Model = 'gpt-6-astra';    Threshold = 272000 }
+        @{ Model = 'gpt-6-luna';     Threshold = 272000 }
+        @{ Model = 'gpt-6-sol';      Threshold = 272000 }
+        @{ Model = 'gpt-6.1-sol';    Threshold = 272000 }
         @{ Model = 'gemini-3.1-pro'; Threshold = 200000 }
+        @{ Model = 'grok-4.5';       Threshold = 200000 }
+        @{ Model = 'grok-4.6';       Threshold = 200000 }
+        @{ Model = 'grok-4.7';       Threshold = 200000 }
     ) {
         InModuleScope $script:moduleName -Parameters @{ Key = $Model; Limit = $Threshold } {
             param($Key, $Limit)

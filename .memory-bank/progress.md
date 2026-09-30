@@ -45,6 +45,18 @@ and evidence work:
 
 ## Recent milestones
 
+- 2026-09-30 - Update the price table to the GitHub Copilot page read on
+  2026-09-30, on `ai/update-price-table` from `origin/main` `08a4a22` in the
+  separate worktree `D:\Git\ShellPilot-price-table`. All 47 Model/tier rows on
+  the page match the table, and every picker-enabled chat Model the live
+  service advertised is priced except the internal-only `gpt-5.6-sol-fast`,
+  which has no published rate. Eleven advertised Models gained rates;
+  `gpt-5.6-sol` fell and `gemini-3.6-flash` took promotional pricing through
+  2026-12-31. Rates the page no longer lists are kept in a separate section.
+  39 new or updated pricing assertions failed first. Full local gate: 3,054
+  passed, zero failed, three existing skips, 90.66% coverage, 16 tasks, zero
+  errors. Not pushed or released; DeskPilot shows the costs only after an
+  Engine with this table is installed.
 - 2026-09-25 - Push the modernization and take the hosted matrix green.
   `main`, `origin/main`, and `origin/ai/agent-modernization` are at `e714d8d`
   after a non-force push. First run `36075325458` packaged green but failed

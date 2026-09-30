@@ -58,27 +58,68 @@ Describe 'Get-ShpCostEstimate' {
     }
 
     It 'Prices <Model>, which the service advertises, from the shipped price table' -ForEach @(
-        @{ Model = 'gemini-3-flash-preview' }
-        @{ Model = 'gemini-3.1-pro-preview' }
+        # Every picker-enabled chat model the service advertised on 2026-09-30
+        # that the GitHub pricing page publishes a rate for.
+        @{ Model = 'claude-haiku-4.5' }
+        @{ Model = 'claude-opus-4.7' }
+        @{ Model = 'claude-opus-4.8' }
+        @{ Model = 'claude-opus-5' }
+        @{ Model = 'claude-opus-5.5' }
+        @{ Model = 'claude-sonnet-5' }
+        @{ Model = 'claude-sonnet-5.5' }
+        @{ Model = 'gemini-3.5-flash' }
         @{ Model = 'gemini-3.6-flash' }
-        @{ Model = 'mai-code-1-flash-picker' }
+        @{ Model = 'gemini-3.7-flash' }
+        @{ Model = 'gemini-3.8-flash' }
+        @{ Model = 'gpt-5-mini' }
+        @{ Model = 'gpt-5.3-codex' }
+        @{ Model = 'gpt-5.4' }
+        @{ Model = 'gpt-5.4-mini' }
+        @{ Model = 'gpt-5.5' }
+        @{ Model = 'gpt-5.6-luna' }
+        @{ Model = 'gpt-5.6-sol' }
+        @{ Model = 'gpt-5.6-terra' }
+        @{ Model = 'gpt-6-astra' }
+        @{ Model = 'gpt-6-luna' }
+        @{ Model = 'gpt-6-sol' }
+        @{ Model = 'gpt-6.1-sol' }
+        @{ Model = 'grok-4.5' }
+        @{ Model = 'grok-4.6' }
+        @{ Model = 'grok-4.7' }
+        @{ Model = 'mai-code-1.1-flash' }
     ) {
-        $r = Get-ShpCostEstimate -Text 'hello' -Model $Model
+        # Long enough to clear the 6-decimal rounding floor at the cheapest rate.
+        $r = Get-ShpCostEstimate -Text ('word ' * 2000) -Model $Model
+        $r.Priced                | Should -BeTrue
         $r.EstimatedInputCostUSD | Should -BeGreaterThan 0
         $r.EstimatedInputCredits | Should -BeGreaterThan 0
     }
 
     It 'Carries the published GitHub default-tier rate for <Model>' -ForEach @(
-        @{ Model = 'gpt-5.6-luna';     ExpectedInput = 0.20; ExpectedCached = 0.02; ExpectedWrite = 0.25;  ExpectedOutput = 1.20  }
-        @{ Model = 'gpt-5.6-sol';      ExpectedInput = 5.00; ExpectedCached = 0.50; ExpectedWrite = 6.25;  ExpectedOutput = 30.00 }
-        @{ Model = 'gpt-5.6-terra';    ExpectedInput = 2.00; ExpectedCached = 0.20; ExpectedWrite = 2.50;  ExpectedOutput = 12.00 }
-        @{ Model = 'claude-opus-5';    ExpectedInput = 5.00; ExpectedCached = 0.50; ExpectedWrite = 6.25;  ExpectedOutput = 25.00 }
-        @{ Model = 'grok-4.5';         ExpectedInput = 2.00; ExpectedCached = 0.50; ExpectedWrite = $null; ExpectedOutput = 6.00  }
-        @{ Model = 'gemini-3.6-flash'; ExpectedInput = 1.50; ExpectedCached = 0.15; ExpectedWrite = $null; ExpectedOutput = 7.50  }
+        @{ Model = 'gpt-5.6-luna';       ExpectedInput = 0.20;  ExpectedCached = 0.02;  ExpectedWrite = 0.25;  ExpectedOutput = 1.20  }
+        @{ Model = 'gpt-5.6-sol';        ExpectedInput = 4.00;  ExpectedCached = 0.40;  ExpectedWrite = 5.00;  ExpectedOutput = 20.00 }
+        @{ Model = 'gpt-5.6-terra';      ExpectedInput = 2.00;  ExpectedCached = 0.20;  ExpectedWrite = 2.50;  ExpectedOutput = 12.00 }
+        @{ Model = 'gpt-6-astra';        ExpectedInput = 10.00; ExpectedCached = 1.00;  ExpectedWrite = 12.50; ExpectedOutput = 50.00 }
+        @{ Model = 'gpt-6-luna';         ExpectedInput = 0.10;  ExpectedCached = 0.01;  ExpectedWrite = 0.125; ExpectedOutput = 0.50  }
+        @{ Model = 'gpt-6-sol';          ExpectedInput = 2.00;  ExpectedCached = 0.20;  ExpectedWrite = 2.50;  ExpectedOutput = 10.00 }
+        @{ Model = 'gpt-6.1-sol';        ExpectedInput = 2.00;  ExpectedCached = 0.10;  ExpectedWrite = 2.50;  ExpectedOutput = 10.00 }
+        @{ Model = 'claude-opus-5';      ExpectedInput = 5.00;  ExpectedCached = 0.50;  ExpectedWrite = 6.25;  ExpectedOutput = 25.00 }
+        @{ Model = 'claude-opus-5.5';    ExpectedInput = 4.00;  ExpectedCached = 0.20;  ExpectedWrite = 5.00;  ExpectedOutput = 20.00 }
+        @{ Model = 'claude-sonnet-5';    ExpectedInput = 2.00;  ExpectedCached = 0.20;  ExpectedWrite = 2.50;  ExpectedOutput = 10.00 }
+        @{ Model = 'claude-sonnet-5.5';  ExpectedInput = 2.00;  ExpectedCached = 0.20;  ExpectedWrite = 2.50;  ExpectedOutput = 10.00 }
+        @{ Model = 'claude-fable-5.1';   ExpectedInput = 10.00; ExpectedCached = 0.25;  ExpectedWrite = 12.50; ExpectedOutput = 50.00 }
+        @{ Model = 'gemini-3.6-flash';   ExpectedInput = 0.75;  ExpectedCached = 0.075; ExpectedWrite = $null; ExpectedOutput = 3.75  }
+        @{ Model = 'gemini-3.7-flash';   ExpectedInput = 0.75;  ExpectedCached = 0.075; ExpectedWrite = $null; ExpectedOutput = 3.75  }
+        @{ Model = 'gemini-3.8-flash';   ExpectedInput = 0.75;  ExpectedCached = 0.075; ExpectedWrite = $null; ExpectedOutput = 3.75  }
+        @{ Model = 'grok-4.5';           ExpectedInput = 2.00;  ExpectedCached = 0.50;  ExpectedWrite = $null; ExpectedOutput = 6.00  }
+        @{ Model = 'grok-4.6';           ExpectedInput = 2.00;  ExpectedCached = 0.50;  ExpectedWrite = $null; ExpectedOutput = 6.00  }
+        @{ Model = 'grok-4.7';           ExpectedInput = 2.00;  ExpectedCached = 0.50;  ExpectedWrite = $null; ExpectedOutput = 6.00  }
+        @{ Model = 'mai-code-1.1-flash'; ExpectedInput = 0.20;  ExpectedCached = 0.02;  ExpectedWrite = $null; ExpectedOutput = 1.20  }
+        @{ Model = 'kimi-k3';            ExpectedInput = 3.00;  ExpectedCached = 0.30;  ExpectedWrite = $null; ExpectedOutput = 15.00 }
     ) {
-        # Guards the 2026-08-06 verification against the GitHub Copilot billing
-        # doc: the GPT-5.6 family bills a cache write that the table omitted, and
-        # luna was over-charged 5x and terra 25% against the published rates.
+        # Guards the 2026-09-30 verification against the GitHub Copilot pricing
+        # page: GPT-5.6 Sol was cut to 4.00/0.40/5.00/20.00, Gemini 3.6 Flash is
+        # on promotional pricing, and twelve newer models had no rate at all.
         InModuleScope $script:moduleName -Parameters @{
             Key = $Model; In = $ExpectedInput; Cached = $ExpectedCached; Write = $ExpectedWrite; Out = $ExpectedOutput
         } {
@@ -87,6 +128,49 @@ Describe 'Get-ShpCostEstimate' {
             $script:PriceTable[$Key].CachedInput | Should -Be $Cached
             $script:PriceTable[$Key].CacheWrite  | Should -Be $Write
             $script:PriceTable[$Key].Output      | Should -Be $Out
+        }
+    }
+
+    It 'Carries the published GitHub long-context tier for <Model>' -ForEach @(
+        @{ Model = 'gpt-5.6-sol'; Threshold = 272000; ExpectedInput = 8.00;  ExpectedCached = 0.80; ExpectedWrite = 10.00; ExpectedOutput = 30.00 }
+        @{ Model = 'gpt-6-astra'; Threshold = 272000; ExpectedInput = 20.00; ExpectedCached = 2.00; ExpectedWrite = 25.00; ExpectedOutput = 75.00 }
+        @{ Model = 'gpt-6-luna';  Threshold = 272000; ExpectedInput = 0.20;  ExpectedCached = 0.02; ExpectedWrite = 0.25;  ExpectedOutput = 0.75  }
+        @{ Model = 'gpt-6-sol';   Threshold = 272000; ExpectedInput = 4.00;  ExpectedCached = 0.40; ExpectedWrite = 5.00;  ExpectedOutput = 15.00 }
+        @{ Model = 'gpt-6.1-sol'; Threshold = 272000; ExpectedInput = 4.00;  ExpectedCached = 0.20; ExpectedWrite = 5.00;  ExpectedOutput = 15.00 }
+        @{ Model = 'grok-4.6';    Threshold = 200000; ExpectedInput = 4.00;  ExpectedCached = 1.00; ExpectedWrite = $null; ExpectedOutput = 12.00 }
+        @{ Model = 'grok-4.7';    Threshold = 200000; ExpectedInput = 4.00;  ExpectedCached = 1.00; ExpectedWrite = $null; ExpectedOutput = 12.00 }
+    ) {
+        InModuleScope $script:moduleName -Parameters @{
+            Key = $Model; Limit = $Threshold; In = $ExpectedInput; Cached = $ExpectedCached; Write = $ExpectedWrite; Out = $ExpectedOutput
+        } {
+            param($Key, $Limit, $In, $Cached, $Write, $Out)
+            $tier = $script:PriceTable[$Key].LongContext
+            $tier.Threshold   | Should -Be $Limit
+            $tier.Input       | Should -Be $In
+            $tier.CachedInput | Should -Be $Cached
+            $tier.CacheWrite  | Should -Be $Write
+            $tier.Output      | Should -Be $Out
+        }
+    }
+
+    It 'Shapes every price-table entry the way the cost code reads it' {
+        InModuleScope $script:moduleName {
+            $script:PriceTable.Count | Should -BeGreaterThan 0
+            foreach ($entry in $script:PriceTable.GetEnumerator()) {
+                $entry.Key | Should -BeExactly $entry.Key.ToLowerInvariant() -Because 'the lookup lowercases the model id'
+                foreach ($tier in @($entry.Value) + @($entry.Value.LongContext | Where-Object { $_ })) {
+                    foreach ($name in 'Input', 'CachedInput', 'Output') {
+                        $tier.$name | Should -BeOfType [double] -Because "$($entry.Key) needs a numeric $name rate"
+                        $tier.$name | Should -BeGreaterOrEqual 0
+                    }
+                    $tier.ContainsKey('CacheWrite') | Should -BeTrue -Because "$($entry.Key) states CacheWrite, even as `$null"
+                    if ($null -ne $tier.CacheWrite) { $tier.CacheWrite | Should -BeOfType [double] }
+                }
+                if ($entry.Value.LongContext) {
+                    $entry.Value.LongContext.Threshold | Should -BeOfType [int] -Because "$($entry.Key) names its long-context threshold"
+                    $entry.Value.LongContext.Threshold | Should -BeGreaterThan 0
+                }
+            }
         }
     }
 

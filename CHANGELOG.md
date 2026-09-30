@@ -559,6 +559,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Update the price table to the GitHub Copilot rates published on 2026-09-30,
+  so every chat Model the service advertises reports `CostUSD` and `Credits`.
+  Add `claude-opus-5.5`, `claude-sonnet-5.5`, `gpt-6-astra`, `gpt-6-luna`,
+  `gpt-6-sol`, `gpt-6.1-sol`, `gemini-3.7-flash`, `gemini-3.8-flash`,
+  `grok-4.6`, `grok-4.7` and `mai-code-1.1-flash`, plus the published but not
+  yet advertised `claude-fable-5.1` and `kimi-k3`. Lower `gpt-5.6-sol` to
+  4.00 / 0.40 / 5.00 / 20.00 USD per million input / cached-input /
+  cache-write / output tokens (long context 8.00 / 0.80 / 10.00 / 30.00), and
+  apply the promotional `gemini-3.6-flash` rate of 0.75 / 0.075 / 3.75 through
+  2026-12-31. `claude-sonnet-5` keeps 2.00 / 0.20 / 2.50 / 10.00, because the
+  page no longer announces the 2026-09-01 increase. `gpt-5.6-sol-fast` is
+  internal only and has no published rate, so it stays unpriced. Models the
+  page no longer lists keep their last published rate. See
+  [Models and pricing](https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing).
+
 - Restore minimum-runtime CI child-process tests with checksum-verified native
   PowerShell 7.4.19 archives, and keep packaged-license checks exact across
   Windows and Linux by checking out the root license with LF line endings.
